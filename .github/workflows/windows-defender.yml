@@ -11,7 +11,6 @@ permissions:
 jobs:
   android-arm64:
     name: Android ARM64 release gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish-rc]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -70,7 +69,6 @@ jobs:
 
   android-runtime:
     name: Android x86_64 runtime gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish-rc]') }}
     runs-on: macos-15-intel
     timeout-minutes: 90
     steps:
@@ -170,29 +168,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  publish-rc-assets:
-    name: Publish RC assets
-    if: ${{ contains(github.event.head_commit.message, '[publish-rc]') }}
-    permissions:
-      contents: write
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Upload candidate files to GitHub Releases
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh release upload v0.1.2-rc1 \
-            packages/YourLM-Windows-x64-0.1.2.zip \
-            packages/YourLM-Android-arm64.apk \
-            packages/SHA256SUMS \
-            YourLM-0.1.2.zip \
-            --repo "$GITHUB_REPOSITORY" --clobber
-
   defender:
-    if: ${{ !contains(github.event.head_commit.message, '[publish-rc]') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
