@@ -1,4 +1,4 @@
-YourLM 0.1.1 — Windows x64 (wydanie testowe)
+YourLM 0.1.2 — Windows x64 (wydanie testowe)
 ================================================
 
 1. Wypakuj CAŁY katalog YourLM-Windows-x64 w jedno miejsce.
@@ -15,6 +15,11 @@ BUILDINFO.txt.
 
 Wagi modeli nie są dołączone. Na pierwszy test wybierz model 3–4B Q4_K_M.
 Domyślny adres 127.0.0.1 nie udostępnia API innym urządzeniom.
+
+Aby dodać telefon, zatrzymaj model, wybierz na telefonie „Pomóż laptopowi” i
+uruchom worker. W panelu Windows otwórz „Urządzenia → Dodaj telefon” i przepisz
+adres oraz cztery grupy krótkiego kodu. Kamera laptopa i QR są tylko opcją;
+telefon nie skanuje kodu. Oba urządzenia muszą być w tym samym prywatnym Wi-Fi.
 
 Jeżeli antywirus zgłosi plik, NIE wybieraj „Zezwalaj”, nie dodawaj wyjątku i nie
 wyłączaj ochrony. Zachowaj nazwę wykrycia oraz nazwę pliku i zgłoś problem w
