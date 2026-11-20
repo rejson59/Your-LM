@@ -1,0 +1,46 @@
+name: Publish ready RC2
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Completed build run containing the ready artifacts
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Download already-built functional artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name android-arm64-build --dir .
+          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" \
+            --name windows-standalone-build --dir .
+          (cd packages && sha256sum -c SHA256SUMS)
+      - name: Publish RC2
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=v0.2.0-rc2
+          assets=(packages/YourLM.exe packages/YourLM-Android-arm64.apk packages/SHA256SUMS)
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc2' \
+              --notes-file windows/RELEASE-NOTES-0.2.0-rc2.md --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" "${assets[@]}" --prerelease --target "$GITHUB_SHA" \
+              --title 'YourLM 0.2.0-rc2' --notes-file windows/RELEASE-NOTES-0.2.0-rc2.md \
+              --repo "$GITHUB_REPOSITORY"
+          fi
