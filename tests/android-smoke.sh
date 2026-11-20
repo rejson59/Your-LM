@@ -26,11 +26,15 @@ PY
 }
 click_text() {
   local target=$1 point x y attempt=0
-  local size screen_height
+  local size dimensions screen_width screen_height scroll_x
   size=$(adb shell wm size | tr -d '\r' | tail -1)
-  screen_height=${size##*x}
+  dimensions=${size##*: }
+  screen_width=${dimensions%x*}
+  screen_height=${dimensions##*x}
+  [[ "$screen_width" =~ ^[0-9]+$ ]] || screen_width=1080
   [[ "$screen_height" =~ ^[0-9]+$ ]] || screen_height=1920
-  while ((attempt < 6)); do
+  scroll_x=$((screen_width / 2))
+  while ((attempt < 8)); do
     pull_ui
     point=$(python3 - "$xml" "$target" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
@@ -44,12 +48,12 @@ PY
     if [[ -n "$point" ]]; then
       read -r x y <<<"$point"
       echo "UI target '$target': $x,$y on height $screen_height (attempt $attempt)"
-      if ((y >= 40 && y < screen_height - 20)); then
+      if ((y >= 40 && y < screen_height - 110)); then
         adb shell input tap "$x" "$y"
         return
       fi
     fi
-    adb shell input swipe 500 $((screen_height * 4 / 5)) 500 $((screen_height / 3)) 350
+    adb shell input swipe "$scroll_x" $((screen_height * 4 / 5)) "$scroll_x" $((screen_height / 3)) 350
     sleep 1
     attempt=$((attempt + 1))
   done
@@ -80,7 +84,13 @@ if not any("WORKER GOTOWY" in value for value in texts):
     raise SystemExit(f"worker did not become ready; visible={texts}")
 PY
 adb exec-out screencap -p > test-output/android-worker-ready.png
-adb shell input swipe 500 1600 500 450 500
+size=$(adb shell wm size | tr -d '\r' | tail -1)
+dimensions=${size##*: }
+screen_width=${dimensions%x*}
+screen_height=${dimensions##*x}
+[[ "$screen_width" =~ ^[0-9]+$ ]] || screen_width=1080
+[[ "$screen_height" =~ ^[0-9]+$ ]] || screen_height=1920
+adb shell input swipe $((screen_width / 2)) $((screen_height * 4 / 5)) $((screen_width / 2)) $((screen_height / 4)) 500
 sleep 1
 pull_ui
 python3 - "$xml" <<'PY'

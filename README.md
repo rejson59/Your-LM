@@ -16,7 +16,7 @@ Gotowe pliki są publikowane na stronie [GitHub Releases](https://github.com/rej
 
 ## Pierwsze uruchomienie: Lenovo + Redmi
 
-1. **Najpierw sam laptop.** Pobierz `YourLM.exe`, sprawdź sumę/Defendera i uruchom jako zwykły użytkownik — nigdy jako administrator. Niczego nie wypakowuj. Otworzy się lokalny panel w przeglądarce; nie udostępniaj jego prywatnego adresu.
+1. **Najpierw sam laptop.** Pobierz `YourLM.exe` i uruchom jako zwykły użytkownik — nigdy jako administrator. Niczego nie wypakowuj. Otworzy się lokalny panel w przeglądarce; nie udostępniaj jego prywatnego adresu.
 2. **Modele i API → Wybierz model.** Wybierz swój lokalny GGUF systemowym oknem pliku. Na pierwszy test proponujemy **3–4B Q4_K_M**, nie 26B. Pozostaw `127.0.0.1`, kliknij **Uruchom model**, poczekaj na „Gotowy” i otwórz **Czat**. Kontroler przed startem sprawdzi dołączony `llama-server.exe`; nie pobiera programu z sieci.
 3. **Zainstaluj aplikację na Redmi.** W panelu Windows otwórz **Telefon USB** i wykonaj trzy pokazane kroki. W HyperOS włącz Debugowanie USB oraz, jeśli jest wymagane, **Instalowanie przez USB**. YourLM wykryje urządzenie i użyje `adb install -r`, aby instalować kolejne wersje bez kasowania danych. APK z Releases pozostaje alternatywą; Android zawsze pokazuje systemowe potwierdzenie instalacji.
 4. **Dołącz Redmi jako worker.** Zatrzymaj model na laptopie, połącz urządzenia z tym samym prywatnym Wi-Fi i na telefonie wybierz **Pomóż laptopowi → Uruchom worker**. Nie kopiuj wag na worker. Telefon pokaże **adres parowania** i 20-znakowy **kod parowania**. Na laptopie wybierz **Urządzenia → Dodaj telefon** i przepisz oba pola. Kamera laptopa jest tylko opcją; telefon niczego nie skanuje.

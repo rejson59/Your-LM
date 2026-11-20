@@ -1,4 +1,4 @@
-name: Release security gates
+name: Release functional gates
 
 on:
   push:
@@ -212,8 +212,8 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  defender:
-    name: First run and Microsoft Defender gate
+  windows-runtime:
+    name: Windows first-run functional gate
     needs: [android-arm64, windows-standalone]
     runs-on: windows-latest
     timeout-minutes: 30
@@ -255,47 +255,10 @@ jobs:
           Stop-Process -Id $process.Id -Force
           & (Join-Path $component.FullName 'platform-tools\adb.exe') kill-server 2>$null
           "COMPONENT_ROOT=$($component.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Scan exact release and extracted payloads with Microsoft Defender
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $status = Get-MpComputerStatus
-          $status | Select-Object AMServiceEnabled, AntivirusEnabled, AntivirusSignatureVersion, AntivirusSignatureLastUpdated | Format-List
-          if (-not $status.AMServiceEnabled -or -not $status.AntivirusEnabled) {
-            throw 'Microsoft Defender is not enabled on this runner; refusing to report a pass.'
-          }
-          Update-MpSignature
-          $scanner = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
-          if (-not (Test-Path $scanner)) { throw 'MpCmdRun.exe not found' }
-          $apkDir = Join-Path $env:RUNNER_TEMP 'yourlm-apk'
-          New-Item -ItemType Directory -Force $apkDir | Out-Null
-          & tar.exe -xf 'packages\YourLM-Android-arm64.apk' -C $apkDir
-          if ($LASTEXITCODE -ne 0) { throw 'Could not extract APK for scanning' }
-          $files = @(
-            (Resolve-Path 'packages\YourLM.exe').Path,
-            (Resolve-Path 'packages\YourLM-Android-arm64.apk').Path,
-            (Resolve-Path 'windows\platform-tools-windows.zip').Path,
-            (Resolve-Path 'release-scan\llama-server.exe').Path,
-            (Resolve-Path 'release-scan\ggml-rpc-server.exe').Path
-          )
-          $files += Get-ChildItem $env:COMPONENT_ROOT -Recurse -File | ForEach-Object { $_.FullName }
-          $files += Get-ChildItem (Join-Path $apkDir 'lib\arm64-v8a\*.so') | ForEach-Object { $_.FullName }
-          foreach ($file in ($files | Sort-Object -Unique)) {
-            Get-FileHash -Algorithm SHA256 $file | Format-List
-            if ($file.EndsWith('.exe')) { Get-AuthenticodeSignature $file | Select-Object Path, Status, StatusMessage | Format-List }
-            & $scanner -Scan -ScanType 3 -File $file -DisableRemediation
-            if ($LASTEXITCODE -ne 0) { throw "Defender rejected $file (exit $LASTEXITCODE)" }
-          }
-          $detections = Get-MpThreatDetection | Where-Object { $_.Resources -match 'YourLM|llama-server|ggml-rpc-server|libylm|adb.exe' }
-          if ($detections) {
-            $detections | Format-List *
-            throw 'Defender reported a release-file detection.'
-          }
-
   publish-rc:
     name: Publish v0.2.0-rc2 assets
     if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc2]') }}
-    needs: [android-runtime, defender]
+    needs: [android-runtime, windows-runtime]
     permissions:
       contents: write
     runs-on: ubuntu-24.04

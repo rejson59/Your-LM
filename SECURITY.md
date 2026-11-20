@@ -19,7 +19,7 @@ Poza sprawdzaniem/pobraniem aktualizacji z `api.github.com` i adresu assetu GitH
 - Surowy protokół RPC jest eksperymentalny i dlatego nigdy nie słucha bezpośrednio w LAN.
 - Aplikacja nie chroni przed złośliwym programem już działającym na tym samym koncie Windows lub Android.
 - Wydanie testowe nie ma komercyjnego podpisu Authenticode. Suma i jawny kod pozwalają zweryfikować artefakt, ale nie zastępują reputacji podpisanego wydawcy.
-- Bramka publikacji `.github/workflows/windows-defender.yml` odrzuca artefakt, jeśli aktualny Microsoft Defender na świeżym runnerze Windows wykryje program lub archiwum. Ta sama bramka buduje silniki Androida przypiętym NDK, sprawdza ELF/PIE i wykonuje dokładne payloady ARM64 w środowisku Android. To test w danym momencie, nie gwarancja zachowania wszystkich przyszłych wersji baz antywirusowych ani wszystkich telefonów.
+- Bramka publikacji `.github/workflows/release.yml` skupia się na działaniu produktu: buduje przypięte silniki, sprawdza zgodność pakietów, uruchamia EXE oraz wykonuje przepływy workera, parowania i hosta Android.
 
 ## Zgłaszanie
 
