@@ -11,7 +11,6 @@ permissions:
 jobs:
   android-arm64:
     name: Android ARM64 release gate
-    if: ${{ !contains(github.event.head_commit.message, '[stage-adb]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -70,7 +69,6 @@ jobs:
 
   android-runtime:
     name: Android x86_64 runtime gate
-    if: ${{ !contains(github.event.head_commit.message, '[stage-adb]') }}
     runs-on: macos-15-intel
     timeout-minutes: 90
     steps:
@@ -170,47 +168,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  stage-windows-adb:
-    name: Stage bundled Windows ADB
-    if: ${{ contains(github.event.head_commit.message, '[stage-adb]') }}
-    permissions:
-      contents: write
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Archive runner platform-tools and push them to this branch
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $platformTools = Join-Path $env:ANDROID_HOME 'platform-tools'
-          $required = @('adb.exe', 'AdbWinApi.dll', 'AdbWinUsbApi.dll')
-          foreach ($name in $required) {
-            if (-not (Test-Path (Join-Path $platformTools $name))) {
-              throw "Missing runner platform-tool: $name"
-            }
-          }
-          New-Item -ItemType Directory -Force windows | Out-Null
-          @'
-          from pathlib import Path
-          from sys import argv
-          from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
-          source, target = Path(argv[1]), Path(argv[2])
-          with ZipFile(target, 'w', compresslevel=9) as out:
-              for name in ('adb.exe', 'AdbWinApi.dll', 'AdbWinUsbApi.dll'):
-                  info = ZipInfo(name, (2026, 1, 1, 0, 0, 0))
-                  info.compress_type = ZIP_DEFLATED
-                  info.external_attr = 0o700 << 16
-                  out.writestr(info, (source / name).read_bytes())
-          '@ | python - "$platformTools" 'windows/platform-tools-windows.zip'
-          Get-FileHash -Algorithm SHA256 windows/platform-tools-windows.zip | Format-List
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add windows/platform-tools-windows.zip
-          git commit -m 'Bundle Windows ADB platform tools [skip ci]'
-          git push origin "HEAD:refs/heads/$env:GITHUB_REF_NAME"
-
   defender:
-    if: ${{ !contains(github.event.head_commit.message, '[stage-adb]') }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
