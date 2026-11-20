@@ -64,6 +64,8 @@ function node(name, role, meta, address) {
 }
 function render(s) {
   state = s;
+  $("build").textContent = `v${s.version}  /  b12562`;
+  $("build").title = `Kod źródłowy: ${s.commit}`;
   let nodes = s.nodes || [],
     sess = s.session,
     sz = nodes.reduce((a, n) => a + n.total, s.total),
@@ -113,12 +115,8 @@ function render(s) {
     }
   }
   $("engine").textContent = s.runtime
-    ? "b12562 · zainstalowany, gotowy do pracy offline"
-    : s.installing
-      ? "Pobieranie i weryfikacja SHA-256…"
-      : "Brak silnika. Pobierz go raz z GitHub (~25 MB).";
-  $("install").hidden = s.runtime;
-  $("install").disabled = s.installing || s.os !== "windows";
+    ? "b12562 · dołączony do pakietu; suma SHA-256 jest sprawdzana przed uruchomieniem"
+    : "Brak kompletnego silnika. Zamknij program i wypakuj cały pakiet ZIP — nie uruchamiaj samego EXE.";
   $("selected").textContent = s.model.name
     ? `${s.model.name} · ${gib(s.model.size)} GiB · ${s.model.layers} warstw`
     : "Nie wybrano pliku.";
@@ -215,7 +213,6 @@ $("choose").onclick = () =>
 $("library").onchange = (e) =>
   e.target.value && act("model", { path: e.target.value });
 $("pick").onclick = () => act("pick");
-$("install").onclick = () => act("install");
 $("offerBtn").onclick = () =>
   act(state.offer ? "unoffer" : "offer", { bind: $("workerIP").value });
 $("run").onclick = () => {

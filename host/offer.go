@@ -47,11 +47,10 @@ func (a *App) offer(ip string) error {
 	if !valid {
 		return errors.New("Wybierz prywatny adres IPv4 sieci LAN")
 	}
-	engine := a.binary()
-	if engine == "" {
-		return errors.New("Zainstaluj silnik")
+	path, e := a.launchPath(true)
+	if e != nil {
+		return e
 	}
-	path := filepath.Join(filepath.Dir(engine), "ggml-rpc-server.exe")
 	if _, e := os.Stat(path); e != nil {
 		return fmt.Errorf("Brak ggml-rpc-server.exe obok silnika: %w", e)
 	}
@@ -78,6 +77,7 @@ func (a *App) offer(ip string) error {
 	local.Close()
 	cmd := exec.Command(path, "-H", "127.0.0.1", "-p", port, "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)))
 	cmd.Dir = filepath.Dir(path)
+	cmd.Env = childEnv()
 	prepareChild(cmd)
 	if e = cmd.Start(); e != nil {
 		l.Close()

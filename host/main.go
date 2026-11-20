@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
@@ -77,14 +76,13 @@ type App struct {
 	nodes                      []Node
 	model                      Model
 	s                          *Session
-	installing                 bool
 }
 
 func (a *App) binary() string {
 	if a.engine != "" {
 		return a.engine
 	}
-	return executable(filepath.Join(a.dir, "runtime-b12562"))
+	return executable(filepath.Join(a.dir, runtimeDir))
 }
 func (a *App) start(bind string, port int) error {
 	if a.s != nil || a.off != nil {
@@ -99,9 +97,9 @@ func (a *App) start(bind string, port int) error {
 	if !ok || port < 1024 || port > 65535 {
 		return errors.New("Niepoprawny adres lub port API")
 	}
-	exe := a.binary()
-	if exe == "" {
-		return errors.New("Najpierw zainstaluj silnik")
+	exe, e := a.launchPath(false)
+	if e != nil {
+		return e
 	}
 	m, e := inspect(a.model.Path)
 	if e != nil {
@@ -124,7 +122,7 @@ func (a *App) start(bind string, port int) error {
 	}
 	probe.Close()
 	s := &Session{url: "http://" + address, key: token(), layers: layers, name: m.Name, done: make(chan struct{})}
-	args := []string{"--model", m.Path, "--offline", "--no-webui", "--host", bind, "--port", strconv.Itoa(port), "--api-key", s.key, "--alias", "yourlm", "--ctx-size", "2048", "--parallel", "1", "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "--jinja", "--fit", "off", "-ngl", strconv.Itoa(layers)}
+	args := []string{"--model", m.Path, "--offline", "--no-webui", "--no-agent", "--no-ui-mcp-proxy", "--cors-origins", "localhost", "--host", bind, "--port", strconv.Itoa(port), "--api-key", s.key, "--alias", "yourlm", "--ctx-size", "2048", "--parallel", "1", "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "--jinja", "--fit", "off", "-ngl", strconv.Itoa(layers)}
 	defer func() {
 		if a.s != s {
 			for _, l := range s.listeners {
@@ -145,8 +143,11 @@ func (a *App) start(bind string, port int) error {
 		args = append(args, "--rpc", strings.Join(addresses, ","), "--split-mode", "layer", "--tensor-split", split)
 	}
 	s.cmd = exec.Command(exe, args...)
-	// RPC communicator peer-to-peer sockets would bypass the authenticated bridges.
-	s.cmd.Env = append(os.Environ(), "GGML_RPC_NO_COMM=1")
+	// Runtime-specific environment variables can enable downloads, plugins,
+	// built-in shell/file tools or unauthenticated transports. Only explicit
+	// controller arguments are trusted. RPC peer-to-peer sockets would bypass
+	// the authenticated bridges.
+	s.cmd.Env = childEnv()
 	s.cmd.Dir = filepath.Dir(exe)
 	logfile, e := os.OpenFile(filepath.Join(a.dir, "engine.log"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if e != nil {
@@ -180,10 +181,27 @@ func (a *App) start(bind string, port int) error {
 	return nil
 }
 
+func childEnv() []string {
+	out := make([]string, 0, len(os.Environ())+1)
+	for _, value := range os.Environ() {
+		key, _, _ := strings.Cut(value, "=")
+		key = strings.ToUpper(key)
+		if strings.HasPrefix(key, "LLAMA_") || strings.HasPrefix(key, "GGML_") {
+			continue
+		}
+		out = append(out, value)
+	}
+	return append(out, "GGML_RPC_NO_COMM=1")
+}
+
 var localTransport = &http.Transport{Proxy: nil}
 
+// Requests with prompts or API credentials must never follow engine redirects.
+func localClient(timeout time.Duration) *http.Client {
+	return &http.Client{Transport: localTransport, Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}
 func (a *App) check(s *Session) {
-	cl := http.Client{Transport: localTransport, Timeout: 2 * time.Second}
+	cl := localClient(2 * time.Second)
 	t := time.NewTicker(time.Second)
 	defer t.Stop()
 	for {
@@ -234,7 +252,7 @@ func (a *App) state() map[string]any {
 			advice = fmt.Sprintf("Szacunkowo mieści się w RAM: %d warstw lokalnie, %d na workerach. Kontekst: 2048 tokenów.", a.model.Layers-layers, layers)
 		}
 	}
-	return map[string]any{"advice": advice, "offer": code, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "budget": budget(total, free), "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.binary() != "", "installing": a.installing, "session": session, "last": a.last}
+	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "offer": code, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "budget": budget(total, free), "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "last": a.last}
 }
 
 type input struct {
@@ -282,20 +300,6 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		if a.off != nil {
 			a.off.close()
 		}
-	case "install":
-		if !a.installing {
-			a.installing = true
-			a.last = ""
-			go func() {
-				e := install(context.Background(), filepath.Join(a.dir, "runtime-b12562"))
-				a.Lock()
-				a.installing = false
-				if e != nil {
-					a.last = e.Error()
-				}
-				a.Unlock()
-			}()
-		}
 	case "start":
 		e = a.start(in.Bind, in.Port)
 	case "stop":
@@ -337,19 +341,10 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			}
 		case "pick", "model":
 			if op == "pick" {
-				if runtime.GOOS != "windows" {
-					e = errors.New("Wpisz ścieżkę do GGUF")
+				in.Path, e = chooseModel()
+				if e != nil || in.Path == "" {
 					break
 				}
-				b, err := exec.Command("powershell.exe", "-NoProfile", "-STA", "-Command", `[Console]::OutputEncoding=[Text.UTF8Encoding]::new(); Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.OpenFileDialog; $d.Filter='GGUF|*.gguf'; if($d.ShowDialog() -eq 'OK'){[Console]::Write($d.FileName)}`).Output()
-				if err != nil {
-					e = err
-					break
-				}
-				if len(b) == 0 {
-					break
-				}
-				in.Path = string(b)
 			}
 			var m Model
 			m, e = inspect(strings.Trim(strings.TrimSpace(in.Path), "\""))
@@ -384,7 +379,7 @@ func (a *App) chat(w http.ResponseWriter, r *http.Request, in input) {
 	req, _ := http.NewRequestWithContext(r.Context(), "POST", s.url+"/v1/chat/completions", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+s.key)
-	res, e := (&http.Client{Transport: localTransport, Timeout: 30 * time.Minute}).Do(req)
+	res, e := localClient(30 * time.Minute).Do(req)
 	if e != nil {
 		http.Error(w, e.Error(), 502)
 		return
@@ -404,6 +399,8 @@ func guard(host, secret string, next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		if strings.HasPrefix(r.URL.Path, "/api/") && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-YourLM")), []byte(secret)) != 1 {
 			http.Error(w, "Otwórz adres z konsoli YourLM", 403)
 			return
@@ -416,13 +413,16 @@ func main() {
 	flag.Parse()
 	dir, _ := os.UserConfigDir()
 	dir = filepath.Join(dir, "YourLM")
-	if d := os.Getenv("YOURLM_HOME"); d != "" {
+	if d := os.Getenv("YOURLM_HOME"); runtime.GOOS != "windows" && d != "" {
 		dir = d
 	}
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		log.Fatal(e)
 	}
-	a := &App{dir: dir, engine: os.Getenv("YOURLM_ENGINE"), library: filepath.Join(dir, "models")}
+	a := &App{dir: dir, library: filepath.Join(dir, "models")}
+	if runtime.GOOS != "windows" {
+		a.engine = os.Getenv("YOURLM_ENGINE")
+	}
 	os.MkdirAll(a.library, 0700)
 	l, e := net.Listen("tcp4", "127.0.0.1:0")
 	if e != nil {
@@ -438,7 +438,9 @@ func main() {
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 	srv := &http.Server{Handler: guard(addr, secret, mux), ReadHeaderTimeout: 10 * time.Second}
 	if !*nobrowser && runtime.GOOS == "windows" {
-		exec.Command("rundll32.exe", "url.dll,FileProtocolHandler", url).Start()
+		if e := openURL(url); e != nil {
+			log.Print("Nie udało się otworzyć przeglądarki: ", e)
+		}
 	}
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)

@@ -6,7 +6,10 @@ cd "$(dirname "$0")/.."
 bt=${BUILD_TOOLS:-${ANDROID_HOME:?}/build-tools/34.0.0}; jar=${ANDROID_JAR:-$ANDROID_HOME/platforms/android-34/android.jar}
 w=$(mktemp -d); trap 'rm -rf "$w"' EXIT
 mkdir -p "$w"/{classes,dex,lib/arm64-v8a,assets/licenses} packages
-GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o "$w/lib/arm64-v8a/libylm_host.so" ./host
+source_commit=$(git rev-parse HEAD)
+GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -trimpath \
+  -ldflags="-s -w -X main.buildVersion=0.1.1 -X main.buildCommit=$source_commit" \
+  -o "$w/lib/arm64-v8a/libylm_host.so" ./host
 cp "$RPC_BIN" "$w/lib/arm64-v8a/libylm_rpc.so"; cp "$SERVER_BIN" "$w/lib/arm64-v8a/libylm_server.so"; cp licenses/* "$w/assets/licenses/"
 find android/src android/vendor -name '*.java' > "$w/sources"
 javac -encoding UTF-8 -source 8 -target 8 -bootclasspath "$jar:$bt/core-lambda-stubs.jar" -d "$w/classes" @"$w/sources"

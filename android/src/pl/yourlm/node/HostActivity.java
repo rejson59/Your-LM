@@ -62,6 +62,10 @@ public final class HostActivity extends Activity {
           settings.setDomStorageEnabled(true);
           settings.setAllowFileAccess(false);
           settings.setAllowContentAccess(false);
+          settings.setAllowFileAccessFromFileURLs(false);
+          settings.setAllowUniversalAccessFromFileURLs(false);
+          settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
+          settings.setSafeBrowsingEnabled(true);
           view.setWebChromeClient(
             new WebChromeClient() {
               public void onPermissionRequest(PermissionRequest r) {
@@ -71,8 +75,9 @@ public final class HostActivity extends Activity {
                     .getAuthority()
                     .equals(Uri.parse(url).getAuthority()) ||
                   !"http".equals(r.getOrigin().getScheme()) ||
-                  !java.util.Arrays.asList(r.getResources()).contains(
-                    PermissionRequest.RESOURCE_VIDEO_CAPTURE
+                  r.getResources().length != 1 ||
+                  !PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(
+                    r.getResources()[0]
                   )
                 ) {
                   r.deny();
@@ -100,6 +105,25 @@ public final class HostActivity extends Activity {
           );
           view.setWebViewClient(
             new WebViewClient() {
+              public WebResourceResponse shouldInterceptRequest(
+                WebView v,
+                WebResourceRequest req
+              ) {
+                Uri target = req.getUrl();
+                if (
+                  "http".equals(target.getScheme()) &&
+                  Uri.parse(url).getAuthority().equals(target.getAuthority())
+                ) return super.shouldInterceptRequest(v, req);
+                return new WebResourceResponse(
+                  "text/plain",
+                  "UTF-8",
+                  403,
+                  "Blocked",
+                  java.util.Collections.emptyMap(),
+                  new ByteArrayInputStream(new byte[0])
+                );
+              }
+
               public boolean shouldOverrideUrlLoading(
                 WebView v,
                 WebResourceRequest req

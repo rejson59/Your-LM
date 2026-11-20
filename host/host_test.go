@@ -69,6 +69,56 @@ func TestPlan(t *testing.T) {
 		t.Fatal("insufficient worker RAM")
 	}
 }
+func TestRuntimeIntegrity(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime.exe")
+	body := []byte("known executable fixture")
+	if e := os.WriteFile(path, body, 0600); e != nil {
+		t.Fatal(e)
+	}
+	want := fmt.Sprintf("%x", sha256.Sum256(body))
+	if e := verifyProgram(path, want); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(path, append(body, '!'), 0600); e != nil {
+		t.Fatal(e)
+	}
+	if e := verifyProgram(path, want); e == nil {
+		t.Fatal("accepted modified runtime")
+	}
+	if e := verifyProgram(path, ""); e == nil {
+		t.Fatal("accepted runtime without a pinned digest")
+	}
+}
+
+func TestChildEnvironment(t *testing.T) {
+	t.Setenv("LLAMA_ARG_AGENT", "1")
+	t.Setenv("GGML_BACKEND_PATH", "untrusted")
+	t.Setenv("YOURLM_TEST_SAFE", "kept")
+	joined := "\n" + strings.Join(childEnv(), "\n") + "\n"
+	if strings.Contains(joined, "\nLLAMA_ARG_AGENT=") || strings.Contains(joined, "\nGGML_BACKEND_PATH=") {
+		t.Fatal("runtime control variable leaked into child")
+	}
+	if !strings.Contains(joined, "\nYOURLM_TEST_SAFE=kept\n") || !strings.Contains(joined, "\nGGML_RPC_NO_COMM=1\n") {
+		t.Fatal("safe or mandatory child variable missing")
+	}
+}
+
+func TestLocalClientRejectsRedirect(t *testing.T) {
+	visited := false
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { visited = true }))
+	defer target.Close()
+	redirect := httptest.NewServer(http.RedirectHandler(target.URL, http.StatusFound))
+	defer redirect.Close()
+	res, e := localClient(time.Second).Get(redirect.URL)
+	if e != nil {
+		t.Fatal(e)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusFound || visited {
+		t.Fatal("local client followed a redirect")
+	}
+}
+
 func TestPanelBoundary(t *testing.T) {
 	h := guard("127.0.0.1:3030", "test", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
 	for _, x := range []struct {
@@ -208,6 +258,20 @@ func TestRealCluster(t *testing.T) {
 	if s.layers < 1 || s.layers >= m.Layers {
 		t.Fatal("missing split")
 	}
+	tools, _ := http.NewRequest("GET", s.url+"/tools", nil)
+	tools.Header.Set("Authorization", "Bearer "+s.key)
+	toolsRes, e := (&http.Client{Timeout: 5 * time.Second}).Do(tools)
+	if e != nil {
+		t.Fatal(e)
+	}
+	toolsBody, _ := io.ReadAll(io.LimitReader(toolsRes.Body, 1<<20))
+	toolsRes.Body.Close()
+	for _, dangerous := range []string{"exec_shell_command", "write_file", "edit_file"} {
+		if bytes.Contains(toolsBody, []byte(dangerous)) {
+			t.Fatalf("dangerous server tool enabled: %s", dangerous)
+		}
+	}
+	t.Logf("server tools disabled: status %d", toolsRes.StatusCode)
 	r, _ := http.NewRequest("POST", s.url+"/v1/chat/completions", strings.NewReader(`{"model":"yourlm","messages":[{"role":"user","content":"test"}],"max_tokens":3}`))
 	r.Header.Set("Authorization", "Bearer "+s.key)
 	r.Header.Set("Content-Type", "application/json")

@@ -1,0 +1,46 @@
+name: Windows security gate
+
+on:
+  push:
+    branches: [arena/395e51e3-your-lm]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  defender:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Inspect and scan release files with Microsoft Defender
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $status = Get-MpComputerStatus
+          $status | Select-Object AMServiceEnabled, AntivirusEnabled, AntivirusSignatureVersion, AntivirusSignatureLastUpdated | Format-List
+          if (-not $status.AMServiceEnabled -or -not $status.AntivirusEnabled) {
+            throw 'Microsoft Defender is not enabled on this runner; refusing to report a pass.'
+          }
+          Update-MpSignature
+          $scanner = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+          if (-not (Test-Path $scanner)) { throw 'MpCmdRun.exe not found' }
+          $files = @(
+            'packages\YourLM-Windows-x64\YourLM.exe',
+            'packages\YourLM-Windows-x64\runtime\llama-server.exe',
+            'packages\YourLM-Windows-x64\runtime\ggml-rpc-server.exe',
+            'packages\YourLM-Windows-x64-0.1.1.zip',
+            'YourLM-0.1.1.zip'
+          )
+          foreach ($file in $files) {
+            if (-not (Test-Path $file)) { throw "Missing release file: $file" }
+            Get-FileHash -Algorithm SHA256 $file | Format-List
+            if ($file.EndsWith('.exe')) { Get-AuthenticodeSignature $file | Select-Object Path, Status, StatusMessage | Format-List }
+            & $scanner -Scan -ScanType 3 -File (Resolve-Path $file) -DisableRemediation
+            if ($LASTEXITCODE -ne 0) { throw "Defender rejected $file (exit $LASTEXITCODE)" }
+          }
+          $detections = Get-MpThreatDetection | Where-Object { $_.Resources -match 'YourLM|llama-server|ggml-rpc-server' }
+          if ($detections) {
+            $detections | Format-List *
+            throw 'Defender reported a release-file detection.'
+          }
