@@ -9,7 +9,7 @@ import android.provider.Settings;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.util.Locale;
+import java.security.MessageDigest;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -26,6 +26,7 @@ final class AppUpdater {
     String message = "Aktualizacje są sprawdzane automatycznie.";
     String releaseURL = "";
     String assetURL = "";
+    String digest = "";
     boolean checking;
     boolean downloading;
     boolean available;
@@ -70,14 +71,46 @@ final class AppUpdater {
     return out;
   }
 
+  static String suffix(String version) {
+    int separator = version.indexOf('-');
+    return separator < 0 ? "" : version.substring(separator + 1);
+  }
+
+  static int trailingNumber(String value) {
+    int start = value.length();
+    while (start > 0 && Character.isDigit(value.charAt(start - 1))) start--;
+    if (start == value.length()) return -1;
+    try {
+      return Integer.parseInt(value.substring(start));
+    } catch (Exception ignored) {
+      return -1;
+    }
+  }
+
+  static String numberPrefix(String value) {
+    int start = value.length();
+    while (start > 0 && Character.isDigit(value.charAt(start - 1))) start--;
+    return value.substring(0, start);
+  }
+
   static boolean newer(String candidate, String current) {
     int[] a = numbers(candidate), b = numbers(current);
     for (int i = 0; i < a.length; i++) {
       if (a[i] != b[i]) return a[i] > b[i];
     }
-    boolean candidatePre = candidate.contains("-");
-    boolean currentPre = current.contains("-");
-    return currentPre && !candidatePre;
+    String candidateSuffix = suffix(candidate);
+    String currentSuffix = suffix(current);
+    if (candidateSuffix.equals(currentSuffix)) return false;
+    if (candidateSuffix.isEmpty()) return !currentSuffix.isEmpty();
+    if (currentSuffix.isEmpty()) return false;
+    int candidateNumber = trailingNumber(candidateSuffix);
+    int currentNumber = trailingNumber(currentSuffix);
+    if (
+      candidateNumber >= 0 &&
+      currentNumber >= 0 &&
+      numberPrefix(candidateSuffix).equals(numberPrefix(currentSuffix))
+    ) return candidateNumber > currentNumber;
+    return candidateSuffix.compareTo(currentSuffix) > 0;
   }
 
   static String readText(HttpURLConnection connection, int limit)
@@ -121,6 +154,7 @@ final class AppUpdater {
           JSONArray releases = new JSONArray(readText(http, 3 * 1024 * 1024));
           JSONObject selected = null;
           String apk = "";
+          String apkDigest = "";
           boolean allowPrerelease = state.current.contains("-");
           for (int i = 0; i < releases.length(); i++) {
             JSONObject release = releases.getJSONObject(i);
@@ -135,7 +169,14 @@ final class AppUpdater {
             for (int j = 0; j < assets.length(); j++) {
               JSONObject asset = assets.getJSONObject(j);
               if ("YourLM-Android-arm64.apk".equals(asset.optString("name"))) {
-                apk = asset.optString("browser_download_url");
+                String candidateURL = asset.optString("browser_download_url");
+                String candidateDigest = asset.optString("digest");
+                if (
+                  !candidateURL.isEmpty() && candidateDigest.startsWith("sha256:")
+                ) {
+                  apk = candidateURL;
+                  apkDigest = candidateDigest;
+                }
                 break;
               }
             }
@@ -146,11 +187,20 @@ final class AppUpdater {
           }
           if (selected == null) {
             state.available = false;
+            state.latest = state.current;
+            state.releaseURL = "";
+            state.assetURL = "";
+            state.digest = "";
             state.message = "Masz najnowszą wersję " + state.current + ".";
           } else {
-            state.latest = selected.optString("tag_name").replaceFirst("^[vV]", "");
+            String next = selected
+              .optString("tag_name")
+              .replaceFirst("^[vV]", "");
+            if (!next.equals(state.latest)) state.ready = false;
+            state.latest = next;
             state.releaseURL = selected.optString("html_url");
             state.assetURL = apk;
+            state.digest = apkDigest;
             state.available = true;
             state.message = "Dostępna jest wersja " + state.latest + ".";
           }
@@ -167,6 +217,12 @@ final class AppUpdater {
 
   File updateFile() {
     return new File(new File(activity.getCacheDir(), "updates"), ApkProvider.FILE_NAME);
+  }
+
+  static String hex(byte[] data) {
+    StringBuilder out = new StringBuilder(data.length * 2);
+    for (byte value : data) out.append(String.format("%02x", value & 0xff));
+    return out.toString();
   }
 
   void downloadAndInstall() {
@@ -195,7 +251,8 @@ final class AppUpdater {
           }
           File target = updateFile();
           target.getParentFile().mkdirs();
-          tmp = new File(target.getPath() + ".part");
+          tmp = new File(target.getParentFile(), "YourLM-update.part.apk");
+          MessageDigest sha256 = MessageDigest.getInstance("SHA-256");
           try (
             InputStream in = http.getInputStream();
             OutputStream out = new FileOutputStream(tmp)
@@ -208,10 +265,27 @@ final class AppUpdater {
               if (total > 200L * 1024 * 1024) throw new IOException(
                 "APK jest zbyt duży"
               );
+              sha256.update(data, 0, n);
               out.write(data, 0, n);
             }
           }
-          if (target.exists()) target.delete();
+          String got = hex(sha256.digest());
+          if (
+            state.digest.startsWith("sha256:") &&
+            !got.equalsIgnoreCase(state.digest.substring(7))
+          ) throw new IOException("Suma APK nie zgadza się z wydaniem GitHub");
+          PackageInfo archive = activity
+            .getPackageManager()
+            .getPackageArchiveInfo(tmp.getAbsolutePath(), 0);
+          if (
+            archive == null ||
+            archive.versionName == null ||
+            !activity.getPackageName().equals(archive.packageName) ||
+            !newer(archive.versionName, state.current)
+          ) throw new IOException("Pobrany plik nie jest nowszym APK YourLM");
+          if (target.exists() && !target.delete()) throw new IOException(
+            "Nie można zastąpić poprzedniego pobrania"
+          );
           if (!tmp.renameTo(target)) throw new IOException("Nie można zapisać APK");
           state.ready = true;
           state.message = "APK pobrany. Android poprosi o potwierdzenie aktualizacji.";

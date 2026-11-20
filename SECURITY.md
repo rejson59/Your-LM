@@ -2,13 +2,15 @@
 
 ## Co wykonuje wydanie Windows
 
-`YourLM.exe` uruchamia lokalny panel HTTP wyłącznie na losowym porcie `127.0.0.1`, otwiera ten adres przez systemowe `ShellExecuteW`, a po wyborze modelu uruchamia dołączony `runtime/llama-server.exe`. Opcjonalny tryb workera uruchamia `runtime/ggml-rpc-server.exe` tylko na loopbacku; do sieci prywatnej wystawiany jest oddzielny tunel TLS. QR przenosi odcisk certyfikatu i sekret sesji. Ręczne parowanie używa 100-bitowego kodu, który nie jest wysyłany: host weryfikuje HMAC losowego wyzwania, adresu i odcisku certyfikatu, po czym przypina certyfikat dla właściwego tunelu TLS.
+`YourLM.exe` uruchamia lokalny panel HTTP wyłącznie na losowym porcie `127.0.0.1`, otwiera ten adres przez systemowe `ShellExecuteW`, a po wyborze modelu uruchamia prywatnie rozpakowany `llama-server.exe`. Opcjonalny tryb workera uruchamia `ggml-rpc-server.exe` tylko na loopbacku; do sieci prywatnej wystawiany jest oddzielny tunel TLS. QR przenosi odcisk certyfikatu i sekret sesji. Ręczne parowanie używa 100-bitowego kodu, który nie jest wysyłany: host weryfikuje HMAC losowego wyzwania, adresu i odcisku certyfikatu, po czym przypina certyfikat dla właściwego tunelu TLS.
 
-Kontroler **nie ma aktualizatora, nie pobiera ani nie rozpakowuje programów, nie używa PowerShella lub `rundll32`, nie instaluje usługi, nie zmienia rejestru, nie dodaje autostartu, nie prosi o uprawnienia administratora i nie dodaje wyjątków antywirusowych**. Programy runtime są zwykłymi plikami w ZIP-ie. Ich SHA-256 jest zaszyty w kontrolerze i sprawdzany bezpośrednio przed każdym uruchomieniem. Zmieniony albo brakujący plik jest odrzucany.
+Pojedynczy EXE zawiera skompresowany runtime, minimalny ADB i APK. Przy starcie rozpakowuje wersjonowaną kopię do `%AppData%\YourLM\components`, porównuje ją z osadzonym payloadem i odtwarza brakujące albo zmienione pliki. SHA-256 runtime jest dodatkowo sprawdzany bezpośrednio przed każdym uruchomieniem. ADB działa tylko na żądanie użytkownika do wykrycia telefonu oraz `adb install -r`.
+
+Kontroler sprawdza publiczne wydania GitHub. Nowy `YourLM.exe` pobiera do prywatnego katalogu aktualizacji, ogranicza jego rozmiar i weryfikuje digest SHA-256 podany przez GitHub, po czym uruchamia nowy EXE jako jednorazowy helper podmiany. Nie używa PowerShella ani `rundll32`, nie instaluje usługi, nie zmienia rejestru, nie dodaje autostartu, nie prosi o administratora i nie dodaje wyjątków antywirusowych. Android pobiera wyłącznie asset `YourLM-Android-arm64.apk`, sprawdza digest, nazwę pakietu i nowszą wersję, a instalację zawsze przekazuje systemowemu ekranowi potwierdzenia.
 
 Kontroler usuwa ze środowiska procesu potomnego zmienne `LLAMA_*` i `GGML_*`, które mogłyby włączyć inne zachowanie. Jawnie uruchamia `llama-server` w trybie offline, bez Web UI, MCP proxy i wbudowanych narzędzi plikowych/powłoki. Narzędzia agenta Continue działają po stronie Continue i nie wymagają serwerowych narzędzi `llama.cpp`.
 
-Kontroler łączy się tylko z lokalnym serwerem modelu oraz ze sparowanymi prywatnymi adresami IPv4. Kod nie zawiera telemetrii. API modelu może zostać świadomie wystawione jako HTTP w prywatnym LAN; domyślnie słucha tylko na `127.0.0.1`.
+Poza sprawdzaniem/pobraniem aktualizacji z `api.github.com` i adresu assetu GitHub kontroler łączy się tylko z lokalnym serwerem modelu oraz ze sparowanymi prywatnymi adresami IPv4. Kod nie zawiera telemetrii. API modelu może zostać świadomie wystawione jako HTTP w prywatnym LAN; domyślnie słucha tylko na `127.0.0.1`.
 
 ## Granice zaufania
 

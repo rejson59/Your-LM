@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+env:
+  PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc1]') }}
+  ANDROID_CERT_SHA256: bb2639f3d49a2d7db0845884e76d6bb51152a6e9c0df92fcfe885a26c5de94a6
+
 jobs:
   android-arm64:
     name: Android ARM64 release gate
@@ -43,20 +47,34 @@ jobs:
           export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
           export JOBS=2
           scripts/build-native.sh build/android-native
-      - name: Assemble a gate-signed APK from the exact payloads
+      - name: Prepare Android signing identity
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/android-gate.jks" \
-            -storepass yourlm-gate -keypass yourlm-gate -alias yourlm \
-            -dname "CN=YourLM CI" -keyalg RSA -keysize 2048 -validity 2
+          if [[ "$PUBLISH_RELEASE" == true ]]; then
+            scripts/restore-android-signing.sh "$RUNNER_TEMP/android-release.jks" "$RUNNER_TEMP/android-release.pass"
+            echo "KS_PASS=$(cat "$RUNNER_TEMP/android-release.pass")" >> "$GITHUB_ENV"
+            echo "EXPECTED_ANDROID_CERT_SHA256=$ANDROID_CERT_SHA256" >> "$GITHUB_ENV"
+          else
+            keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/android-release.jks" \
+              -storepass yourlm-gate -keypass yourlm-gate -alias yourlm \
+              -dname "CN=YourLM CI" -keyalg RSA -keysize 2048 -validity 2
+            echo 'KS_PASS=yourlm-gate' >> "$GITHUB_ENV"
+          fi
+          echo "KEYSTORE=$RUNNER_TEMP/android-release.jks" >> "$GITHUB_ENV"
+      - name: Assemble and audit the exact ARM64 APK
+        shell: bash
+        run: |
+          set -euo pipefail
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
-          export KEYSTORE="$RUNNER_TEMP/android-gate.jks"
-          export KS_PASS=yourlm-gate
+          export KS_ALIAS=yourlm
           export RPC_BIN="$PWD/build/android-native/bin/ggml-rpc-server"
           export SERVER_BIN="$PWD/build/android-native/bin/llama-server"
           scripts/package-android.sh
-      - name: Upload Android ARM64 build inputs
+          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging packages/YourLM-Android-arm64.apk | head -5
+      - name: Upload Android ARM64 build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: android-arm64-build
@@ -65,7 +83,7 @@ jobs:
             build/android-native/bin/llama-server
             packages/YourLM-Android-arm64.apk
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
   android-runtime:
     name: Android x86_64 runtime gate
@@ -109,7 +127,6 @@ jobs:
           : "${JAVA_HOME_17_X64:?macOS runner must provide JDK 17}"
           export JAVA_HOME="$JAVA_HOME_17_X64"
           export PATH="$JAVA_HOME/bin:$PATH"
-          java -version
           keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/android-gate.jks" \
             -storepass yourlm-gate -keypass yourlm-gate -alias yourlm \
             -dname "CN=YourLM CI" -keyalg RSA -keysize 2048 -validity 2
@@ -120,13 +137,8 @@ jobs:
           export RPC_BIN="$PWD/build/android-x86-native/bin/ggml-rpc-server"
           export SERVER_BIN="$PWD/build/android-x86-native/bin/llama-server"
           export APK_OUT="$RUNNER_TEMP/YourLM-Android-x86_64-test.apk"
-          if ! scripts/package-android.sh 2>&1 | tee "$RUNNER_TEMP/package-x86.log"; then
-            result=$(tail -40 "$RUNNER_TEMP/package-x86.log")
-            result=${result//'%'/'%25'}; result=${result//$'\n'/'%0A'}; result=${result//$'\r'/'%0D'}
-            echo "::error title=x86_64 APK packaging failed::$result"
-            exit 1
-          fi
-      - name: Execute equivalent native payloads and UI inside Android x86_64
+          scripts/package-android.sh
+      - name: Execute native payloads, worker, pairing and phone host
         uses: ReactiveCircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2.38.0
         with:
           api-level: 30
@@ -151,7 +163,6 @@ jobs:
                 with open(path, "w", encoding="utf-8") as output:
                     subprocess.run(command, stdout=output, stderr=subprocess.STDOUT, timeout=45, check=True)
             PY
-            cat /tmp/rpc-help.txt /tmp/server-version.txt
             grep -q 'Usage:' /tmp/rpc-help.txt
             grep -q 'version:' /tmp/server-version.txt
             tests/android-engine-smoke.sh
@@ -166,13 +177,107 @@ jobs:
             test-output/android-worker-ready.xml
             test-output/android-host.png
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
 
-  defender:
-    runs-on: windows-latest
+  windows-standalone:
+    name: Build standalone Windows x64
+    needs: android-arm64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Inspect and scan release files with Microsoft Defender
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: 1.25.5
+          check-latest: true
+          cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-arm64-build
+          path: .
+      - name: Install pinned Zig compiler
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check --target "$RUNNER_TEMP/zig" ziglang==0.14.1
+          echo "$RUNNER_TEMP/zig/ziglang" >> "$GITHUB_PATH"
+      - name: Fetch pinned llama.cpp source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init "$RUNNER_TEMP/llama.cpp"
+          git -C "$RUNNER_TEMP/llama.cpp" remote add origin https://github.com/ggml-org/llama.cpp
+          git -C "$RUNNER_TEMP/llama.cpp" fetch --depth 1 origin c0b97be0b297177a88df08e96c01420976bb18d0
+          git -C "$RUNNER_TEMP/llama.cpp" checkout --detach FETCH_HEAD
+      - name: Build and inspect the one-file Windows application
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
+          export JOBS=2
+          scripts/build-windows.sh
+          mkdir -p release-scan
+          cp build/windows-native/llama/bin/llama-server.exe release-scan/
+          cp build/windows-native/llama/bin/ggml-rpc-server.exe release-scan/
+          test "$(head -c2 packages/YourLM.exe)" = MZ
+          ls -lh packages/YourLM.exe packages/YourLM-Android-arm64.apk
+          (cd packages && sha256sum -c SHA256SUMS)
+      - name: Upload standalone Windows build
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-standalone-build
+          path: |
+            packages/YourLM.exe
+            packages/SHA256SUMS
+            release-scan/llama-server.exe
+            release-scan/ggml-rpc-server.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  defender:
+    name: First run and Microsoft Defender gate
+    needs: [android-arm64, windows-standalone]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-arm64-build
+          path: .
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-standalone-build
+          path: .
+      - name: Exercise first-run extraction
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $env:APPDATA = Join-Path $env:RUNNER_TEMP 'YourLM-AppData'
+          $process = Start-Process -FilePath (Resolve-Path 'packages\YourLM.exe') -ArgumentList '--no-browser' -PassThru
+          Start-Sleep -Seconds 12
+          if ($process.HasExited) { throw "YourLM exited during first run with $($process.ExitCode)" }
+          $component = Get-ChildItem (Join-Path $env:APPDATA 'YourLM\components') -Directory | Select-Object -First 1
+          if (-not $component) { throw 'First run did not extract private components' }
+          $required = @(
+            'runtime\llama-server.exe',
+            'runtime\ggml-rpc-server.exe',
+            'platform-tools\adb.exe',
+            'platform-tools\AdbWinApi.dll',
+            'platform-tools\AdbWinUsbApi.dll',
+            'YourLM-Android-arm64.apk',
+            '.complete'
+          )
+          foreach ($name in $required) {
+            if (-not (Test-Path (Join-Path $component.FullName $name))) { throw "Missing extracted component: $name" }
+          }
+          $embeddedApk = Get-FileHash -Algorithm SHA256 (Join-Path $component.FullName 'YourLM-Android-arm64.apk')
+          $releaseApk = Get-FileHash -Algorithm SHA256 'packages\YourLM-Android-arm64.apk'
+          if ($embeddedApk.Hash -ne $releaseApk.Hash) { throw 'Embedded APK differs from release APK' }
+          Stop-Process -Id $process.Id -Force
+          & (Join-Path $component.FullName 'platform-tools\adb.exe') kill-server 2>$null
+          "COMPONENT_ROOT=$($component.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Scan exact release and extracted payloads with Microsoft Defender
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -187,26 +292,60 @@ jobs:
           $apkDir = Join-Path $env:RUNNER_TEMP 'yourlm-apk'
           New-Item -ItemType Directory -Force $apkDir | Out-Null
           & tar.exe -xf 'packages\YourLM-Android-arm64.apk' -C $apkDir
-          if ($LASTEXITCODE -ne 0) { throw 'Could not extract APK for native-payload scanning' }
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract APK for scanning' }
           $files = @(
-            'packages\YourLM-Windows-x64\YourLM.exe',
-            'packages\YourLM-Windows-x64\runtime\llama-server.exe',
-            'packages\YourLM-Windows-x64\runtime\ggml-rpc-server.exe',
-            'packages\YourLM-Windows-x64-0.1.2.zip',
-            'packages\YourLM-Android-arm64.apk',
-            'YourLM-0.1.2.zip'
-          ) + @(
-            Get-ChildItem (Join-Path $apkDir 'lib\arm64-v8a\*.so') | ForEach-Object { $_.FullName }
+            (Resolve-Path 'packages\YourLM.exe').Path,
+            (Resolve-Path 'packages\YourLM-Android-arm64.apk').Path,
+            (Resolve-Path 'windows\platform-tools-windows.zip').Path,
+            (Resolve-Path 'release-scan\llama-server.exe').Path,
+            (Resolve-Path 'release-scan\ggml-rpc-server.exe').Path
           )
-          foreach ($file in $files) {
-            if (-not (Test-Path $file)) { throw "Missing release file: $file" }
+          $files += Get-ChildItem $env:COMPONENT_ROOT -Recurse -File | ForEach-Object { $_.FullName }
+          $files += Get-ChildItem (Join-Path $apkDir 'lib\arm64-v8a\*.so') | ForEach-Object { $_.FullName }
+          foreach ($file in ($files | Sort-Object -Unique)) {
             Get-FileHash -Algorithm SHA256 $file | Format-List
             if ($file.EndsWith('.exe')) { Get-AuthenticodeSignature $file | Select-Object Path, Status, StatusMessage | Format-List }
-            & $scanner -Scan -ScanType 3 -File (Resolve-Path $file) -DisableRemediation
+            & $scanner -Scan -ScanType 3 -File $file -DisableRemediation
             if ($LASTEXITCODE -ne 0) { throw "Defender rejected $file (exit $LASTEXITCODE)" }
           }
-          $detections = Get-MpThreatDetection | Where-Object { $_.Resources -match 'YourLM|llama-server|ggml-rpc-server|libylm' }
+          $detections = Get-MpThreatDetection | Where-Object { $_.Resources -match 'YourLM|llama-server|ggml-rpc-server|libylm|adb.exe' }
           if ($detections) {
             $detections | Format-List *
             throw 'Defender reported a release-file detection.'
           }
+
+  publish-rc:
+    name: Publish v0.2.0-rc1 assets
+    if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc1]') }}
+    needs: [android-runtime, defender]
+    permissions:
+      contents: write
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-arm64-build
+          path: .
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-standalone-build
+          path: .
+      - name: Verify and publish public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd packages && sha256sum -c SHA256SUMS)
+          tag=v0.2.0-rc1
+          assets=(packages/YourLM.exe packages/YourLM-Android-arm64.apk packages/SHA256SUMS)
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc1' \
+              --notes-file windows/RELEASE-NOTES-0.2.0-rc1.md --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" "${assets[@]}" --prerelease --target "$GITHUB_SHA" \
+              --title 'YourLM 0.2.0-rc1' --notes-file windows/RELEASE-NOTES-0.2.0-rc1.md \
+              --repo "$GITHUB_REPOSITORY"
+          fi

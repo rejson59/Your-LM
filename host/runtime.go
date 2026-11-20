@@ -77,7 +77,7 @@ func verifyProgram(path, want string) error {
 		return closeErr
 	}
 	if fmt.Sprintf("%x", h.Sum(nil)) != want {
-		return fmt.Errorf("Plik %s został zmieniony — wypakuj świeży, pełny pakiet YourLM", filepath.Base(path))
+		return fmt.Errorf("Plik %s został zmieniony — uruchom YourLM ponownie, aby odtworzyć silnik", filepath.Base(path))
 	}
 	return nil
 }

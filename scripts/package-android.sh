@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 : "${KS_PASS:?Set keystore password}"
 : "${ANDROID_HOME:?Set ANDROID_HOME}"
 export KS_PASS
-version=0.2.0
+version=0.2.0-rc1
 abi=${ANDROID_ABI:-arm64-v8a}
 case "$abi" in
   arm64-v8a)
@@ -91,6 +91,12 @@ javac -encoding UTF-8 -source 8 -target 8 \
   --ks-key-alias "${KS_ALIAS:-yourlm}" \
   --out "$apk_out" "$work/aligned.apk"
 "$bt/apksigner" verify --verbose --print-certs "$apk_out"
+cert_digest=$("$bt/apksigner" verify --print-certs "$apk_out" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+if [[ -n "${EXPECTED_ANDROID_CERT_SHA256:-}" && "$cert_digest" != "$EXPECTED_ANDROID_CERT_SHA256" ]]; then
+  echo "Android signing certificate does not match the stable update identity" >&2
+  exit 1
+fi
+printf 'Android signing certificate SHA-256: %s\n' "$cert_digest"
 
 mkdir "$work/audit"
 unzip -q "$apk_out" "lib/$abi/*.so" -d "$work/audit"

@@ -106,6 +106,48 @@ func atomicFile(path string, data []byte) error {
 	return os.Rename(tmp, path)
 }
 
+func sameFile(path string, expected []byte) bool {
+	file, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	got := sha256.New()
+	if _, err := io.Copy(got, file); err != nil {
+		return false
+	}
+	want := sha256.Sum256(expected)
+	return bytes.Equal(got.Sum(nil), want[:])
+}
+
+// bundleMatches makes the completeness marker recoverable: antivirus cleanup,
+// disk corruption, or an interrupted update causes a fresh private extraction.
+func bundleMatches(data []byte, destination string) bool {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return false
+	}
+	for _, item := range reader.File {
+		if item.FileInfo().IsDir() {
+			continue
+		}
+		name, err := safeZipName(item.Name)
+		if err != nil {
+			return false
+		}
+		in, err := item.Open()
+		if err != nil {
+			return false
+		}
+		expected, err := io.ReadAll(in)
+		closeErr := in.Close()
+		if err != nil || closeErr != nil || !sameFile(filepath.Join(destination, name), expected) {
+			return false
+		}
+	}
+	return true
+}
+
 func prepareBundledAssets(root string) (componentPaths, error) {
 	if len(embeddedRuntime) == 0 || len(embeddedPlatformTools) == 0 || len(embeddedAPK) == 0 {
 		return componentPaths{}, fmt.Errorf("ten build nie zawiera kompletnych komponentów")
@@ -115,7 +157,9 @@ func prepareBundledAssets(root string) (componentPaths, error) {
 	marker := filepath.Join(current, ".complete")
 	ready := false
 	if value, err := os.ReadFile(marker); err == nil && string(value) == bundleID() {
-		ready = true
+		ready = bundleMatches(embeddedRuntime, filepath.Join(current, "runtime")) &&
+			bundleMatches(embeddedPlatformTools, filepath.Join(current, "platform-tools")) &&
+			sameFile(filepath.Join(current, "YourLM-Android-arm64.apk"), embeddedAPK)
 	}
 	if !ready {
 		tmp := current + ".installing"

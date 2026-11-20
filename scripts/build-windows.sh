@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 : "${LLAMA_SRC:?Checkout ggml-org/llama.cpp at the pinned commit}"
 src=$(cd "$LLAMA_SRC" && pwd)
 commit=c0b97be0b297177a88df08e96c01420976bb18d0
-version=0.2.0
+version=0.2.0-rc1
 if [[ $(git -C "$src" rev-parse HEAD) != "$commit" ]]; then
   echo "Expected llama.cpp b12562 ($commit)" >&2
   exit 1
@@ -16,9 +16,14 @@ for tool in go cmake ninja zig python3; do
   command -v "$tool" >/dev/null || { echo "Missing $tool" >&2; exit 1; }
 done
 adb_bundle=${WINDOWS_ADB_BUNDLE:-windows/platform-tools-windows.zip}
+adb_bundle_sha256=63b73f6f1870305c5a3e0f43ca861427fe6856cc113392710c7e698ab477e3f9
 apk=${ANDROID_APK:-packages/YourLM-Android-arm64.apk}
 [[ -s "$adb_bundle" ]] || { echo "Missing Windows ADB bundle: $adb_bundle" >&2; exit 1; }
 [[ -s "$apk" ]] || { echo "Missing Android APK to embed: $apk" >&2; exit 1; }
+if [[ ${ALLOW_UNPINNED_ADB:-0} != 1 && $(sha256sum "$adb_bundle" | cut -d' ' -f1) != "$adb_bundle_sha256" ]]; then
+  echo "Windows ADB bundle does not match the pinned payload" >&2
+  exit 1
+fi
 
 build=${WINDOWS_BUILD_DIR:-build/windows-native}
 rm -rf "$build"
@@ -95,6 +100,8 @@ mkdir -p packages
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
   -ldflags="-H=windowsgui -X main.serverHash=$server -X main.rpcHash=$rpc -X main.buildVersion=$version -X main.buildCommit=$source_commit" \
   -o packages/YourLM.exe ./host
-sha256sum packages/YourLM.exe "$apk" > packages/SHA256SUMS
+# The Windows payload is embedded above; keep the separately published APK exact.
+[[ $(sha256sum "$apk" | cut -d' ' -f1) == $(sha256sum "$embedded/YourLM-Android-arm64.apk" | cut -d' ' -f1) ]]
+(cd packages && sha256sum YourLM.exe YourLM-Android-arm64.apk > SHA256SUMS)
 printf 'Single-file Windows build created: packages/YourLM.exe\n'
 sha256sum packages/YourLM.exe

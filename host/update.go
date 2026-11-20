@@ -51,7 +51,8 @@ type githubRelease struct {
 }
 
 func versionParts(value string) ([]int, string) {
-	value = strings.TrimPrefix(strings.TrimSpace(value), "v")
+	value = strings.TrimSpace(value)
+	value = strings.TrimPrefix(strings.TrimPrefix(value, "v"), "V")
 	main, suffix, _ := strings.Cut(value, "-")
 	pieces := strings.Split(main, ".")
 	parts := make([]int, 3)
@@ -59,6 +60,18 @@ func versionParts(value string) ([]int, string) {
 		parts[i], _ = strconv.Atoi(pieces[i])
 	}
 	return parts, suffix
+}
+
+func prereleaseOrder(value string) (string, int, bool) {
+	i := len(value)
+	for i > 0 && value[i-1] >= '0' && value[i-1] <= '9' {
+		i--
+	}
+	if i == len(value) {
+		return value, 0, false
+	}
+	number, err := strconv.Atoi(value[i:])
+	return value[:i], number, err == nil
 }
 
 func newerVersion(candidate, current string) bool {
@@ -77,6 +90,11 @@ func newerVersion(candidate, current string) bool {
 	}
 	if bs == "" {
 		return false
+	}
+	ap, an, aNumber := prereleaseOrder(as)
+	bp, bn, bNumber := prereleaseOrder(bs)
+	if ap == bp && aNumber && bNumber {
+		return an > bn
 	}
 	return as > bs
 }
@@ -138,8 +156,8 @@ func (a *App) checkForUpdates(autoDownload bool) {
 			if release.Draft || (release.Prerelease && !allowPrerelease) || !newerVersion(release.TagName, buildVersion) {
 				continue
 			}
-			asset, _ := releaseAsset(*release, "YourLM.exe")
-			if runtime.GOOS == "windows" && asset == "" {
+			asset, digest := releaseAsset(*release, "YourLM.exe")
+			if runtime.GOOS == "windows" && (asset == "" || !strings.HasPrefix(digest, "sha256:")) {
 				continue
 			}
 			selected = release
@@ -156,7 +174,12 @@ func (a *App) checkForUpdates(autoDownload bool) {
 		a.update.Progress = "Masz najnowszą wersję."
 	} else {
 		asset, digest := releaseAsset(*selected, "YourLM.exe")
-		a.update.Latest = strings.TrimPrefix(selected.TagName, "v")
+		latest := strings.TrimPrefix(strings.TrimPrefix(selected.TagName, "v"), "V")
+		if latest != a.update.Latest {
+			a.update.Ready = false
+			a.update.downloaded = ""
+		}
+		a.update.Latest = latest
 		a.update.Available = true
 		a.update.PageURL = selected.HTMLURL
 		a.update.Notes = strings.TrimSpace(selected.Body)
@@ -182,6 +205,7 @@ func copyDownload(response *http.Response, path string) (string, error) {
 		return "", err
 	}
 	tmp := path + ".part"
+	defer os.Remove(tmp)
 	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0700)
 	if err != nil {
 		return "", err
@@ -197,6 +221,9 @@ func copyDownload(response *http.Response, path string) (string, error) {
 	}
 	if written > 200<<20 {
 		return "", errors.New("plik aktualizacji jest zbyt duży")
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", err
 	}
 	if err := os.Rename(tmp, path); err != nil {
 		return "", err
