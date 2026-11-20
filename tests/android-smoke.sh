@@ -43,7 +43,8 @@ PY
 )
     if [[ -n "$point" ]]; then
       read -r x y <<<"$point"
-      if ((y >= 80 && y <= screen_height - 120)); then
+      echo "UI target '$target': $x,$y on height $screen_height (attempt $attempt)"
+      if ((y >= 40 && y < screen_height - 20)); then
         adb shell input tap "$x" "$y"
         return
       fi

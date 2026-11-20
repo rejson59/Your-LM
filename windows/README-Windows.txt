@@ -1,4 +1,4 @@
-YourLM 0.2.0-rc1 — Windows x64 (wydanie do testów Lenovo + Redmi)
+YourLM 0.2.0-rc2 — Windows x64 (maksymalne użycie Lenovo + Redmi)
 ==========================
 
 1. Pobierz YourLM.exe i uruchom go jako zwykły użytkownik.

@@ -32,7 +32,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc1 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc2 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -86,7 +86,7 @@
             <div class="metrics">
               <article><span class="metricIcon">●</span><div><small>URZĄDZENIA</small><strong id="count">—</strong><p>host + workery</p></div></article>
               <article><span class="metricIcon">▤</span><div><small>FIZYCZNY RAM</small><strong id="ram">—</strong><p>bez rozszerzeń flash</p></div></article>
-              <article><span class="metricIcon">◒</span><div><small>BUDŻET WAG</small><strong id="capacity">—</strong><p>po bezpiecznej rezerwie</p></div></article>
+              <article><span class="metricIcon">◒</span><div><small>RAM DOSTĘPNY TERAZ</small><strong id="capacity">—</strong><p>host + workery, przed startem</p></div></article>
             </div>
 
             <article class="sectionCard devicesCard">
@@ -182,7 +182,7 @@
             </div>
 
             <article class="sectionCard serverCard">
-              <div class="serverIntro"><span class="stepNumber">3</span><div><span class="eyebrow">CZAT I OPENAI API</span><h2>Uruchom model</h2><p>Na tym urządzeniu wybierz 127.0.0.1. Adres LAN wybieraj tylko dla zaufanych klientów w tej samej sieci.</p></div></div>
+              <div class="serverIntro"><span class="stepNumber">3</span><div><span class="eyebrow">CZAT I OPENAI API · TRYB MAKSYMALNY</span><h2>Uruchom model na wszystkich urządzeniach</h2><p>llama.cpp zmierzy pamięć ponownie przy starcie, zapełni workery warstwami i pozostawi resztę na hoście. Na tym urządzeniu wybierz 127.0.0.1.</p></div></div>
               <div class="inlineFields serverFields">
                 <label>Adres nasłuchu<select id="bind"></select></label>
                 <label>Port<input id="port" type="number" min="1024" max="65535" value="8080" /></label>
@@ -197,7 +197,7 @@
 
             <article class="sectionCard recommendation">
               <span class="recommendIcon">i</span>
-              <div><h3>Zacznij od małego modelu</h3><p><b>3–4B Q4_K_M</b> sprawdzi cały przepływ. Dopiero później testuj 7–8B. Gemma 4 26B-A4B i Mistral Small 24B wymagają pamięci na wszystkie wagi, KV cache i bufory — MoE nie usuwa nieaktywnych ekspertów z RAM.</p></div>
+              <div><h3>Tryb maksymalny nie blokuje dużego modelu</h3><p>YourLM pozwoli llama.cpp spróbować automatycznego podziału nawet ponad konserwatywny próg. <b>3–4B Q4_K_M</b> nadal najlepiej sprawdza przepływ; Gemma 4 26B-A4B wymaga pamięci na wszystkie wagi i może mocno używać pliku stronicowania Windows.</p></div>
             </article>
           </section>
 
@@ -215,7 +215,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc1</span><span>JEDEN EXE · USB/ADB · AUTOMATYCZNE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc2</span><span>JEDEN EXE · USB/ADB · AUTOMATYCZNE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>

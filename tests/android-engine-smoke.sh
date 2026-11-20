@@ -6,9 +6,11 @@ python3 tests/tiny_model.py /tmp/yourlm-android-tiny.gguf
 adb push /tmp/yourlm-android-tiny.gguf /data/local/tmp/yourlm-tiny.gguf >/dev/null
 adb forward tcp:18080 tcp:18080 >/dev/null
 
-pid=$(adb shell "sh -c '/data/local/tmp/llama-server --model /data/local/tmp/yourlm-tiny.gguf --offline --no-webui --host 127.0.0.1 --port 18080 --api-key android-gate --ctx-size 64 --parallel 1 -t 1 -ngl 0 >/data/local/tmp/yourlm-server.log 2>&1 & echo \$!'" | tr -d '\r')
+rpc_pid=$(adb shell "sh -c '/data/local/tmp/ggml-rpc-server -H 127.0.0.1 -p 50052 -t 1 >/data/local/tmp/yourlm-rpc.log 2>&1 & echo \$!'" | tr -d '\r')
+sleep 1
+pid=$(adb shell "sh -c '/data/local/tmp/llama-server --model /data/local/tmp/yourlm-tiny.gguf --offline --no-webui --host 127.0.0.1 --port 18080 --api-key android-gate --ctx-size 64 --parallel 1 -t 1 --rpc 127.0.0.1:50052 --split-mode layer --fit on --fit-target 128 --fit-print on >/data/local/tmp/yourlm-server.log 2>&1 & echo \$!'" | tr -d '\r')
 cleanup() {
-  adb shell kill "$pid" >/dev/null 2>&1 || true
+  adb shell kill "$pid" "$rpc_pid" >/dev/null 2>&1 || true
   adb forward --remove tcp:18080 >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -24,8 +26,9 @@ while ((attempt < 120)); do
   sleep 1
 done
 if [[ "$ready" != true ]]; then
+  adb shell cat /data/local/tmp/yourlm-rpc.log || true
   adb shell cat /data/local/tmp/yourlm-server.log || true
-  echo "Android llama-server did not become ready" >&2
+  echo "Android llama-server did not become ready with RPC --fit" >&2
   exit 1
 fi
 curl --noproxy '*' -fsS \

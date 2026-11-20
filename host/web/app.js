@@ -146,10 +146,11 @@ function render(nextState) {
   const workers = state.nodes || [];
   const session = state.session;
   const totalRam = workers.reduce((sum, node) => sum + node.total, state.total);
-  const capacity = workers.reduce((sum, node) => sum + node.budget, state.budget);
+  const availableRam = workers.reduce((sum, node) => sum + node.free, state.free);
   $("count").textContent = 1 + workers.length;
   $("ram").textContent = gib(totalRam) + " GiB";
-  $("capacity").textContent = gib(capacity) + " GiB";
+  $("capacity").textContent = gib(availableRam) + " GiB";
+  $("capacity").title = "Pamięć dostępna według systemów przed uruchomieniem modelu. Tryb maksymalny może dodatkowo użyć pamięci mapowanej i pliku stronicowania hosta.";
 
   if (state.offer) {
     $("mode").textContent = "Ten komputer jest workerem";
@@ -166,13 +167,13 @@ function render(nextState) {
     device(
       state.host,
       "HOST",
-      `${state.os === "windows" ? "Windows" : "Android"} · ${state.cores} wątków · ${gib(state.total)} GiB RAM`,
+      `${state.os === "windows" ? "Windows" : "Android"} · ${state.cores} wątków · ${gib(state.total)} GiB RAM · ${gib(state.free)} GiB dostępne`,
     ),
     ...workers.map((worker) =>
       device(
         worker.name,
         "WORKER",
-        `${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB RAM`,
+        `${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB RAM · ${gib(worker.free)} GiB dostępne`,
         worker.address,
       ),
     ),
@@ -212,7 +213,8 @@ function render(nextState) {
   $("selected").textContent = state.model.name
     ? `${state.model.name} · ${gib(state.model.size)} GiB · ${state.model.layers} warstw`
     : "Nie wybrano pliku.";
-  $("advice").textContent = state.advice || "Po wybraniu pliku pokażemy szacowany podział pamięci i warstw.";
+  $("advice").textContent = state.advice || "Po wybraniu pliku pokażemy ilość dostępnej pamięci. Ostateczny podział dobierze llama.cpp przy starcie.";
+  $("advice").classList.toggle("warn", Boolean(state.modelWarning));
   $("pick").hidden = state.os !== "windows";
   $("pick").disabled = $("manual").disabled = Boolean(session);
   options("library", state.models || [], "Wybierz z prywatnej biblioteki…");
@@ -229,7 +231,9 @@ function render(nextState) {
     $("endpoint").textContent = session.url;
     $("runstate").textContent =
       (session.ready ? "Model gotowy" : "Ładowanie modelu…") +
-      ` · ${session.layers} warstw na workerach`;
+      (session.layers < 0
+        ? " · automatyczny maksymalny podział host/workery"
+        : ` · ${session.layers} warstw na workerach`);
   }
 
   $("chatstatus").textContent = session?.ready

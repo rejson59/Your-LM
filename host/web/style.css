@@ -291,6 +291,7 @@ h3 { margin: 0 0 5px; font-size: 17px; }
 .setupCard .stepNumber { float: right; }
 .setupCard > p { margin: 7px 0; }
 .advice { padding: 10px 12px; border-radius: 9px; background: #f3f7f4; font-size: 13px; }
+.advice.warn { background: #fff5dc; color: #6f5313; border: 1px solid #ead49a; line-height: 1.45; }
 .pathHint { display: block; margin-top: 10px; color: #7b8980; overflow-wrap: anywhere; }
 #library { width: 100%; margin-top: 12px; }
 .runtimeStatus { display: flex; align-items: flex-start; gap: 10px; margin-top: 17px; padding: 13px; border-radius: 11px; background: #edf7f0; }

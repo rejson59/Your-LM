@@ -1,6 +1,6 @@
 # YourLM — prywatny klaster GGUF
 
-**0.2.0-rc1 · nowa baza testowa · Windows x64 i Android ARM64 (9+)**
+**0.2.0-rc2 · maksymalne użycie hosta i workerów · Windows x64 i Android ARM64 (9+)**
 
 YourLM uruchamia `llama.cpp` na CPU i potrafi przenieść część warstw modelu na inne urządzenia. To jedna inferencja z podziałem warstw, a nie rozsyłanie całego pytania do kilku niezależnych chatbotów. Nie wymaga konta, chmury ani roota. Aplikacja nie dodaje własnego filtra treści; zachowanie zależy od modelu i jego szablonu czatu.
 
@@ -26,9 +26,9 @@ Gotowe pliki są publikowane na stronie [GitHub Releases](https://github.com/rej
 
 ## Ile naprawdę zmieści się w RAM?
 
-- Na Lenovo 16 GB zacznij od 3–4B, następnie 7–8B Q4. Przy wskazywanych przez Windows ~15,4 GiB pamięci fizycznej limit wag to maksymalnie ~10,3 GiB, mniej przy zajętej pamięci. Na Redmi liczymy fizyczny RAM, **nie** „8 + 8 GB” z rozszerzeniem w pamięci flash.
-- Host wykrywa pamięć dostępną dla systemu, zostawia co najmniej 2 GiB z wolnej i ogranicza wagi do ⅔ fizycznej. Budżet workera to mniejsza z wartości: połowa fizycznej pamięci i dostępna pamięć minus 1 GiB. Dane workera są odświeżane przy starcie modelu. Wartości to szacunki, nie rezerwacje systemowe.
-- Planista czyta `block_count` i rozmiar GGUF, rezerwuje część na tensory poza blokami i przydziela całe warstwy według budżetu oraz liczby wątków CPU. Ustawia `--rpc`, `-ngl`, `--split-mode layer`, `--tensor-split`. To heurystyka, nie benchmark SoC. Różne warstwy, KV cache, bufory, Wi-Fi i throttling wpływają na wynik. Kontekst tej wersji: 2048 tokenów, jedna równoległa sekwencja.
+- Od rc2 YourLM nie zatrzymuje startu na konserwatywnym limicie. Przekazuje host i wszystkie workery do natywnego `llama.cpp --fit`, które przy każdym ładowaniu mierzy backendy, umieszcza możliwie dużo warstw na workerach i pozostawia resztę na CPU hosta.
+- Dla każdego urządzenia `--fit-target 512` pozostawia około 512 MiB marginesu względem pamięci zgłaszanej przez backend. Host może dodatkowo korzystać z mapowania GGUF i pliku stronicowania Windows. Dzięki temu duży model może zostać podjęty mimo wcześniejszego szacunku, ale intensywne stronicowanie będzie bardzo wolne, a system nadal może przerwać proces przy rzeczywistym braku pamięci.
+- Panel pokazuje osobno pamięć fizyczną i pamięć obecnie dostępną na każdym urządzeniu. Są to pomiary systemów, nie jeden wspólny obszar RAM. Na Redmi liczymy pamięć fizyczną, **nie** „8 + 8 GB” z rozszerzeniem flash. Kontekst tej wersji: 2048 tokenów, jedna równoległa sekwencja.
 - **Gemma 4 26B-A4B Abliterated i Mistral Small 3.2 24B Abliterated**: sprawdź *konkretny plik* i obsługę architektury w b12562. Samo 24 mld wag po 4 bity to około 11,2 GiB, **przed** narzutem kwantyzacji, KV i buforów. W MoE mniejsza liczba aktywnych parametrów na token nie oznacza, że można pominąć pamięć pozostałych ekspertów. Nie ma gwarancji załadowania ani użytecznej prędkości. KB10 i Huawei nie są dodawane automatycznie.
 
 ## Continue, AnythingLLM i inne klienty OpenAI
