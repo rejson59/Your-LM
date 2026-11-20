@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: release-gates-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc1]') }}
   ANDROID_CERT_SHA256: bb2639f3d49a2d7db0845884e76d6bb51152a6e9c0df92fcfe885a26c5de94a6
