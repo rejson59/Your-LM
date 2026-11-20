@@ -8,7 +8,7 @@ adb forward tcp:18080 tcp:18080 >/dev/null
 
 rpc_pid=$(adb shell "sh -c '/data/local/tmp/ggml-rpc-server -H 127.0.0.1 -p 50052 -t 1 >/data/local/tmp/yourlm-rpc.log 2>&1 & echo \$!'" | tr -d '\r')
 sleep 1
-pid=$(adb shell "sh -c '/data/local/tmp/llama-server --model /data/local/tmp/yourlm-tiny.gguf --offline --no-webui --host 127.0.0.1 --port 18080 --api-key android-gate --ctx-size 64 --parallel 1 -t 1 --rpc 127.0.0.1:50052 --split-mode layer --fit on --fit-target 128 --fit-print on >/data/local/tmp/yourlm-server.log 2>&1 & echo \$!'" | tr -d '\r')
+pid=$(adb shell "sh -c '/data/local/tmp/llama-server --model /data/local/tmp/yourlm-tiny.gguf --offline --no-webui --host 127.0.0.1 --port 18080 --api-key android-gate --ctx-size 64 --parallel 1 -t 1 --rpc 127.0.0.1:50052 --split-mode layer --fit on --fit-target 128 >/data/local/tmp/yourlm-server.log 2>&1 & echo \$!'" | tr -d '\r')
 cleanup() {
   adb shell kill "$pid" "$rpc_pid" >/dev/null 2>&1 || true
   adb forward --remove tcp:18080 >/dev/null 2>&1 || true

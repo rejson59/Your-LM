@@ -132,7 +132,7 @@ func (a *App) start(bind string, port int) error {
 	}
 	probe.Close()
 	s := &Session{url: "http://" + address, key: token(), layers: layers, name: m.Name, done: make(chan struct{})}
-	args := []string{"--model", m.Path, "--offline", "--no-webui", "--no-agent", "--no-ui-mcp-proxy", "--cors-origins", "localhost", "--host", bind, "--port", strconv.Itoa(port), "--api-key", s.key, "--alias", "yourlm", "--ctx-size", "2048", "--parallel", "1", "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "--jinja", "--fit", "on", "--fit-target", "512", "--fit-print", "on"}
+	args := []string{"--model", m.Path, "--offline", "--no-webui", "--no-agent", "--no-ui-mcp-proxy", "--cors-origins", "localhost", "--host", bind, "--port", strconv.Itoa(port), "--api-key", s.key, "--alias", "yourlm", "--ctx-size", "2048", "--parallel", "1", "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "--jinja", "--fit", "on", "--fit-target", "512"}
 	defer func() {
 		if a.s != s {
 			for _, l := range s.listeners {
