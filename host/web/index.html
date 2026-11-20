@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#17382f" />
+    <title>YourLM · Prywatna konsola</title>
+    <link href="/style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <svg viewBox="0 0 40 40" width="38" aria-hidden="true">
+          <rect width="40" height="40" rx="10" fill="#25483b" />
+          <g
+            stroke="#ccf880"
+            fill="none"
+            stroke-width="2.5"
+            stroke-linejoin="round"
+          >
+            <path d="m9 16 11-6 11 6-11 6z M9 21l11 6 11-6 M9 26l11 6 11-6" />
+          </g></svg
+        ><b>Your<span>LM</span></b>
+      </div>
+      <div class="headerlabel">KONSOLA PRYWATNA</div>
+      <small class="online">● &nbsp; LOKALNIE</small>
+    </header>
+    <main>
+      <div class="sup">
+        WORKSPACE &nbsp;/&nbsp; <strong id="crumb">KLASTER</strong>
+      </div>
+      <div class="intro">
+        <div>
+          <h1 id="title">Centrum klastra</h1>
+          <p id="sub">
+            Zarządzaj pamięcią, modelami i urządzeniami w swojej sieci.
+          </p>
+        </div>
+        <span class="version">v0.1 &nbsp; / &nbsp; b12562</span>
+      </div>
+      <nav>
+        <button data-tab="cluster" class="sel">01 &nbsp; Klaster</button
+        ><button data-tab="model">02 &nbsp; Modele i API</button
+        ><button data-tab="chat">03 &nbsp; Czat</button>
+      </nav>
+      <div id="notice" role="status" hidden></div>
+      <section id="cluster" class="tab">
+        <div class="hero">
+          <div class="heroText">
+            <div class="eyebrow"><i></i> &nbsp; TOPOLOGIA SIECI</div>
+            <h2 id="mode">Host lokalny</h2>
+            <p id="topdesc">Obliczenia na tym urządzeniu.</p>
+            <button id="add" class="acid">＋ &nbsp; Sparuj worker</button>
+          </div>
+          <div class="diagram" aria-hidden="true">
+            <div class="orbit o1"></div>
+            <div class="orbit o2"></div>
+            <div class="orbit o3"></div>
+            <div class="hub">
+              <svg
+                width="40"
+                viewBox="0 0 32 32"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.6"
+              >
+                <rect x="7" y="7" width="18" height="18" rx="3" />
+                <rect x="12" y="12" width="8" height="8" rx="1" />
+                <path
+                  d="M12 3v4m8-4v4M12 25v4m8-4v4M3 12h4m-4 8h4m18-8h4m-4 8h4"
+                />
+              </svg>
+            </div>
+            <small>RUNTIME / CPU</small>
+          </div>
+        </div>
+        <div class="metrics">
+          <article>
+            <label>WĘZŁY W KONFIGURACJI</label><strong id="count">—</strong
+            ><small>Host + sparowane workery</small>
+          </article>
+          <article>
+            <label>PAMIĘĆ FIZYCZNA</label><strong id="ram">—</strong
+            ><small>Bez pamięci wirtualnej</small>
+          </article>
+          <article>
+            <label>BUDŻET NA WAGI</label><strong id="capacity">—</strong
+            ><small>Szacunek po rezerwie systemowej</small>
+          </article>
+        </div>
+        <div class="sectTitle">
+          <h2>Urządzenia</h2>
+          <small>INWENTARZ / LAN</small>
+        </div>
+        <div id="nodes"></div>
+        <div class="tip">
+          ↳ &nbsp; Zacznij od samego hosta. Dodanie pamięci przez Wi-Fi nie musi
+          przyspieszyć generowania.
+        </div>
+        <details id="offer">
+          <summary>Udostępnij ten komputer jako worker</summary>
+          <p>
+            Wymaga zainstalowanego silnika. Otwórz tylko na zaufanej sieci
+            prywatnej.
+          </p>
+          <select id="workerIP"></select
+          ><button id="offerBtn">Uruchom worker</button
+          ><textarea
+            id="offerCode"
+            readonly
+            hidden
+            aria-label="Prywatny kod workera"
+          ></textarea>
+          <div id="winQR"></div>
+        </details>
+      </section>
+      <section id="model" class="tab" hidden>
+        <div class="grid">
+          <article>
+            <label>01 / SILNIK</label>
+            <h2>llama.cpp</h2>
+            <p id="engine"></p>
+            <button id="install">Pobierz zweryfikowany silnik</button>
+          </article>
+          <article>
+            <label>02 / BIBLIOTEKA GGUF</label>
+            <h2>Wybierz model</h2>
+            <p id="selected">Nie wybrano pliku.</p><p id="advice"></p>
+            <div class="row">
+              <button id="pick">Wybierz plik…</button
+              ><button id="manual" class="light">Podaj ścieżkę</button>
+            </div>
+            <select
+              id="library"
+              aria-label="Modele z biblioteki"
+              hidden
+            ></select
+            ><small id="libdir"></small>
+          </article>
+        </div>
+        <article class="panel">
+          <label>03 / SERWER</label>
+          <h2>Lokalne API OpenAI</h2>
+          <p>
+            Domyślnie tylko na tym urządzeniu. Wybierz adres LAN wyłącznie w
+            zaufanej sieci Wi-Fi — API używa HTTP, nie TLS.
+          </p>
+          <div class="fields">
+            <label>Adres nasłuchu<select id="bind"></select></label
+            ><label
+              >Port<input
+                id="port"
+                type="number"
+                min="1024"
+                max="65535"
+                value="8080" /></label
+            ><button id="run">Uruchom model</button>
+          </div>
+          <div id="sessionInfo" hidden>
+            <p id="runstate"></p>
+            <pre id="endpoint"></pre>
+            <button id="copyKey">Kopiuj klucz API</button>
+            <button class="light" id="copyCfg">
+              Kopiuj konfigurację Continue
+            </button>
+          </div>
+        </article>
+        <article class="panel">
+          <label>PORADNIK / DOBÓR MODELU</label>
+          <h2>Najpierw sprawdź mały GGUF</h2>
+          <p>
+            <b>3–4B Q4_K_M</b> — test działania. Następnie porównaj 7–8B Q4 solo
+            i z Redmi. Dla Gemma 4 26B-A4B Abliterated i Mistral Small 3.2 24B
+            Abliterated sprawdź rozmiar konkretnego GGUF: MoE zmniejsza pracę na
+            token, ale nie usuwa z RAM nieaktywnych ekspertów. Uwzględnij też KV
+            cache, bufory i temperaturę telefonu.
+          </p>
+        </article>
+      </section>
+      <section id="chat" class="tab" hidden>
+        <article class="panel">
+          <label>SESJA / OFFLINE</label>
+          <div class="sectTitle">
+            <h2>Rozmowa prywatna</h2>
+            <button class="light" id="clear">Wyczyść</button>
+          </div>
+          <p id="chatstatus"></p>
+          <small id="speed"></small>
+          <div id="messages" aria-live="polite"></div>
+          <form id="send">
+            <textarea
+              id="prompt"
+              placeholder="Napisz wiadomość…"
+              rows="3"
+              required
+            ></textarea
+            ><button>Wyślij ↗</button>
+          </form>
+          <small>Historia istnieje tylko w pamięci tej karty.</small>
+        </article>
+      </section>
+      <footer>
+        <b>YourLM</b><span>LOCAL INFERENCE SYSTEM &nbsp; / &nbsp; 01</span>
+      </footer>
+    </main>
+    <dialog id="pair">
+      <button class="close light" aria-label="Zamknij">×</button
+      ><label>PAROWANIE / TLS</label>
+      <h2>Dodaj urządzenie</h2>
+      <p>
+        Uruchom worker, następnie zeskanuj jego kod kamerą hosta lub wklej
+        prywatny kod sesji.
+      </p>
+      <button id="scan" class="light">Włącz kamerę</button
+      ><video id="video" autoplay playsinline muted hidden></video
+      ><textarea
+        id="code"
+        placeholder="YLM1|…"
+        aria-label="Kod sesji"
+      ></textarea
+      ><button id="pairBtn">Połącz bezpiecznie</button>
+      <p class="error"></p>
+    </dialog>
+    <dialog id="pathDlg">
+      <button class="close light" aria-label="Zamknij">×</button
+      ><label>BIBLIOTEKA / IMPORT</label>
+      <h2>Ścieżka lokalna</h2>
+      <p>Plik pozostaje na dysku hosta.</p>
+      <input id="path" placeholder="D:\Modele\model.gguf" /><button id="choose">
+        Wczytaj metadane
+      </button>
+      <p class="error"></p>
+    </dialog>
+    <script src="/jsQR.js"></script>
+    <script src="/qrcode.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
