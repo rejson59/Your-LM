@@ -10,10 +10,9 @@ import (
 	"runtime"
 )
 
-// Windows runtime programs are built from the pinned llama.cpp source and
-// shipped as ordinary sidecar files. The controller never downloads or drops
-// executables. Before every launch it checks the selected program against a
-// digest compiled into this binary.
+// The single Windows executable expands its pinned runtime into the user's
+// private application-data directory. Before every launch the controller checks
+// the selected program against a digest compiled into the outer executable.
 const runtimeDir = "runtime"
 
 // Set with Go linker -X by the reproducible Windows package build. A plain
@@ -50,11 +49,10 @@ func (a *App) runtimePath(worker bool) string {
 	if worker {
 		name = "ggml-rpc-server.exe"
 	}
-	self, err := os.Executable()
-	if err != nil {
+	if a.runtimeRoot == "" {
 		return ""
 	}
-	return filepath.Join(filepath.Dir(self), runtimeDir, name)
+	return filepath.Join(a.runtimeRoot, name)
 }
 
 func verifyProgram(path, want string) error {

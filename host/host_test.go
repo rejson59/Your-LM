@@ -51,6 +51,24 @@ func TestMetadata(t *testing.T) {
 		t.Fatal("accepted truncated GGUF")
 	}
 }
+func TestVersionOrdering(t *testing.T) {
+	for _, test := range []struct {
+		candidate, current string
+		newer              bool
+	}{
+		{"0.2.0", "0.1.2", true},
+		{"v0.2.1", "0.2.0", true},
+		{"0.2.0", "0.2.0-rc1", true},
+		{"0.2.0-rc1", "0.2.0", false},
+		{"0.1.9", "0.2.0", false},
+		{"0.2.0", "0.2.0", false},
+	} {
+		if got := newerVersion(test.candidate, test.current); got != test.newer {
+			t.Fatalf("newerVersion(%q, %q)=%v, want %v", test.candidate, test.current, got, test.newer)
+		}
+	}
+}
+
 func TestPlan(t *testing.T) {
 	m := Model{Size: 12 * GiB, Layers: 40}
 	n := Node{Budget: 4 * GiB, Cores: 4}

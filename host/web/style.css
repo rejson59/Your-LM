@@ -345,6 +345,46 @@ pre { margin: 5px 0 11px; padding: 11px; overflow-wrap: anywhere; white-space: p
 #send button { align-self: flex-end; min-width: 100px; }
 
 #notice { margin-bottom: 16px; padding: 13px 15px; border: 1px solid #e9c992; border-radius: 11px; color: #794717; background: #fff4df; }
+.updateBar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  margin-bottom: 18px;
+  padding: 14px 16px;
+  border: 1px solid #9ccfb2;
+  border-radius: 14px;
+  background: linear-gradient(100deg, #e8f8ee, #f6fbf8);
+  box-shadow: 0 8px 24px rgba(24, 94, 61, .08);
+}
+.updateBar b, .updateBar small { display: block; }
+.updateBar small { margin-top: 2px; color: var(--muted); }
+.updateIcon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 12px; color: #fff; background: var(--green); font-size: 22px; }
+
+.usbHero { display: grid; grid-template-columns: 300px minmax(0, 1fr); gap: 32px; align-items: center; padding: 34px; overflow: hidden; background: linear-gradient(135deg, #113f30, #1c7453); color: #fff; }
+.usbHero .eyebrow { color: #aee5c5; }
+.usbHero h2 { margin-top: 8px; color: #fff; font-size: 30px; }
+.usbHero p { color: #cee2d7; }
+.usbHero label { max-width: 380px; color: #d9eee3; }
+.usbVisual { display: flex; align-items: center; justify-content: center; min-height: 150px; }
+.usbVisual span { display: grid; width: 86px; height: 86px; place-items: center; border: 2px solid #a9ddbf; border-radius: 24px; background: rgba(255,255,255,.08); box-shadow: 0 0 0 10px rgba(255,255,255,.035); font: 800 14px ui-monospace, monospace; }
+.usbVisual i { width: 72px; height: 4px; margin: 0 8px; border-radius: 4px; background: repeating-linear-gradient(90deg, #b9edcf 0 12px, transparent 12px 20px); }
+.usbHero .secondary { color: #eafff2; border-color: rgba(255,255,255,.25); background: rgba(255,255,255,.1); }
+.usbGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.guideStep { display: grid; grid-template-columns: auto 1fr; gap: 12px; margin-top: 16px; }
+.guideStep > b { display: grid; width: 32px; height: 32px; place-items: center; border-radius: 10px; color: var(--green-dark); background: var(--mint); }
+.guideStep strong { display: block; }
+.guideStep p { margin: 2px 0 0; font-size: 13px; }
+.usbDevices { min-height: 130px; }
+.usbDevices > p { padding: 24px 10px; color: var(--muted); text-align: center; }
+.usbDeviceRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 13px 0; border-bottom: 1px solid #edf1ed; }
+.usbDeviceRow .icon { display: grid; width: 42px; height: 42px; place-items: center; border-radius: 12px; color: var(--green-dark); background: var(--mint); font: 800 10px ui-monospace, monospace; }
+.usbDeviceRow b, .usbDeviceRow small { display: block; }
+.usbDeviceRow small { color: var(--muted); }
+.usbDeviceRow em { color: var(--green); font: normal 750 10px ui-monospace, monospace; }
+.updateCenter { display: flex; align-items: center; justify-content: space-between; gap: 24px; margin-top: 14px; }
+.updateCenter p { max-width: 700px; margin-bottom: 0; }
+#releaseLink { display: inline-flex; min-height: 44px; align-items: center; padding: 10px 16px; border-radius: 11px; color: var(--green-dark); background: #edf4ef; font-weight: 700; text-decoration: none; }
 footer { display: flex; justify-content: space-between; margin-top: 28px; padding: 17px 2px; border-top: 1px solid var(--line); color: #8a968f; font: 9px ui-monospace, monospace; letter-spacing: 1px; }
 
 dialog {
@@ -382,7 +422,8 @@ dialog > label { margin: 13px 0; }
   main { width: min(100% - 32px, 900px); padding-top: 34px; }
   .welcomeCard { grid-template-columns: 1fr; }
   .connectionArt { display: none; }
-  .setupGrid { grid-template-columns: 1fr; }
+  .setupGrid, .usbGrid { grid-template-columns: 1fr; }
+  .usbHero { grid-template-columns: 220px minmax(0, 1fr); }
   .metrics article { padding: 14px; }
 }
 
@@ -398,7 +439,7 @@ dialog > label { margin: 13px 0; }
     box-shadow: 0 -7px 25px rgba(20, 50, 38, .08);
   }
   .sidebar > .brand, .privacyCard, .sideVersion { display: none; }
-  .sidebar nav { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; margin: 0; }
+  .sidebar nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin: 0; }
   .sidebar nav button { flex-direction: column; justify-content: center; gap: 1px; min-height: 55px; padding: 3px; font-size: 10px; text-align: center; }
   .navIcon { width: 25px; height: 25px; background: transparent; }
   .workspace { margin-left: 0; }
@@ -426,7 +467,15 @@ dialog > label { margin: 13px 0; }
   .node button { grid-column: 2 / 4; justify-self: start; }
   .workerOffer > summary small { display: none; }
   .manualValues { grid-template-columns: 1fr; }
-  .setupGrid { gap: 10px; }
+  .setupGrid, .usbGrid { gap: 10px; }
+  .usbHero { grid-template-columns: 1fr; padding: 22px 18px; }
+  .usbVisual { min-height: 105px; }
+  .usbVisual span { width: 65px; height: 65px; border-radius: 18px; }
+  .usbVisual i { width: 48px; }
+  .usbHero .actions button { width: 100%; }
+  .updateBar { grid-template-columns: auto 1fr; }
+  .updateBar button { grid-column: 1 / -1; width: 100%; }
+  .updateCenter { align-items: flex-start; flex-direction: column; }
   .serverIntro { align-items: flex-start; }
   .serverFields { display: grid; grid-template-columns: 1fr 100px; }
   .serverFields button { grid-column: 1 / -1; width: 100%; }

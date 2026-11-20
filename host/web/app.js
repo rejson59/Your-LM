@@ -73,10 +73,75 @@ function device(name, role, meta, address) {
   return row;
 }
 
+function usbRow(item) {
+  const row = el("div", "");
+  row.className = "usbDeviceRow";
+  const icon = el("span", "USB");
+  icon.className = "icon";
+  const details = el("div", "");
+  const title = item.model || item.name || item.serial;
+  const status = item.state === "device"
+    ? "Gotowy"
+    : item.state === "unauthorized"
+      ? "Czeka na zgodę na telefonie"
+      : item.state;
+  details.append(el("b", title), el("small", `${item.serial} · ${status}`));
+  const badge = el("em", item.state === "device" ? "GOTOWY" : "UWAGA");
+  row.append(icon, details, badge);
+  return row;
+}
+
 function render(nextState) {
   state = nextState;
   $("build").textContent = `v${state.version} · b12562`;
   $("build").title = `Commit źródłowy: ${state.commit}`;
+
+  const update = state.update || {};
+  $("updateBar").hidden = !(update.available || update.downloading || update.ready);
+  $("updateTitle").textContent = update.ready
+    ? `YourLM ${update.latest} jest gotowy`
+    : update.downloading
+      ? `Pobieranie YourLM ${update.latest}…`
+      : `Dostępny YourLM ${update.latest}`;
+  $("updateText").textContent = update.progress || "Nowa wersja zachowa modele i ustawienia.";
+  $("updateAction").textContent = update.ready
+    ? "Uruchom ponownie"
+    : update.downloading
+      ? "Pobieranie…"
+      : "Pobierz aktualizację";
+  $("updateAction").disabled = Boolean(update.downloading || update.checking);
+  $("updateCenterText").textContent = update.error || update.progress ||
+    `Aktualna wersja: ${update.current || state.version}. Aktualizacje są sprawdzane automatycznie.`;
+  $("releaseLink").hidden = !update.pageUrl;
+  if (update.pageUrl) $("releaseLink").href = update.pageUrl;
+
+  const usb = state.usb || { devices: [] };
+  const usbDevices = usb.devices || [];
+  options(
+    "usbDevice",
+    usbDevices.filter((item) => item.state === "device").map((item) => item.serial),
+  );
+  for (const option of $("usbDevice").options) {
+    const found = usbDevices.find((item) => item.serial === option.value);
+    if (found) option.textContent = found.model || found.name || found.serial;
+  }
+  $("usbSelectLabel").hidden = usbDevices.filter((item) => item.state === "device").length < 2;
+  $("usbDevices").replaceChildren(
+    ...(usbDevices.length
+      ? usbDevices.map(usbRow)
+      : [el("p", usb.message || "Nie wykryto telefonu.")]),
+  );
+  $("usbTitle").textContent = usb.installing
+    ? "Instalowanie YourLM…"
+    : usb.ready
+      ? "Telefon jest gotowy"
+      : usbDevices.some((item) => item.state === "unauthorized")
+        ? "Potwierdź debugowanie na telefonie"
+        : "Podłącz telefon przez USB";
+  $("usbText").textContent = usb.message || "Włącz debugowanie USB i zaakceptuj połączenie.";
+  $("usbInstall").textContent = usb.installing ? "Instalowanie…" : "Zainstaluj lub zaktualizuj YourLM";
+  $("usbInstall").disabled = !usb.ready || !usb.apkReady || usb.installing;
+  $("usbRefresh").disabled = Boolean(usb.installing);
 
   const workers = state.nodes || [];
   const session = state.session;
@@ -141,8 +206,8 @@ function render(nextState) {
   }
 
   $("engine").textContent = state.runtime
-    ? "Silnik jest gotowy i przeszedł kontrolę integralności."
-    : "Brakuje kompletnego silnika. Zamknij program i wypakuj ponownie cały pakiet — nie uruchamiaj samego EXE.";
+    ? "Wbudowany silnik jest gotowy. Nie potrzebujesz dodatkowego folderu runtime."
+    : "Nie udało się przygotować wbudowanego silnika. Uruchom ponownie YourLM.exe lub pobierz aktualną wersję.";
   document.querySelector(".runtimeStatus").classList.toggle("bad", !state.runtime);
   $("selected").textContent = state.model.name
     ? `${state.model.name} · ${gib(state.model.size)} GiB · ${state.model.layers} warstw`
@@ -189,6 +254,10 @@ async function act(op, data = {}, dialog) {
     note("");
     if (dialog) dialog.querySelector(".error").textContent = "";
     const updated = await api(op, data);
+    if (updated.restarting) {
+      note("Aktualizacja jest instalowana. YourLM uruchomi się ponownie za chwilę.");
+      return true;
+    }
     render(updated);
     if (dialog) dialog.close();
     return true;
@@ -202,7 +271,7 @@ async function act(op, data = {}, dialog) {
 function openTab(name) {
   for (const tab of document.querySelectorAll(".tab")) tab.hidden = tab.id !== name;
   for (const button of document.querySelectorAll("nav button")) button.classList.toggle("sel", button.dataset.tab === name);
-  document.title = `YourLM · ${{ cluster: "Urządzenia", model: "Model i API", chat: "Czat" }[name]}`;
+  document.title = `YourLM · ${{ cluster: "Urządzenia", model: "Model i API", chat: "Czat", phone: "Telefon USB" }[name]}`;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -211,6 +280,11 @@ document.querySelectorAll("nav button").forEach((button) => {
 });
 
 $("next").onclick = () => openTab(state?.session?.ready ? "chat" : "model");
+$("usbRefresh").onclick = () => act("usb-refresh");
+$("usbInstall").onclick = () => act("usb-install", { serial: $("usbDevice").value });
+$("checkUpdate").onclick = () => act("update-check");
+$("updateAction").onclick = () =>
+  act(state?.update?.ready ? "update-apply" : "update-download");
 function openPairing() {
   $("pair").showModal();
   $("pair").querySelector(".error").textContent = "";

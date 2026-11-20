@@ -38,6 +38,7 @@ public final class NodeActivity extends Activity {
   int screen = HOME;
   String lastError = "";
   TextView phoneStatus;
+  AppUpdater updater;
 
   int dp(int n) {
     return (int) (getResources().getDisplayMetrics().density * n + .5f);
@@ -120,7 +121,11 @@ public final class NodeActivity extends Activity {
     page.setOrientation(LinearLayout.VERTICAL);
     scroll.addView(page, new ScrollView.LayoutParams(-1, -2));
     setContentView(scroll);
+    updater = new AppUpdater(this, () -> {
+      if (!dead && screen == HOME) showHome();
+    });
     showHome();
+    updater.check();
   }
 
   void topBar(boolean back, String section) {
@@ -212,7 +217,55 @@ public final class NodeActivity extends Activity {
       ),
       lp(-1, -2, 10, 0)
     );
-    page.addView(hardware);
+    page.addView(hardware, lp(-1, -2, 0, 14));
+    drawUpdateCard();
+  }
+
+  void drawUpdateCard() {
+    AppUpdater.State update = updater.state;
+    LinearLayout card = card(
+      update.available ? 0xfff0faf4 : SURFACE,
+      update.available ? 0xff9fcdb4 : LINE
+    );
+    card.addView(label("AKTUALIZACJE APLIKACJI"));
+    card.addView(
+      text(
+        update.available
+          ? "Dostępny YourLM " + update.latest
+          : "YourLM " + update.current,
+        20,
+        INK,
+        true
+      ),
+      lp(-1, -2, 7, 3)
+    );
+    card.addView(text(update.message, 13, MUTED, false));
+    Button action = button(
+      update.downloading
+        ? "Pobieranie…"
+        : update.ready
+          ? "Zainstaluj pobraną aktualizację"
+          : update.available
+            ? "Pobierz i zaktualizuj"
+            : update.checking
+              ? "Sprawdzanie…"
+              : "Sprawdź aktualizacje",
+      update.available || update.ready
+    );
+    action.setEnabled(!update.checking && !update.downloading);
+    action.setOnClickListener(v -> {
+      if (update.available || update.ready) updater.downloadAndInstall();
+      else updater.check();
+    });
+    card.addView(action, lp(-1, dp(52), 14, 0));
+    if (!update.releaseURL.isEmpty()) {
+      Button notes = button("Zobacz informacje o wydaniu", false);
+      notes.setOnClickListener(v -> startActivity(
+        new Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseURL))
+      ));
+      card.addView(notes, lp(-1, dp(48), 8, 0));
+    }
+    page.addView(card);
   }
 
   LinearLayout roleCard(
@@ -667,6 +720,11 @@ public final class NodeActivity extends Activity {
       return;
     }
     super.onBackPressed();
+  }
+
+  protected void onResume() {
+    super.onResume();
+    if (updater != null) updater.resumeInstall();
   }
 
   protected void onDestroy() {

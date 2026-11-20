@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
-# Reproducible, unpacked Windows x64 package. It does not create an installer
-# and the controller contains no downloader. Requires Go, CMake, Ninja and Zig.
+# Reproducible single-file Windows x64 build. llama.cpp, the Android APK and
+# the minimal Windows ADB payload are compressed into YourLM.exe and expanded
+# only under the user's private application-data directory at runtime.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 : "${LLAMA_SRC:?Checkout ggml-org/llama.cpp at the pinned commit}"
 src=$(cd "$LLAMA_SRC" && pwd)
 commit=c0b97be0b297177a88df08e96c01420976bb18d0
+version=0.2.0
 if [[ $(git -C "$src" rev-parse HEAD) != "$commit" ]]; then
   echo "Expected llama.cpp b12562 ($commit)" >&2
   exit 1
 fi
-for tool in go cmake ninja zig; do command -v "$tool" >/dev/null || { echo "Missing $tool" >&2; exit 1; }; done
+for tool in go cmake ninja zig python3; do
+  command -v "$tool" >/dev/null || { echo "Missing $tool" >&2; exit 1; }
+done
+adb_bundle=${WINDOWS_ADB_BUNDLE:-packages/.windows-platform-tools.zip}
+apk=${ANDROID_APK:-packages/YourLM-Android-arm64.apk}
+[[ -s "$adb_bundle" ]] || { echo "Missing Windows ADB bundle: $adb_bundle" >&2; exit 1; }
+[[ -s "$apk" ]] || { echo "Missing Android APK to embed: $apk" >&2; exit 1; }
 
 build=${WINDOWS_BUILD_DIR:-build/windows-native}
 rm -rf "$build"
@@ -21,8 +29,6 @@ for tool in ar ranlib; do
   printf '#!/bin/sh\nexec "%s" %s "$@"\n' "$z" "$tool" >"$build/toolchain/$tool"
   chmod +x "$build/toolchain/$tool"
 done
-# Zig provides an rc.exe-compatible resource compiler, while CMake invokes a
-# GNU-style windres command. The final two arguments are input and output.
 cat >"$build/toolchain/windres" <<EOF
 #!/bin/sh
 while [ "\$#" -gt 2 ]; do shift; done
@@ -52,29 +58,43 @@ cmake -S "$src" -B "$build/llama" -G Ninja \
   -DLLAMA_USE_PREBUILT_UI=OFF -DLLAMA_BUILD_UI=OFF
 cmake --build "$build/llama" --target ggml-rpc-server llama-server --parallel "${JOBS:-2}"
 
-out=packages/YourLM-Windows-x64
-rm -rf "$out"
-mkdir -p "$out/runtime"
-cp "$build/llama/bin/llama-server.exe" "$out/runtime/"
-cp "$build/llama/bin/ggml-rpc-server.exe" "$out/runtime/"
-server=$(sha256sum "$out/runtime/llama-server.exe" | cut -d' ' -f1)
-rpc=$(sha256sum "$out/runtime/ggml-rpc-server.exe" | cut -d' ' -f1)
+server_file="$build/llama/bin/llama-server.exe"
+rpc_file="$build/llama/bin/ggml-rpc-server.exe"
+server=$(sha256sum "$server_file" | cut -d' ' -f1)
+rpc=$(sha256sum "$rpc_file" | cut -d' ' -f1)
 source_commit=$(git rev-parse HEAD)
+embedded=host/embedded
+rm -rf "$embedded"
+mkdir -p "$embedded"
+trap 'rm -rf host/embedded' EXIT
+python3 - "$server_file" "$rpc_file" "$embedded/runtime.zip" <<'PY'
+from pathlib import Path
+from sys import argv
+from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
+
+def add(out, source):
+    info=ZipInfo(Path(source).name,(2026,1,1,0,0,0))
+    info.compress_type=ZIP_DEFLATED
+    info.external_attr=0o700 << 16
+    out.writestr(info,Path(source).read_bytes())
+with ZipFile(argv[3],'w',compresslevel=9) as out:
+    add(out,argv[1]); add(out,argv[2])
+PY
+cp "$adb_bundle" "$embedded/platform-tools.zip"
+cp "$apk" "$embedded/YourLM-Android-arm64.apk"
+python3 - "$embedded/platform-tools.zip" <<'PY'
+from sys import argv
+from zipfile import ZipFile
+with ZipFile(argv[1]) as z:
+    names={n.rsplit('/',1)[-1].lower() for n in z.namelist() if not n.endswith('/')}
+required={'adb.exe','adbwinapi.dll','adbwinusbapi.dll'}
+missing=required-names
+if missing: raise SystemExit('ADB bundle is incomplete: '+', '.join(sorted(missing)))
+PY
+mkdir -p packages
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
-  -ldflags="-X main.serverHash=$server -X main.rpcHash=$rpc -X main.buildVersion=0.1.2 -X main.buildCommit=$source_commit" \
-  -o "$out/YourLM.exe" ./host
-cp windows/README-Windows.txt "$out/CZYTAJ-MNIE.txt"
-cat >"$out/BUILDINFO.txt" <<EOF
-YourLM: 0.1.2
-YourLM source: $source_commit
-llama.cpp source: $commit (b12562)
-Go: $(go version)
-Zig: $(zig version)
-llama-server.exe SHA-256: $server
-ggml-rpc-server.exe SHA-256: $rpc
-EOF
-(
-  cd "$out"
-  sha256sum BUILDINFO.txt CZYTAJ-MNIE.txt YourLM.exe runtime/llama-server.exe runtime/ggml-rpc-server.exe >SHA256SUMS.txt
-)
-printf 'Windows package created in %s\n' "$out"
+  -ldflags="-H=windowsgui -X main.serverHash=$server -X main.rpcHash=$rpc -X main.buildVersion=$version -X main.buildCommit=$source_commit" \
+  -o packages/YourLM.exe ./host
+sha256sum packages/YourLM.exe "$apk" > packages/SHA256SUMS
+printf 'Single-file Windows build created: packages/YourLM.exe\n'
+sha256sum packages/YourLM.exe

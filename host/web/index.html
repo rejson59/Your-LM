@@ -24,12 +24,15 @@
           <button data-tab="chat">
             <span class="navIcon">○</span><span>Czat</span>
           </button>
+          <button data-tab="phone">
+            <span class="navIcon">⌁</span><span>Telefon USB</span>
+          </button>
         </nav>
         <div class="privacyCard">
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.1.2 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -41,6 +44,11 @@
         </header>
         <main>
           <div id="notice" role="status" hidden></div>
+          <article id="updateBar" class="updateBar" hidden>
+            <span class="updateIcon">↻</span>
+            <div><b id="updateTitle">Nowa wersja YourLM</b><small id="updateText"></small></div>
+            <button id="updateAction">Aktualizuj</button>
+          </article>
 
           <section id="cluster" class="tab">
             <div class="pageHead">
@@ -108,6 +116,46 @@
             </details>
           </section>
 
+          <section id="phone" class="tab" hidden>
+            <div class="pageHead">
+              <div><div class="kicker">TELEFON PRZEZ USB</div><h1>Zainstaluj APK jednym kliknięciem</h1><p>ADB, sterownik instalacji i aktualne APK są wbudowane w YourLM.exe. Nie musisz pobierać Platform Tools ani osobnego pliku APK.</p></div>
+              <span class="localPill desktopPill"><i></i> USB + ADB</span>
+            </div>
+
+            <article class="usbHero sectionCard">
+              <div class="usbVisual" aria-hidden="true"><span>PC</span><i></i><span>TEL</span></div>
+              <div class="usbCopy">
+                <span class="eyebrow">STATUS POŁĄCZENIA</span>
+                <h2 id="usbTitle">Szukam telefonu…</h2>
+                <p id="usbText">Podłącz telefon przewodem i odblokuj ekran.</p>
+                <label id="usbSelectLabel" hidden>Telefon<select id="usbDevice"></select></label>
+                <div class="actions">
+                  <button id="usbInstall" class="primary">Zainstaluj YourLM</button>
+                  <button id="usbRefresh" class="secondary">Odśwież urządzenia</button>
+                </div>
+              </div>
+            </article>
+
+            <div class="usbGrid">
+              <article class="sectionCard usbSteps">
+                <span class="eyebrow">PIERWSZE POŁĄCZENIE</span><h2>Włącz debugowanie USB</h2>
+                <div class="guideStep"><b>1</b><div><strong>Opcje programistyczne</strong><p>W informacjach o telefonie stuknij siedem razy wersję systemu lub MIUI/HyperOS.</p></div></div>
+                <div class="guideStep"><b>2</b><div><strong>Debugowanie USB</strong><p>W Opcjach programistycznych włącz „Debugowanie USB”, podłącz przewód z transmisją danych i wybierz tryb plików.</p></div></div>
+                <div class="guideStep"><b>3</b><div><strong>Zaufaj laptopowi</strong><p>Odblokuj telefon i zaakceptuj odcisk RSA. Potem kliknij „Zainstaluj YourLM”.</p></div></div>
+              </article>
+              <article class="sectionCard usbDevicesCard">
+                <span class="eyebrow">WYKRYTE URZĄDZENIA</span><h2>Telefony ADB</h2>
+                <div id="usbDevices" class="usbDevices"></div>
+                <div class="infoStrip">Aktualizacja przez ADB używa opcji <b>-r</b>, więc zachowuje ustawienia i modele aplikacji. Usunięcie aplikacji z telefonu usuwa jej prywatne kopie modeli.</div>
+              </article>
+            </div>
+
+            <article class="sectionCard updateCenter">
+              <div><span class="eyebrow">AKTUALIZACJE</span><h2>YourLM aktualizuje się bez ponownej konfiguracji</h2><p id="updateCenterText">Program automatycznie sprawdza nowe wydania GitHub. Nowe EXE pobierze w tle, a APK możesz zainstalować przez USB albo bezpośrednio na telefonie.</p></div>
+              <div class="actions"><button id="checkUpdate" class="secondary">Sprawdź teraz</button><a id="releaseLink" target="_blank" rel="noreferrer" hidden>Zobacz wydanie</a></div>
+            </article>
+          </section>
+
           <section id="model" class="tab" hidden>
             <div class="pageHead">
               <div><div class="kicker">MODEL I API</div><h1>Uruchom własny GGUF</h1><p>Plik pozostaje na Twoim urządzeniu. YourLM niczego nie pobiera.</p></div>
@@ -128,7 +176,7 @@
                 <span class="stepNumber">2</span><span class="eyebrow">SILNIK</span>
                 <h2>Sprawdź gotowość</h2>
                 <div class="runtimeStatus"><i></i><p id="engine"></p></div>
-                <p class="muted">Runtime llama.cpp b12562 jest dołączony i sprawdzany przed każdym startem.</p>
+                <p class="muted">Runtime llama.cpp b12562 jest wbudowany w pojedynczy YourLM.exe i przygotowywany automatycznie.</p>
               </article>
             </div>
 
@@ -166,7 +214,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.1.2</span><span>LOKALNE WNIOSKOWANIE · BEZ CHMURY</span></footer>
+          <footer><span>YourLM 0.2.0</span><span>JEDEN EXE · USB/ADB · AUTOMATYCZNE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>

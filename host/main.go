@@ -72,17 +72,24 @@ type Session struct {
 type App struct {
 	off *Offer
 	sync.Mutex
-	dir, engine, library, last string
-	nodes                      []Node
-	model                      Model
-	s                          *Session
+	dir, engine, library, last    string
+	runtimeRoot, adbPath, apkPath string
+	nodes                         []Node
+	model                         Model
+	s                             *Session
+	usb                           USBState
+	update                        UpdateState
 }
 
 func (a *App) binary() string {
 	if a.engine != "" {
 		return a.engine
 	}
-	return executable(filepath.Join(a.dir, runtimeDir))
+	root := a.runtimeRoot
+	if root == "" {
+		root = filepath.Join(a.dir, runtimeDir)
+	}
+	return executable(root)
 }
 func (a *App) start(bind string, port int) error {
 	if a.s != nil || a.off != nil {
@@ -254,13 +261,13 @@ func (a *App) state() map[string]any {
 			advice = fmt.Sprintf("Szacunkowo mieści się w RAM: %d warstw lokalnie, %d na workerach. Kontekst: 2048 tokenów.", a.model.Layers-layers, layers)
 		}
 	}
-	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "offer": code, "offerAddress": offerAddress, "offerKey": offerKey, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "budget": budget(total, free), "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "last": a.last}
+	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "offer": code, "offerAddress": offerAddress, "offerKey": offerKey, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "budget": budget(total, free), "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "usb": a.usb, "update": a.update, "last": a.last}
 }
 
 type input struct {
-	Code, Path, Address, Bind, PairAddress, PairKey string
-	Port                                            int
-	Messages                                        []struct {
+	Code, Path, Address, Bind, PairAddress, PairKey, Serial string
+	Port                                                    int
+	Messages                                                []struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	} `json:"messages"`
@@ -290,6 +297,14 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 	}
 	if op == "chat" {
 		a.chat(w, r, in)
+		return
+	}
+	if op == "usb-refresh" || op == "usb-install" {
+		a.usbAPI(w, op, in)
+		return
+	}
+	if op == "update-check" || op == "update-download" || op == "update-apply" {
+		a.updateAPI(w, op)
 		return
 	}
 	a.Lock()
@@ -415,6 +430,13 @@ func guard(host, secret string, next http.Handler) http.Handler {
 	})
 }
 func main() {
+	if handled, err := handleUpdateHelper(os.Args[1:]); handled {
+		if err != nil {
+			log.Print("Aktualizacja nie powiodła się: ", err)
+		}
+		return
+	}
+	cleanupDesktopUpdate()
 	nobrowser := flag.Bool("no-browser", false, "do not launch the browser")
 	flag.Parse()
 	dir, _ := os.UserConfigDir()
@@ -425,10 +447,25 @@ func main() {
 	if e := os.MkdirAll(dir, 0700); e != nil {
 		log.Fatal(e)
 	}
-	a := &App{dir: dir, library: filepath.Join(dir, "models")}
+	components, e := prepareBundledAssets(dir)
+	if e != nil {
+		log.Fatal("Nie udało się przygotować składników aplikacji: ", e)
+	}
+	a := &App{
+		dir:         dir,
+		library:     filepath.Join(dir, "models"),
+		runtimeRoot: components.runtimeRoot,
+		adbPath:     components.adbPath,
+		apkPath:     components.apkPath,
+	}
 	if runtime.GOOS != "windows" {
 		a.engine = os.Getenv("YOURLM_ENGINE")
+	} else {
+		a.usb = USBState{Supported: true, APKReady: a.apkPath != "", Message: "Szukam telefonu przez USB…"}
+		go a.refreshUSB()
 	}
+	a.update = UpdateState{Current: buildVersion, Progress: "Aktualizacje są sprawdzane automatycznie."}
+	go a.checkForUpdates(true)
 	os.MkdirAll(a.library, 0700)
 	l, e := net.Listen("tcp4", "127.0.0.1:0")
 	if e != nil {
