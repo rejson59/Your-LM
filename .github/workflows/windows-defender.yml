@@ -47,33 +47,25 @@ jobs:
           export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
           export JOBS=2
           scripts/build-native.sh build/android-native
-      - name: Prepare Android signing identity
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Audit the stable-signed release APK and exact native payloads
         shell: bash
         run: |
           set -euo pipefail
-          if [[ "$PUBLISH_RELEASE" == true ]]; then
-            scripts/restore-android-signing.sh "$RUNNER_TEMP/android-release.jks" "$RUNNER_TEMP/android-release.pass"
-            echo "KS_PASS=$(cat "$RUNNER_TEMP/android-release.pass")" >> "$GITHUB_ENV"
-            echo "EXPECTED_ANDROID_CERT_SHA256=$ANDROID_CERT_SHA256" >> "$GITHUB_ENV"
-          else
-            keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/android-release.jks" \
-              -storepass yourlm-gate -keypass yourlm-gate -alias yourlm \
-              -dname "CN=YourLM CI" -keyalg RSA -keysize 2048 -validity 2
-            echo 'KS_PASS=yourlm-gate' >> "$GITHUB_ENV"
-          fi
-          echo "KEYSTORE=$RUNNER_TEMP/android-release.jks" >> "$GITHUB_ENV"
-      - name: Assemble and audit the exact ARM64 APK
-        shell: bash
-        run: |
-          set -euo pipefail
+          apk=packages/YourLM-Android-arm64.apk
+          test -s "$apk"
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --verbose --print-certs "$apk"
+          cert=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          [[ "$cert" == "$ANDROID_CERT_SHA256" ]] || { echo "Unexpected Android signing identity" >&2; exit 1; }
+          badging=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")
+          grep -Fq "versionCode='4'" <<<"$badging"
+          grep -Fq "versionName='0.2.0-rc1'" <<<"$badging"
+          mkdir -p "$RUNNER_TEMP/apk-audit"
+          unzip -q "$apk" 'lib/arm64-v8a/*.so' -d "$RUNNER_TEMP/apk-audit"
+          cmp build/android-native/bin/ggml-rpc-server "$RUNNER_TEMP/apk-audit/lib/arm64-v8a/libylm_rpc.so"
+          cmp build/android-native/bin/llama-server "$RUNNER_TEMP/apk-audit/lib/arm64-v8a/libylm_server.so"
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
-          export KS_ALIAS=yourlm
-          export RPC_BIN="$PWD/build/android-native/bin/ggml-rpc-server"
-          export SERVER_BIN="$PWD/build/android-native/bin/llama-server"
-          scripts/package-android.sh
-          "$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging packages/YourLM-Android-arm64.apk | head -5
+          ANDROID_ABI=arm64-v8a scripts/verify-android-elf.sh "$RUNNER_TEMP/apk-audit/lib/arm64-v8a/"*.so
+          unzip -p "$apk" assets/BUILDINFO.txt
       - name: Upload Android ARM64 build
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
