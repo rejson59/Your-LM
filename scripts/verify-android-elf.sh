@@ -18,7 +18,12 @@ esac
 reader=${READELF:-}
 if [[ -z "$reader" ]]; then
   if [[ -n "${ANDROID_NDK_HOME:-}" ]]; then
-    reader=$(find "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt" -path '*/bin/llvm-readelf' -type f -print -quit)
+    for candidate in "$ANDROID_NDK_HOME"/toolchains/llvm/prebuilt/*/bin/llvm-readelf; do
+      if [[ -x "$candidate" ]]; then
+        reader=$candidate
+        break
+      fi
+    done
   fi
   reader=${reader:-$(command -v llvm-readelf || command -v readelf || true)}
 fi
