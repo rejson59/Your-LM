@@ -42,7 +42,12 @@ source_commit=$(git rev-parse HEAD)
 
 if [[ "$abi" == x86_64 ]]; then
   : "${ANDROID_NDK_HOME:?x86_64 emulator packaging requires ANDROID_NDK_HOME}"
-  android_cc="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android28-clang"
+  case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) ndk_host=linux-x86_64 ;;
+    Darwin-x86_64) ndk_host=darwin-x86_64 ;;
+    *) echo "Unsupported x86_64 packaging host: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+  esac
+  android_cc="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/$ndk_host/bin/x86_64-linux-android28-clang"
   [[ -x "$android_cc" ]] || { echo "Missing Android x86_64 clang: $android_cc" >&2; exit 1; }
   go_env=(GOOS=android GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=1 CC="$android_cc")
 else
@@ -90,4 +95,8 @@ javac -encoding UTF-8 -source 8 -target 8 \
 mkdir "$work/audit"
 unzip -q "$apk_out" "lib/$abi/*.so" -d "$work/audit"
 ANDROID_ABI="$abi" "$PWD/scripts/verify-android-elf.sh" "$work/audit/lib/$abi/"*.so
-sha256sum "$apk_out"
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$apk_out"
+else
+  shasum -a 256 "$apk_out"
+fi

@@ -21,6 +21,12 @@ actual_ndk=$(sed -n 's/^Pkg.Revision[[:space:]]*=[[:space:]]*//p' "$ndk/source.p
   echo "Expected Android NDK $expected_ndk, found ${actual_ndk:-unknown}" >&2
   exit 1
 }
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64) ndk_host=linux-x86_64 ;;
+  Darwin-x86_64) ndk_host=darwin-x86_64 ;;
+  *) echo "Unsupported NDK build host: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+esac
+ndk_bin="$ndk/toolchains/llvm/prebuilt/$ndk_host/bin"
 
 toolchain="$ndk/build/cmake/android.toolchain.cmake"
 [[ -f "$toolchain" ]] || { echo "Missing NDK CMake toolchain: $toolchain" >&2; exit 1; }
@@ -59,11 +65,14 @@ cmake --build "$build" --target ggml-rpc-server llama-server --parallel "${JOBS:
 
 rpc="$build/bin/ggml-rpc-server"
 server="$build/bin/llama-server"
-strip="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+strip="$ndk_bin/llvm-strip"
 [[ -x "$strip" ]] || { echo "Missing NDK llvm-strip: $strip" >&2; exit 1; }
 "$strip" --strip-unneeded "$rpc" "$server"
 
-ANDROID_ABI="$abi" \
-  READELF="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
+ANDROID_ABI="$abi" READELF="$ndk_bin/llvm-readelf" \
   "$(dirname "$0")/verify-android-elf.sh" "$rpc" "$server"
-sha256sum "$rpc" "$server"
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256sum "$rpc" "$server"
+else
+  shasum -a 256 "$rpc" "$server"
+fi
