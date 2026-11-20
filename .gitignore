@@ -5,4 +5,3 @@ build/
 *.idsig
 node_modules/
 host/embedded/
-packages/.windows-platform-tools.zip

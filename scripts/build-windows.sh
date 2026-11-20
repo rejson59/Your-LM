@@ -15,7 +15,7 @@ fi
 for tool in go cmake ninja zig python3; do
   command -v "$tool" >/dev/null || { echo "Missing $tool" >&2; exit 1; }
 done
-adb_bundle=${WINDOWS_ADB_BUNDLE:-packages/.windows-platform-tools.zip}
+adb_bundle=${WINDOWS_ADB_BUNDLE:-windows/platform-tools-windows.zip}
 apk=${ANDROID_APK:-packages/YourLM-Android-arm64.apk}
 [[ -s "$adb_bundle" ]] || { echo "Missing Windows ADB bundle: $adb_bundle" >&2; exit 1; }
 [[ -s "$apk" ]] || { echo "Missing Android APK to embed: $apk" >&2; exit 1; }
