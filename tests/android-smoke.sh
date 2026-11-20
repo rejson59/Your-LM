@@ -49,10 +49,12 @@ sleep 1
 assert_text "Dodaj moc telefonu do laptopa"
 click_text "Uruchom worker"
 
-for _ in $(seq 1 30); do
+attempt=0
+while ((attempt < 30)); do
   sleep 1
   pull_ui
   if grep -q 'WORKER GOTOWY' "$xml"; then break; fi
+  attempt=$((attempt + 1))
 done
 python3 - "$xml" <<'PY'
 import sys, xml.etree.ElementTree as ET
@@ -86,9 +88,11 @@ click_text "Model na telefonie"
 sleep 1
 assert_text "Czat i API bez laptopa"
 click_text "Otwórz konsolę"
-for _ in $(seq 1 20); do
+attempt=0
+while ((attempt < 20)); do
   sleep 1
   if adb shell ps -A | grep -q 'libylm_host'; then break; fi
+  attempt=$((attempt + 1))
 done
 adb shell ps -A | grep 'libylm_host'
 pull_ui

@@ -161,8 +161,18 @@ jobs:
             PY
             grep -q 'Usage:' /tmp/rpc-help.txt
             grep -q 'version:' /tmp/server-version.txt
-            tests/android-engine-smoke.sh
-            tests/android-smoke.sh "$RUNNER_TEMP/YourLM-Android-x86_64-test.apk"
+            if ! /bin/bash tests/android-engine-smoke.sh 2>&1 | tee "$RUNNER_TEMP/android-engine-smoke.log"; then
+              result=$(tail -60 "$RUNNER_TEMP/android-engine-smoke.log")
+              result=${result//'%'/'%25'}; result=${result//$'\n'/'%0A'}; result=${result//$'\r'/'%0D'}
+              echo "::error title=Android inference smoke failed::$result"
+              exit 1
+            fi
+            if ! /bin/bash tests/android-smoke.sh "$RUNNER_TEMP/YourLM-Android-x86_64-test.apk" 2>&1 | tee "$RUNNER_TEMP/android-ui-smoke.log"; then
+              result=$(tail -80 "$RUNNER_TEMP/android-ui-smoke.log")
+              result=${result//'%'/'%25'}; result=${result//$'\n'/'%0A'}; result=${result//$'\r'/'%0D'}
+              echo "::error title=Android UI smoke failed::$result"
+              exit 1
+            fi
       - name: Upload Android runtime evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

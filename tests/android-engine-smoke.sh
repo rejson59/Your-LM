@@ -14,11 +14,13 @@ cleanup() {
 trap cleanup EXIT
 
 ready=false
-for _ in $(seq 1 120); do
+attempt=0
+while ((attempt < 120)); do
   if curl --noproxy '*' -fsS -H 'Authorization: Bearer android-gate' http://127.0.0.1:18080/v1/models >/tmp/android-models.json 2>/dev/null; then
     ready=true
     break
   fi
+  attempt=$((attempt + 1))
   sleep 1
 done
 if [[ "$ready" != true ]]; then
