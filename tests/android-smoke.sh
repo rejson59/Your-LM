@@ -25,19 +25,35 @@ if not any(sys.argv[2] in value for value in texts):
 PY
 }
 click_text() {
-  pull_ui
-  point=$(python3 - "$xml" "$1" <<'PY'
+  local target=$1 point x y attempt=0
+  local size screen_height
+  size=$(adb shell wm size | tr -d '\r' | tail -1)
+  screen_height=${size##*x}
+  [[ "$screen_height" =~ ^[0-9]+$ ]] || screen_height=1920
+  while ((attempt < 6)); do
+    pull_ui
+    point=$(python3 - "$xml" "$target" <<'PY'
 import re, sys, xml.etree.ElementTree as ET
 for node in ET.parse(sys.argv[1]).iter("node"):
     if sys.argv[2] in node.attrib.get("text", ""):
         x1,y1,x2,y2=map(int,re.findall(r"\d+",node.attrib["bounds"]))
         print((x1+x2)//2,(y1+y2)//2)
         break
-else:
-    raise SystemExit(f"cannot click missing text {sys.argv[2]!r}")
 PY
 )
-  adb shell input tap $point
+    if [[ -n "$point" ]]; then
+      read -r x y <<<"$point"
+      if ((y >= 80 && y <= screen_height - 120)); then
+        adb shell input tap "$x" "$y"
+        return
+      fi
+    fi
+    adb shell input swipe 500 $((screen_height * 4 / 5)) 500 $((screen_height / 3)) 350
+    sleep 1
+    attempt=$((attempt + 1))
+  done
+  echo "cannot bring UI text into view: $target" >&2
+  return 1
 }
 
 assert_text "Jak chcesz użyć tego urządzenia?"
