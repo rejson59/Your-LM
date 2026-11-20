@@ -176,15 +176,11 @@ func testNodeWithSecret(t *testing.T, rpc, secret string) Node {
 	return Node{Address: l.Addr().String(), pin: fmt.Sprintf("%x", sha256.Sum256(cfg.Certificates[0].Certificate[0])), secret: o.secret}
 }
 func TestManualPairing(t *testing.T) {
-	key := "ABCDE-FGHJK-LMNPQ-RSTUV"
+	key := "ABCDE-FGHJK-LMNPQ-RSTIV"
 	canonical, err := canonicalManual(key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The fixed key above is intentionally invalid (U is excluded) and must be
-	// rejected before any network request.
-	if _, err = pairManual("127.0.0.1:1", key); err == nil {
-		t.Fatal("accepted ambiguous manual key")
+	// I and O are deliberately absent so they cannot be confused with digits.
+	if err == nil {
+		t.Fatal("accepted ambiguous manual key", canonical)
 	}
 	key = "ABCDE-FGHJK-LMNPQ-RSTVW"
 	canonical, err = canonicalManual(key)

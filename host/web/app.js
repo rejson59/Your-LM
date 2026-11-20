@@ -143,6 +143,7 @@ function render(nextState) {
   $("engine").textContent = state.runtime
     ? "Silnik jest gotowy i przeszedł kontrolę integralności."
     : "Brakuje kompletnego silnika. Zamknij program i wypakuj ponownie cały pakiet — nie uruchamiaj samego EXE.";
+  document.querySelector(".runtimeStatus").classList.toggle("bad", !state.runtime);
   $("selected").textContent = state.model.name
     ? `${state.model.name} · ${gib(state.model.size)} GiB · ${state.model.layers} warstw`
     : "Nie wybrano pliku.";

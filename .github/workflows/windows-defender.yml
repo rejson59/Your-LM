@@ -1,4 +1,4 @@
-name: Windows security gate
+name: Release security gates
 
 on:
   push:
@@ -15,12 +15,17 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Install pinned Android NDK
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: 1.25.5
+          check-latest: true
+      - name: Install pinned Android SDK and NDK
         shell: bash
         run: |
           set -euo pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "ndk;27.2.12479018" "platforms;android-34" "build-tools;34.0.0"
       - name: Fetch pinned llama.cpp source
         shell: bash
         run: |
@@ -37,7 +42,30 @@ jobs:
           export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
           export JOBS=2
           scripts/build-native.sh build/android-native
-      - name: Execute exact ARM64 payloads inside Android
+      - name: Assemble a gate-signed APK from the exact payloads
+        shell: bash
+        run: |
+          set -euo pipefail
+          keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/android-gate.jks" \
+            -storepass yourlm-gate -keypass yourlm-gate -alias yourlm \
+            -dname "CN=YourLM CI" -keyalg RSA -keysize 2048 -validity 2
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          export KEYSTORE="$RUNNER_TEMP/android-gate.jks"
+          export KS_PASS=yourlm-gate
+          export RPC_BIN="$PWD/build/android-native/bin/ggml-rpc-server"
+          export SERVER_BIN="$PWD/build/android-native/bin/llama-server"
+          scripts/package-android.sh
+      - name: Upload Android ARM64 build inputs
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-arm64-build
+          path: |
+            build/android-native/bin/ggml-rpc-server
+            build/android-native/bin/llama-server
+            packages/YourLM-Android-arm64.apk
+          if-no-files-found: error
+          retention-days: 7
+      - name: Execute exact APK and ARM64 payloads inside Android
         uses: ReactiveCircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2.38.0
         with:
           api-level: 30
@@ -46,7 +74,7 @@ jobs:
           cores: 2
           ram-size: 3072M
           disable-linux-hw-accel: true
-          emulator-boot-timeout: 900
+          emulator-boot-timeout: 1800
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             set -euo pipefail
@@ -57,13 +85,17 @@ jobs:
             timeout 45 adb shell /data/local/tmp/llama-server --version | tee /tmp/server-version.txt
             grep -q 'Usage:' /tmp/rpc-help.txt
             grep -q 'version:' /tmp/server-version.txt
-      - name: Upload runtime-validated ARM64 engines
+            tests/android-engine-smoke.sh
+            tests/android-smoke.sh packages/YourLM-Android-arm64.apk
+      - name: Upload Android runtime evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: android-arm64-engines
+          name: android-runtime-evidence
           path: |
-            build/android-native/bin/ggml-rpc-server
-            build/android-native/bin/llama-server
+            test-output/android-home.png
+            test-output/android-worker-ready.png
+            test-output/android-worker-ready.xml
+            test-output/android-host.png
           if-no-files-found: error
           retention-days: 7
 
@@ -83,12 +115,19 @@ jobs:
           Update-MpSignature
           $scanner = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
           if (-not (Test-Path $scanner)) { throw 'MpCmdRun.exe not found' }
+          $apkDir = Join-Path $env:RUNNER_TEMP 'yourlm-apk'
+          New-Item -ItemType Directory -Force $apkDir | Out-Null
+          & tar.exe -xf 'packages\YourLM-Android-arm64.apk' -C $apkDir
+          if ($LASTEXITCODE -ne 0) { throw 'Could not extract APK for native-payload scanning' }
           $files = @(
             'packages\YourLM-Windows-x64\YourLM.exe',
             'packages\YourLM-Windows-x64\runtime\llama-server.exe',
             'packages\YourLM-Windows-x64\runtime\ggml-rpc-server.exe',
-            'packages\YourLM-Windows-x64-0.1.1.zip',
-            'YourLM-0.1.1.zip'
+            'packages\YourLM-Windows-x64-0.1.2.zip',
+            'packages\YourLM-Android-arm64.apk',
+            'YourLM-0.1.2.zip'
+          ) + @(
+            Get-ChildItem (Join-Path $apkDir 'lib\arm64-v8a\*.so') | ForEach-Object { $_.FullName }
           )
           foreach ($file in $files) {
             if (-not (Test-Path $file)) { throw "Missing release file: $file" }
@@ -97,7 +136,7 @@ jobs:
             & $scanner -Scan -ScanType 3 -File (Resolve-Path $file) -DisableRemediation
             if ($LASTEXITCODE -ne 0) { throw "Defender rejected $file (exit $LASTEXITCODE)" }
           }
-          $detections = Get-MpThreatDetection | Where-Object { $_.Resources -match 'YourLM|llama-server|ggml-rpc-server' }
+          $detections = Get-MpThreatDetection | Where-Object { $_.Resources -match 'YourLM|llama-server|ggml-rpc-server|libylm' }
           if ($detections) {
             $detections | Format-List *
             throw 'Defender reported a release-file detection.'

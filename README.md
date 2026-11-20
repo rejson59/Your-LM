@@ -1,12 +1,12 @@
 # YourLM — prywatny klaster GGUF
 
-**0.1.1 · wydanie testowe · Windows x64 i Android ARM64 (9+)**
+**0.1.2 · wydanie testowe · Windows x64 i Android ARM64 (9+)**
 
 YourLM uruchamia `llama.cpp` na CPU i potrafi przenieść część warstw modelu na inne urządzenia. To jedna inferencja z podziałem warstw, a nie rozsyłanie całego pytania do kilku niezależnych chatbotów. Nie wymaga konta, chmury, ADB ani roota. Aplikacja nie dodaje własnego filtra treści; zachowanie zależy od modelu i jego szablonu czatu.
 
 | Gotowy plik | Do czego służy |
 |---|---|
-| [YourLM-Windows-x64-0.1.1.zip](packages/YourLM-Windows-x64-0.1.1.zip) | Pełny, przenośny pakiet Windows. Wypakuj cały katalog; nie wyjmuj samego EXE. |
+| [YourLM-Windows-x64-0.1.2.zip](packages/YourLM-Windows-x64-0.1.2.zip) | Pełny, przenośny pakiet Windows. Wypakuj cały katalog; nie wyjmuj samego EXE. |
 | [YourLM-Android-arm64.apk](packages/YourLM-Android-arm64.apk) | APK na Redmi lub inny zgodny ARM64. Worker, samodzielny czat lub host klastra. Silnik w zestawie. |
 | [SHA256SUMS](packages/SHA256SUMS) | Sumy kontrolne obu plików. |
 
@@ -16,10 +16,10 @@ YourLM uruchamia `llama.cpp` na CPU i potrafi przenieść część warstw modelu
 
 1. **Najpierw sam laptop.** Pobierz ZIP Windows, przeskanuj go Defenderem i wypakuj **cały** katalog `YourLM-Windows-x64`. Uruchom znajdujący się w nim `YourLM.exe` jako zwykły użytkownik — nigdy jako administrator. Obok musi pozostać katalog `runtime`. Otworzy się lokalny panel w przeglądarce. Zostaw okno konsoli otwarte; gdy przeglądarka nie otworzy się automatycznie, skopiuj cały adres wypisany w konsoli. Nie udostępniaj tego adresu.
 2. **Modele i API → Wybierz model.** Wybierz swój lokalny GGUF systemowym oknem pliku. Na pierwszy test proponujemy **3–4B Q4_K_M**, nie 26B. Pozostaw `127.0.0.1`, kliknij **Uruchom model**, poczekaj na „Gotowy” i otwórz **Czat**. Kontroler przed startem sprawdzi dołączony `llama-server.exe`; nie pobiera programu z sieci.
-3. **Dołącz Redmi.** Zatrzymaj model na laptopie. Na telefonie zainstaluj APK (instalacja z pliku, nie ze sklepu), połącz urządzenia z tym samym prywatnym Wi-Fi i wybierz **Uruchom worker**. Nie kopiuj wag na worker. Na laptopie wybierz **Klaster → Sparuj worker** i zeskanuj QR kamerą **laptopa**. Alternatywnie przekaż cały prywatny kod sesji zaufanym kanałem i wklej. Dane telefonu powinny pojawić się w inwentarzu.
+3. **Dołącz Redmi.** Zatrzymaj model na laptopie. Na telefonie zainstaluj APK (instalacja z pliku, nie ze sklepu), połącz urządzenia z tym samym prywatnym Wi-Fi i wybierz **Pomóż laptopowi → Uruchom worker**. Nie kopiuj wag na worker. Telefon pokaże osobno **adres parowania** i 20-znakowy **kod parowania**. Na laptopie wybierz **Urządzenia → Dodaj telefon**, przepisz oba pola i kliknij **Połącz telefon**. Kamera nie jest potrzebna. Opcjonalnie możesz zeskanować QR kamerą laptopa; telefon niczego nie skanuje. Dane Redmi powinny pojawić się na liście urządzeń.
 4. **Uruchom ten sam model ponownie.** Panel pokaże szacowany podział i liczbę warstw wysłanych do workerów. Porównaj tokeny/s po odpowiedzi na ten sam prompt, przy podobnej długości odpowiedzi. Pierwsze ładowanie przez Wi-Fi może trwać długo. Pozostaw worker na ekranie i wstrzymaj pracę, jeśli telefon się przegrzewa. Zatrzymaj model przed odłączaniem urządzeń.
 
-**Inne role.** Na drugim Windows: wypakuj ten sam pełny pakiet, w zakładce **Klaster** rozwiń „Udostępnij ten komputer jako worker”, wybierz prywatny IPv4 i uruchom. Na Androidzie jako host: **Importuj plik GGUF** (systemowy selektor tworzy kopię w prywatnej bibliotece aplikacji) → **Otwórz konsolę hosta** → **Modele i API** → wybierz model z biblioteki. Możesz działać bez workerów albo najpierw sparować inne urządzenia. Host i worker to rozłączne role; jeden worker obsługuje jednego hosta naraz. Host obsługuje do ośmiu sparowanych workerów; większe konfiguracje nie były mierzone.
+**Inne role.** Na drugim Windows: wypakuj ten sam pełny pakiet, w zakładce **Urządzenia** rozwiń „Udostępnij ten komputer innemu hostowi”, wybierz prywatny IPv4 i uruchom. Na Androidzie jako host: **Model na telefonie → Dodaj plik GGUF** (systemowy selektor tworzy kopię w prywatnej bibliotece aplikacji) → **Otwórz konsolę** → **Model i API** → wybierz model z biblioteki. Możesz działać bez workerów albo najpierw sparować inne urządzenia. Host i worker to rozłączne role; jeden worker obsługuje jednego hosta naraz. Host obsługuje do ośmiu sparowanych workerów; większe konfiguracje nie były mierzone.
 
 ## Ile naprawdę zmieści się w RAM?
 
@@ -37,9 +37,9 @@ Odczytaj **URL `/v1` i klucz** w zakładce **Modele i API** po uruchomieniu serw
 
 ## Prywatność, ograniczenia i diagnostyka
 
-- **RPC jest eksperymentalne.** Surowy RPC nasłuchuje tylko na loopbacku. Między urządzeniami działa tunel TLS: host weryfikuje odcisk certyfikatu z QR, a worker wymaga losowego sekretu sesji. Parowanie nie jest trwałe. Po restarcie workera usuń stary wpis i użyj nowego kodu. Chroń QR i schowek. To nie izoluje przed złośliwym oprogramowaniem już działającym na urządzeniu.
+- **RPC jest eksperymentalne.** Surowy RPC nasłuchuje tylko na loopbacku. Między urządzeniami działa tunel TLS z przypiętym odciskiem certyfikatu i sekretem sesji. Przy ręcznym parowaniu 20-znakowy kod ma 100 bitów losowości i nie jest wysyłany przez sieć: host przesyła losowe wyzwanie, worker odpowiada HMAC obejmującym wyzwanie, adres TLS i odcisk certyfikatu, a dopiero potem host otwiera przypięte TLS. Pełny QR przenosi równoważne dane bezpośrednio. Parowanie nie jest trwałe. Po restarcie workera usuń stary wpis i użyj nowych danych. Nie publikuj kodu ani QR. To nie izoluje przed złośliwym oprogramowaniem już działającym na urządzeniu.
 - **API LAN to HTTP z kluczem Bearer, nie HTTPS.** Korzystaj wyłącznie w zaufanej prywatnej sieci; nie przekierowuj portów na routerze. Do niezaufanej sieci potrzebny jest osobny bezpieczny transport. Panel zarządzania nie jest wystawiany w LAN. Klucz API zmienia się po każdym uruchomieniu modelu. Historia w panelu pozostaje w pamięci karty, a silnik zapisuje lokalny log diagnostyczny; zewnętrzne klienty mogą przechowywać własną historię.
-- Jeśli parowanie nie działa: sprawdź wspólne Wi-Fi, brak izolacji klientów/Guest Wi-Fi, prywatny IPv4, aktualny kod, zgodę na kamerę lub ręczne wklejenie kodu. Zapora Windows powinna dopuszczać połączenia tylko w profilu prywatnym. Android szuka interfejsu Wi-Fi `wlan*`.
+- Jeśli parowanie nie działa: sprawdź wspólne Wi-Fi, brak izolacji klientów/Guest Wi-Fi, prywatny IPv4 oraz aktualny adres i kod pokazany na telefonie. Przepisz wszystkie cztery grupy kodu; nie wpisuj pełnego `YLM1|…` w pole krótkiego kodu. Kamera laptopa jest tylko opcją. Zapora Windows powinna dopuszczać połączenia wyłącznie w profilu prywatnym. Android szuka interfejsu Wi-Fi `wlan*`.
 - Po utracie workera zatrzymaj serwer, usuń niedostępny węzeł i uruchom model ponownie. Brak migracji trwającej generacji i automatycznego failover. Na HyperOS pozostaw aplikację na pierwszym planie. Zapisz model na hoście z odpowiednim zapasem miejsca. Podczas ładowania bardzo dużych plików system może przerwać proces mimo pozytywnej estymacji.
 - Dane Windows: `%AppData%\YourLM\` (`models`, `engine.log`). Kontroler i katalog `runtime` pozostają tam, gdzie wypakowano pakiet. Kontroler nie pobiera programów i odrzuca zmieniony runtime. Nie zastępuj plików runtime inną wersją protokołu RPC.
 - EXE nie ma komercyjnego podpisu Authenticode. Ma jawne informacje wersji, manifest `asInvoker` i nie wymaga administratora. APK podpisano kluczem **wydania testowego**, nie produkcyjnym kluczem sklepowym. Weryfikuj sumy plików. Jeśli antywirus zgłosi alarm, nie zezwalaj ani nie dodawaj wyjątku — zgłoś pełną nazwę detekcji i SHA-256. Własny build podpisany innym kluczem wymaga odinstalowania poprzedniego APK (to usuwa prywatne kopie modeli). Wagi źródłowe zachowaj osobno.
@@ -58,16 +58,20 @@ LLAMA_SRC=/tmp/yourlm-llama scripts/build-windows.sh
 
 Windows wymaga Go 1.25.5, Zig 0.14.1, CMake i Ninja. Skrypt buduje dwa statyczne programy runtime ze źródła, wpisuje ich SHA-256 do kontrolera i tworzy zwykły katalog — bez instalatora i packera. Kontroler Go zachowuje symbole (nie używa `-s -w`); runtime usuwa pomocnicze symbole linkera, dzięki czemu dwa czyste buildy są identyczne bajt w bajt. Manifest oraz metadane PE są generowane z `windows/`. Szczegółowy opis zachowania i granic zaufania znajduje się w [SECURITY.md](SECURITY.md).
 
-APK (Linux x64): Go 1.25.5, Zig 0.14.1 na `PATH`, CMake, Make, JDK 17, Android SDK platform/build-tools 34, `zip`. Skrypty niczego nie pobierają i nie zawierają klucza podpisującego.
+APK (Linux x64): Go 1.25.5, CMake, Make, JDK 17, Android SDK platform/build-tools 34, `zip` oraz **oficjalny Android NDK 27.2.12479018**. Androidowych silników nie wolno budować jako ogólne `aarch64-linux-musl`: skrypt wymaga sysrootu NDK, ABI `arm64-v8a`, API 28 i statycznego C++ runtime. Skrypty niczego nie pobierają i nie zawierają klucza podpisującego.
 
 ```sh
 git clone --depth 1 --branch b12562 https://github.com/ggml-org/llama.cpp /tmp/yourlm-llama
-LLAMA_SRC=/tmp/yourlm-llama scripts/build-native.sh
+export LLAMA_SRC=/tmp/yourlm-llama
+export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+scripts/build-native.sh
 # Ustaw ANDROID_HOME, JAVA_HOME i PATH. Przygotuj własny keystore (alias yourlm).
 # KEYSTORE = ścieżka poza repo, KS_PASS = hasło podane bezpiecznie w środowisku.
 RPC_BIN="$PWD/build/android-native/bin/ggml-rpc-server" \
 SERVER_BIN="$PWD/build/android-native/bin/llama-server" scripts/package-android.sh
 ```
+
+`verify-android-elf.sh` zatrzymuje pakowanie, jeśli którykolwiek wykonywalny payload nie jest AArch64 `ET_DYN` PIE z `/system/bin/linker64`, zawiera `TEXTREL`/RPATH albo wymaga niedołączonego `libc++_shared.so`. Aplikacja powtarza podstawową kontrolę nagłówka ELF przed startem i pokazuje kod wyjścia oraz końcówkę natywnego logu zamiast ogólnego komunikatu.
 
 Testy jednostkowe obejmują metadane GGUF, budżety, walidację kodów, granice panelu oraz rzeczywiste połączenie TLS (odrzucenie złego sekretu i certyfikatu). Opcjonalny test integracyjny:
 

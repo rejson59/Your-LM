@@ -1,4 +1,4 @@
-"""Create deterministic Windows and combined release archives for 0.1.1."""
+"""Create deterministic Windows and combined release archives for 0.1.2."""
 from hashlib import sha256
 from pathlib import Path
 from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
@@ -6,10 +6,10 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 root = Path(__file__).resolve().parents[1]
 packages = root / "packages"
 windows = packages / "YourLM-Windows-x64"
-windows_zip = packages / "YourLM-Windows-x64-0.1.1.zip"
+windows_zip = packages / "YourLM-Windows-x64-0.1.2.zip"
 apk = packages / "YourLM-Android-arm64.apk"
 sums = packages / "SHA256SUMS"
-bundle = root / "YourLM-0.1.1.zip"
+bundle = root / "YourLM-0.1.2.zip"
 required = [
     windows / "YourLM.exe",
     windows / "runtime" / "llama-server.exe",

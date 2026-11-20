@@ -61,11 +61,11 @@ server=$(sha256sum "$out/runtime/llama-server.exe" | cut -d' ' -f1)
 rpc=$(sha256sum "$out/runtime/ggml-rpc-server.exe" | cut -d' ' -f1)
 source_commit=$(git rev-parse HEAD)
 GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
-  -ldflags="-X main.serverHash=$server -X main.rpcHash=$rpc -X main.buildVersion=0.1.1 -X main.buildCommit=$source_commit" \
+  -ldflags="-X main.serverHash=$server -X main.rpcHash=$rpc -X main.buildVersion=0.1.2 -X main.buildCommit=$source_commit" \
   -o "$out/YourLM.exe" ./host
 cp windows/README-Windows.txt "$out/CZYTAJ-MNIE.txt"
 cat >"$out/BUILDINFO.txt" <<EOF
-YourLM: 0.1.1
+YourLM: 0.1.2
 YourLM source: $source_commit
 llama.cpp source: $commit (b12562)
 Go: $(go version)

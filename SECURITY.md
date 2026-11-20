@@ -2,7 +2,7 @@
 
 ## Co wykonuje wydanie Windows
 
-`YourLM.exe` uruchamia lokalny panel HTTP wyłącznie na losowym porcie `127.0.0.1`, otwiera ten adres przez systemowe `ShellExecuteW`, a po wyborze modelu uruchamia dołączony `runtime/llama-server.exe`. Opcjonalny tryb workera uruchamia `runtime/ggml-rpc-server.exe` tylko na loopbacku; do sieci prywatnej wystawiany jest oddzielny tunel TLS z odciskiem certyfikatu i sekretem przekazywanym w QR.
+`YourLM.exe` uruchamia lokalny panel HTTP wyłącznie na losowym porcie `127.0.0.1`, otwiera ten adres przez systemowe `ShellExecuteW`, a po wyborze modelu uruchamia dołączony `runtime/llama-server.exe`. Opcjonalny tryb workera uruchamia `runtime/ggml-rpc-server.exe` tylko na loopbacku; do sieci prywatnej wystawiany jest oddzielny tunel TLS. QR przenosi odcisk certyfikatu i sekret sesji. Ręczne parowanie używa 100-bitowego kodu, który nie jest wysyłany: host weryfikuje HMAC losowego wyzwania, adresu i odcisku certyfikatu, po czym przypina certyfikat dla właściwego tunelu TLS.
 
 Kontroler **nie ma aktualizatora, nie pobiera ani nie rozpakowuje programów, nie używa PowerShella lub `rundll32`, nie instaluje usługi, nie zmienia rejestru, nie dodaje autostartu, nie prosi o uprawnienia administratora i nie dodaje wyjątków antywirusowych**. Programy runtime są zwykłymi plikami w ZIP-ie. Ich SHA-256 jest zaszyty w kontrolerze i sprawdzany bezpośrednio przed każdym uruchomieniem. Zmieniony albo brakujący plik jest odrzucany.
 
@@ -13,11 +13,11 @@ Kontroler łączy się tylko z lokalnym serwerem modelu oraz ze sparowanymi pryw
 ## Granice zaufania
 
 - GGUF i programy runtime są przetwarzane przez `llama.cpp`; używaj wag z zaufanego źródła.
-- QR/kod parowania jest sekretem jednorazowej sesji. Nie publikuj go.
+- QR i krótki kod parowania są sekretami jednorazowej sesji. Nie publikuj ich. Krótki kod ma cztery grupy po pięć znaków i 100 bitów losowości; nie jest to sześciocyfrowy PIN.
 - Surowy protokół RPC jest eksperymentalny i dlatego nigdy nie słucha bezpośrednio w LAN.
 - Aplikacja nie chroni przed złośliwym programem już działającym na tym samym koncie Windows lub Android.
 - Wydanie testowe nie ma komercyjnego podpisu Authenticode. Suma i jawny kod pozwalają zweryfikować artefakt, ale nie zastępują reputacji podpisanego wydawcy.
-- Bramka publikacji `.github/workflows/windows-defender.yml` odrzuca artefakt, jeśli aktualny Microsoft Defender na świeżym runnerze Windows wykryje program lub archiwum. To test w danym momencie, nie gwarancja zachowania wszystkich przyszłych wersji baz antywirusowych.
+- Bramka publikacji `.github/workflows/windows-defender.yml` odrzuca artefakt, jeśli aktualny Microsoft Defender na świeżym runnerze Windows wykryje program lub archiwum. Ta sama bramka buduje silniki Androida przypiętym NDK, sprawdza ELF/PIE i wykonuje dokładne payloady ARM64 w środowisku Android. To test w danym momencie, nie gwarancja zachowania wszystkich przyszłych wersji baz antywirusowych ani wszystkich telefonów.
 
 ## Zgłaszanie
 
