@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs inside the GitHub ARM64 Android emulator gate. It launches the exact APK,
-# starts the native worker through the real UI, and checks the manual pairing UI.
+# Runs inside the GitHub x86_64 Android emulator gate. It launches an
+# architecture-equivalent test APK, starts the real native worker through the
+# UI, and checks manual pairing plus phone-host startup.
 set -euo pipefail
 apk=${1:-packages/YourLM-Android-arm64.apk}
 xml=${RUNNER_TEMP:-/tmp}/yourlm-window.xml

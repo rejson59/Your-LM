@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Exercise model loading and token generation in the exact Android ARM64
+# Exercise model loading and token generation in the Android emulator build of
 # llama-server, using a tiny synthetic GGUF (plumbing only, not language quality).
 set -euo pipefail
 python3 tests/tiny_model.py /tmp/yourlm-android-tiny.gguf
@@ -36,5 +36,5 @@ models=json.load(open('/tmp/android-models.json'))
 reply=json.load(open('/tmp/android-completion.json'))
 assert models.get('data'), models
 assert isinstance(reply.get('content'), str), reply
-print('Android ARM64 synthetic GGUF inference OK:', reply.get('tokens_predicted'), 'tokens')
+print('Android emulator synthetic GGUF inference OK:', reply.get('tokens_predicted'), 'tokens')
 PY

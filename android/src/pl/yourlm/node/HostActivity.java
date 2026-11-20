@@ -34,8 +34,8 @@ public final class HostActivity extends Activity {
         File libs = new File(getApplicationInfo().nativeLibraryDir);
         File controller = new File(libs, "libylm_host.so");
         File engine = new File(libs, "libylm_server.so");
-        Worker.requireArm64Pie(controller);
-        Worker.requireArm64Pie(engine);
+        Worker.requireAndroid64Pie(controller);
+        Worker.requireAndroid64Pie(engine);
         File hostLog = new File(getCacheDir(), "host.log");
         if (hostLog.exists()) hostLog.delete();
         ProcessBuilder pb = new ProcessBuilder(

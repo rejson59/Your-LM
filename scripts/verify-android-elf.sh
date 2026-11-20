@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 # Refuse Android packages containing the non-PIE generic Linux executables that
-# broke v0.1.1. Every executable payload must be an ARM64 Android PIE.
+# broke v0.1.1. Every payload must be an Android PIE for the requested ABI.
 set -euo pipefail
 
 if (($# == 0)); then
   echo "usage: $0 ELF [...]" >&2
   exit 2
 fi
+
+abi=${ANDROID_ABI:-arm64-v8a}
+case "$abi" in
+  arm64-v8a) machine='AArch64' ;;
+  x86_64) machine='Advanced Micro Devices X86-64|x86-64' ;;
+  *) echo "unsupported Android ABI for ELF verification: $abi" >&2; exit 2 ;;
+esac
 
 reader=${READELF:-}
 if [[ -z "$reader" ]]; then
@@ -27,8 +34,8 @@ for file in "$@"; do
     echo "$file is not ET_DYN/PIE" >&2
     exit 1
   }
-  grep -Eq 'Machine:[[:space:]]+AArch64' <<<"$header" || {
-    echo "$file is not AArch64" >&2
+  grep -Eq "Machine:[[:space:]]+($machine)" <<<"$header" || {
+    echo "$file does not match Android ABI $abi" >&2
     exit 1
   }
   grep -Fq '/system/bin/linker64' <<<"$programs" || {

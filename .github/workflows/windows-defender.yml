@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   android-arm64:
-    name: Android ARM64 NDK + runtime gate
+    name: Android ARM64 release + x86_64 runtime gate
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -19,6 +19,7 @@ jobs:
         with:
           go-version: 1.25.5
           check-latest: true
+          cache: false
       - name: Install pinned Android SDK and NDK
         shell: bash
         run: |
@@ -65,28 +66,49 @@ jobs:
             packages/YourLM-Android-arm64.apk
           if-no-files-found: error
           retention-days: 7
-      - name: Execute exact APK and ARM64 payloads inside Android
+      - name: Build Android x86_64 equivalents for the hardware-accelerated emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
+          export ANDROID_ABI=x86_64
+          export JOBS=2
+          scripts/build-native.sh build/android-x86-native
+      - name: Assemble the x86_64 emulator test APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          export ANDROID_ABI=x86_64
+          export KEYSTORE="$RUNNER_TEMP/android-gate.jks"
+          export KS_PASS=yourlm-gate
+          export RPC_BIN="$PWD/build/android-x86-native/bin/ggml-rpc-server"
+          export SERVER_BIN="$PWD/build/android-x86-native/bin/llama-server"
+          export APK_OUT="$RUNNER_TEMP/YourLM-Android-x86_64-test.apk"
+          scripts/package-android.sh
+      - name: Execute equivalent native payloads and UI inside Android x86_64
         uses: ReactiveCircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2.38.0
         with:
           api-level: 30
           target: default
-          arch: arm64-v8a
+          arch: x86_64
           cores: 2
           ram-size: 3072M
-          disable-linux-hw-accel: true
-          emulator-boot-timeout: 1800
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 600
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: |
             set -euo pipefail
-            adb push build/android-native/bin/ggml-rpc-server /data/local/tmp/ggml-rpc-server
-            adb push build/android-native/bin/llama-server /data/local/tmp/llama-server
+            adb push build/android-x86-native/bin/ggml-rpc-server /data/local/tmp/ggml-rpc-server
+            adb push build/android-x86-native/bin/llama-server /data/local/tmp/llama-server
             adb shell chmod 700 /data/local/tmp/ggml-rpc-server /data/local/tmp/llama-server
             timeout 45 adb shell /data/local/tmp/ggml-rpc-server --help | tee /tmp/rpc-help.txt
             timeout 45 adb shell /data/local/tmp/llama-server --version | tee /tmp/server-version.txt
             grep -q 'Usage:' /tmp/rpc-help.txt
             grep -q 'version:' /tmp/server-version.txt
             tests/android-engine-smoke.sh
-            tests/android-smoke.sh packages/YourLM-Android-arm64.apk
+            tests/android-smoke.sh "$RUNNER_TEMP/YourLM-Android-x86_64-test.apk"
       - name: Upload Android runtime evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:

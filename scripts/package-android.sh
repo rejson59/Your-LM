@@ -3,13 +3,29 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-: "${RPC_BIN:?ARM64 Android ggml-rpc-server required}"
-: "${SERVER_BIN:?ARM64 Android llama-server required}"
+: "${RPC_BIN:?Android ggml-rpc-server required}"
+: "${SERVER_BIN:?Android llama-server required}"
 : "${KEYSTORE:?Provide a private signing keystore outside this repository}"
 : "${KS_PASS:?Set keystore password}"
 : "${ANDROID_HOME:?Set ANDROID_HOME}"
 export KS_PASS
 version=0.1.2
+abi=${ANDROID_ABI:-arm64-v8a}
+case "$abi" in
+  arm64-v8a)
+    goarch=arm64
+    default_apk=packages/YourLM-Android-arm64.apk
+    ;;
+  x86_64)
+    goarch=amd64
+    default_apk=packages/YourLM-Android-x86_64-test.apk
+    ;;
+  *)
+    echo "Supported package ABIs: arm64-v8a, x86_64" >&2
+    exit 1
+    ;;
+esac
+apk_out=${APK_OUT:-$default_apk}
 bt=${BUILD_TOOLS:-$ANDROID_HOME/build-tools/34.0.0}
 jar=${ANDROID_JAR:-$ANDROID_HOME/platforms/android-34/android.jar}
 for tool in aapt d8 zipalign apksigner; do
@@ -17,27 +33,35 @@ for tool in aapt d8 zipalign apksigner; do
 done
 [[ -f "$jar" ]] || { echo "Missing Android platform jar: $jar" >&2; exit 1; }
 
-"$PWD/scripts/verify-android-elf.sh" "$RPC_BIN" "$SERVER_BIN"
+ANDROID_ABI="$abi" "$PWD/scripts/verify-android-elf.sh" "$RPC_BIN" "$SERVER_BIN"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-mkdir -p "$work"/{classes,dex,lib/arm64-v8a,assets/licenses} packages
+mkdir -p "$work/classes" "$work/dex" "$work/lib/$abi" "$work/assets/licenses" "$(dirname "$apk_out")"
 source_commit=$(git rev-parse HEAD)
 
-GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build \
+if [[ "$abi" == x86_64 ]]; then
+  : "${ANDROID_NDK_HOME:?x86_64 emulator packaging requires ANDROID_NDK_HOME}"
+  android_cc="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android28-clang"
+  [[ -x "$android_cc" ]] || { echo "Missing Android x86_64 clang: $android_cc" >&2; exit 1; }
+  go_env=(GOOS=android GOARCH=amd64 GOAMD64=v1 CGO_ENABLED=1 CC="$android_cc")
+else
+  go_env=(GOOS=android GOARCH="$goarch" CGO_ENABLED=0)
+fi
+env "${go_env[@]}" go build \
   -buildmode=pie -buildvcs=false -trimpath \
   -ldflags="-s -w -X main.buildVersion=$version -X main.buildCommit=$source_commit" \
-  -o "$work/lib/arm64-v8a/libylm_host.so" ./host
-install -m 0755 "$RPC_BIN" "$work/lib/arm64-v8a/libylm_rpc.so"
-install -m 0755 "$SERVER_BIN" "$work/lib/arm64-v8a/libylm_server.so"
-"$PWD/scripts/verify-android-elf.sh" "$work/lib/arm64-v8a/"*.so
+  -o "$work/lib/$abi/libylm_host.so" ./host
+install -m 0755 "$RPC_BIN" "$work/lib/$abi/libylm_rpc.so"
+install -m 0755 "$SERVER_BIN" "$work/lib/$abi/libylm_server.so"
+ANDROID_ABI="$abi" "$PWD/scripts/verify-android-elf.sh" "$work/lib/$abi/"*.so
 
 cp licenses/* "$work/assets/licenses/"
 cat > "$work/assets/BUILDINFO.txt" <<EOF
 YourLM: $version
 Source commit: $source_commit
 llama.cpp: b12562 / c0b97be0b297177a88df08e96c01420976bb18d0
-Android ABI: arm64-v8a
+Android ABI: $abi
 Minimum Android API: 28
 Native toolchain: Android NDK 27.2.12479018
 EOF
@@ -60,10 +84,10 @@ javac -encoding UTF-8 -source 8 -target 8 \
   --ks "$KEYSTORE" \
   --ks-pass env:KS_PASS \
   --ks-key-alias "${KS_ALIAS:-yourlm}" \
-  --out packages/YourLM-Android-arm64.apk "$work/aligned.apk"
-"$bt/apksigner" verify --verbose --print-certs packages/YourLM-Android-arm64.apk
+  --out "$apk_out" "$work/aligned.apk"
+"$bt/apksigner" verify --verbose --print-certs "$apk_out"
 
 mkdir "$work/audit"
-unzip -q packages/YourLM-Android-arm64.apk 'lib/arm64-v8a/*.so' -d "$work/audit"
-"$PWD/scripts/verify-android-elf.sh" "$work/audit/lib/arm64-v8a/"*.so
-sha256sum packages/YourLM-Android-arm64.apk
+unzip -q "$apk_out" "lib/$abi/*.so" -d "$work/audit"
+ANDROID_ABI="$abi" "$PWD/scripts/verify-android-elf.sh" "$work/audit/lib/$abi/"*.so
+sha256sum "$apk_out"

@@ -71,7 +71,9 @@ RPC_BIN="$PWD/build/android-native/bin/ggml-rpc-server" \
 SERVER_BIN="$PWD/build/android-native/bin/llama-server" scripts/package-android.sh
 ```
 
-`verify-android-elf.sh` zatrzymuje pakowanie, jeśli którykolwiek wykonywalny payload nie jest AArch64 `ET_DYN` PIE z `/system/bin/linker64`, zawiera `TEXTREL`/RPATH albo wymaga niedołączonego `libc++_shared.so`. Aplikacja powtarza podstawową kontrolę nagłówka ELF przed startem i pokazuje kod wyjścia oraz końcówkę natywnego logu zamiast ogólnego komunikatu.
+`verify-android-elf.sh` zatrzymuje pakowanie, jeśli którykolwiek wykonywalny payload wydania nie jest AArch64 `ET_DYN` PIE z `/system/bin/linker64`, zawiera `TEXTREL`/RPATH albo wymaga niedołączonego `libc++_shared.so`. Aplikacja powtarza podstawową kontrolę nagłówka ELF przed startem i pokazuje kod wyjścia oraz końcówkę natywnego logu zamiast ogólnego komunikatu.
+
+CI osobno buduje i kontroluje dokładne payloady ARM64 wydania, a test inferencji, workera, parowania i hosta wykonuje na równoważnym buildzie x86_64 w sprzętowo przyspieszonym emulatorze. Hostowany runner x86_64 nie uruchamiał programowego emulatora ARM64 nawet w 30 minut, dlatego wynik x86_64 nie zastępuje testu gotowego APK na fizycznym telefonie ARM64.
 
 Testy jednostkowe obejmują metadane GGUF, budżety, walidację kodów, granice panelu oraz rzeczywiste połączenie TLS (odrzucenie złego sekretu i certyfikatu). Opcjonalny test integracyjny:
 

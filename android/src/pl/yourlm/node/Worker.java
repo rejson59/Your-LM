@@ -119,7 +119,7 @@ final class Worker implements Closeable {
   }
 
   /** Reject a packaging regression before Android tries to execute it. */
-  static void requireArm64Pie(File bin) throws IOException {
+  static void requireAndroid64Pie(File bin) throws IOException {
     byte[] h = new byte[20];
     try (InputStream in = new FileInputStream(bin)) {
       int off = 0, n;
@@ -128,6 +128,16 @@ final class Worker implements Closeable {
     }
     int type = (h[16] & 255) | ((h[17] & 255) << 8);
     int machine = (h[18] & 255) | ((h[19] & 255) << 8);
+    boolean machineSupported = false;
+    for (String abi : Build.SUPPORTED_64_BIT_ABIS) {
+      if (
+        ("arm64-v8a".equals(abi) && machine == 183) ||
+        ("x86_64".equals(abi) && machine == 62)
+      ) {
+        machineSupported = true;
+        break;
+      }
+    }
     if (
       h[0] != 0x7f ||
       h[1] != 'E' ||
@@ -136,9 +146,10 @@ final class Worker implements Closeable {
       h[4] != 2 ||
       h[5] != 1 ||
       type != 3 ||
-      machine != 183
+      !machineSupported
     ) throw new IOException(
-      "Uszkodzony pakiet: silnik musi być plikiem Android ARM64 PIE (ET_DYN)."
+      "Uszkodzony pakiet: silnik musi być zgodnym z urządzeniem plikiem " +
+      "Android 64-bit PIE (ET_DYN)."
     );
   }
 
@@ -149,7 +160,7 @@ final class Worker implements Closeable {
       "libylm_rpc.so"
     );
     engineFile = bin;
-    requireArm64Pie(bin);
+    requireAndroid64Pie(bin);
 
     KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
     ks.load(null);
@@ -261,7 +272,7 @@ final class Worker implements Closeable {
       String message = failure(
         rpc.isAlive()
           ? "Silnik nie otworzył portu w ciągu 10 sekund"
-          : "Silnik ARM64 zakończył pracę podczas startu",
+          : "Silnik natywny zakończył pracę podczas startu",
         bin
       );
       rpc.destroyForcibly();

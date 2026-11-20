@@ -63,16 +63,7 @@ strip="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
 [[ -x "$strip" ]] || { echo "Missing NDK llvm-strip: $strip" >&2; exit 1; }
 "$strip" --strip-unneeded "$rpc" "$server"
 
-if [[ "$abi" == arm64-v8a ]]; then
+ANDROID_ABI="$abi" \
   READELF="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
-    "$(dirname "$0")/verify-android-elf.sh" "$rpc" "$server"
-else
-  reader="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf"
-  for file in "$rpc" "$server"; do
-    "$reader" -hW "$file" | grep -Eq 'Type:[[:space:]]+DYN '
-    "$reader" -hW "$file" | grep -Eq 'Machine:[[:space:]]+(Advanced Micro Devices X86-64|x86-64)'
-    "$reader" -lW "$file" | grep -Fq '/system/bin/linker64'
-    echo "Android x86_64 PIE OK: $file"
-  done
-fi
+  "$(dirname "$0")/verify-android-elf.sh" "$rpc" "$server"
 sha256sum "$rpc" "$server"
