@@ -59,6 +59,10 @@ cmake --build "$build" --target ggml-rpc-server llama-server --parallel "${JOBS:
 
 rpc="$build/bin/ggml-rpc-server"
 server="$build/bin/llama-server"
+strip="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+[[ -x "$strip" ]] || { echo "Missing NDK llvm-strip: $strip" >&2; exit 1; }
+"$strip" --strip-unneeded "$rpc" "$server"
+
 if [[ "$abi" == arm64-v8a ]]; then
   READELF="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" \
     "$(dirname "$0")/verify-android-elf.sh" "$rpc" "$server"
