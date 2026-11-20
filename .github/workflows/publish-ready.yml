@@ -1,6 +1,8 @@
 name: Publish ready RC2
 
 on:
+  push:
+    branches: [arena/395e51e3-your-lm]
   workflow_dispatch:
     inputs:
       run_id:
@@ -14,13 +16,14 @@ permissions:
 
 jobs:
   publish:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish ready]') }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Download already-built functional artifacts
         env:
           GH_TOKEN: ${{ github.token }}
-          BUILD_RUN: ${{ inputs.run_id }}
+          BUILD_RUN: ${{ inputs.run_id || '44800067367' }}
         run: |
           set -euo pipefail
           gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" \
