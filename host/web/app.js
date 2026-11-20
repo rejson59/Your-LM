@@ -184,13 +184,13 @@ function render(nextState) {
     device(
       state.host,
       "HOST",
-      `${state.os === "windows" ? "Windows" : "Android"} · ${state.cores} wątków · ${gib(state.total)} GiB RAM · ${gib(state.free)} GiB dostępne`,
+      `${state.os === "windows" ? "Windows" : "Android"} · ${state.cores} wątków · ${gib(state.total)} GiB fizyczne · ${gib(state.free)} GiB dostępne · rezerwa YourLM 0 MiB · model bez limitu planisty (mmap)`,
     ),
     ...workers.map((worker) =>
       device(
         worker.name,
         "WORKER",
-        `${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB RAM · ${gib(worker.free)} GiB dostępne`,
+        `${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB fizyczne · ${gib(worker.free)} GiB dostępne dla modelu · rezerwa YourLM 0 MiB`,
         worker.address,
       ),
     ),
@@ -200,7 +200,7 @@ function render(nextState) {
   $("next").textContent = session?.ready
     ? "Otwórz czat"
     : state.model.name
-      ? "Uruchom model"
+      ? "Uruchom model bez limitu"
       : "Wybierz model";
   for (const id of ["add", "addTop"]) $(id).disabled = Boolean(session || state.offer);
 
@@ -241,7 +241,7 @@ function render(nextState) {
 
   options("bind", state.ips);
   $("bind").disabled = $("port").disabled = Boolean(session);
-  $("run").textContent = session ? "Zatrzymaj model" : "Uruchom model";
+  $("run").textContent = session ? "Zatrzymaj model" : "Uruchom model bez limitu";
   $("run").disabled = !session && (!state.model.name || !state.runtime || Boolean(state.offer));
   $("sessionInfo").hidden = !session;
   if (session) {

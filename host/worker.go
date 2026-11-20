@@ -23,7 +23,6 @@ type Node struct {
 	Cores       int    `json:"cores"`
 	Build       string `json:"build"`
 	Address     string `json:"address"`
-	Budget      uint64 `json:"budget"`
 	pin, secret string
 }
 
@@ -88,10 +87,6 @@ func (n *Node) refresh() error {
 		return errors.New("Niekompatybilny worker")
 	}
 	n.Name, n.Free, n.Total, n.Cores, n.Build = info.Name, info.Free, info.Total, info.Cores, info.Build
-	n.Budget = 0
-	if info.Free > GiB {
-		n.Budget = min(info.Free-GiB, info.Total/2)
-	}
 	return nil
 }
 func (n Node) bridge() (net.Listener, error) {

@@ -1,6 +1,6 @@
 # YourLM — prywatny klaster GGUF
 
-**0.2.0-rc2 · maksymalne użycie hosta i workerów · Windows x64 i Android ARM64 (9+)**
+**0.2.0-rc3 · maksymalne użycie hosta i workerów · Windows x64 i Android ARM64 (9+)**
 
 YourLM uruchamia `llama.cpp` na CPU i potrafi przenieść część warstw modelu na inne urządzenia. To jedna inferencja z podziałem warstw, a nie rozsyłanie całego pytania do kilku niezależnych chatbotów. Nie wymaga konta, chmury ani roota. Aplikacja nie dodaje własnego filtra treści; zachowanie zależy od modelu i jego szablonu czatu.
 
@@ -26,9 +26,9 @@ Gotowe pliki są publikowane na stronie [GitHub Releases](https://github.com/rej
 
 ## Ile naprawdę zmieści się w RAM?
 
-- Od rc2 YourLM nie zatrzymuje startu na konserwatywnym limicie. Przekazuje host i wszystkie workery do natywnego `llama.cpp --fit`, które przy każdym ładowaniu mierzy backendy, umieszcza możliwie dużo warstw na workerach i pozostawia resztę na CPU hosta.
-- Dla każdego urządzenia `--fit-target 512` pozostawia około 512 MiB marginesu względem pamięci zgłaszanej przez backend. Host może dodatkowo korzystać z mapowania GGUF i pliku stronicowania Windows. Dzięki temu duży model może zostać podjęty mimo wcześniejszego szacunku, ale intensywne stronicowanie będzie bardzo wolne, a system nadal może przerwać proces przy rzeczywistym braku pamięci.
-- Panel pokazuje osobno pamięć fizyczną i pamięć obecnie dostępną na każdym urządzeniu. Są to pomiary systemów, nie jeden wspólny obszar RAM. Na Redmi liczymy pamięć fizyczną, **nie** „8 + 8 GB” z rozszerzeniem flash. Kontekst tej wersji: 2048 tokenów, jedna równoległa sekwencja.
+- Od rc3 stary statyczny planista został usunięty. Bez workera YourLM jawnie wyłącza fizyczny test `--fit`, aby Windows mógł podjąć próbę uruchomienia dużego GGUF przez file-backed mmap nawet wtedy, gdy plik jest większy od fizycznego RAM-u.
+- Z workerami YourLM używa natywnego, tensorowego `llama.cpp --fit-target 0`: runtime ponownie mierzy backendy, wykorzystuje całe zgłaszane wolne miejsce workerów i pozostawia pozostałe wagi w mmap hosta. YourLM nie narzuca `-ngl` ani `--tensor-split`.
+- Panel pokazuje osobno pamięć fizyczną, obecnie dostępną i rezerwę YourLM równą 0 MiB. Są to pomiary systemów, nie jeden wspólny obszar RAM. Na Redmi liczymy pamięć fizyczną, **nie** „8 + 8 GB” z rozszerzeniem flash. Kontekst tej wersji: 2048 tokenów, jedna równoległa sekwencja.
 - **Gemma 4 26B-A4B Abliterated i Mistral Small 3.2 24B Abliterated**: sprawdź *konkretny plik* i obsługę architektury w b12562. Samo 24 mld wag po 4 bity to około 11,2 GiB, **przed** narzutem kwantyzacji, KV i buforów. W MoE mniejsza liczba aktywnych parametrów na token nie oznacza, że można pominąć pamięć pozostałych ekspertów. Nie ma gwarancji załadowania ani użytecznej prędkości. KB10 i Huawei nie są dodawane automatycznie.
 
 ## Continue, AnythingLLM i inne klienty OpenAI

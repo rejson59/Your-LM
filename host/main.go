@@ -38,12 +38,6 @@ func token() string {
 	}
 	return hex.EncodeToString(b[:])
 }
-func budget(total, free uint64) uint64 {
-	if free <= 2*GiB {
-		return 0
-	}
-	return min(total*2/3, free-2*GiB)
-}
 func ips() []string {
 	out := []string{"127.0.0.1"}
 	if ip := net.ParseIP(os.Getenv("YOURLM_LAN")); ip.To4() != nil && ip.IsPrivate() {
@@ -91,6 +85,22 @@ func (a *App) binary() string {
 	}
 	return executable(root)
 }
+func engineArguments(modelPath, bind string, port int, key string, addresses []string) []string {
+	args := []string{"--model", modelPath, "--offline", "--no-webui", "--no-agent", "--no-ui-mcp-proxy", "--cors-origins", "localhost", "--host", bind, "--port", strconv.Itoa(port), "--api-key", key, "--alias", "yourlm", "--ctx-size", "2048", "--parallel", "1", "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "--jinja"}
+	if len(addresses) == 0 {
+		// Native --fit compares a CPU-only model with physical RAM and rejects it
+		// before Windows can use the GGUF mapping/page file. CPU-only mode must
+		// therefore load directly and let the operating system page file-backed
+		// weights normally.
+		return append(args, "--fit", "off")
+	}
+	// With RPC devices, native fit measures every worker and places as many
+	// tensors as currently fit there. A zero target means YourLM does not hold
+	// back an additional artificial reserve; unassigned weights remain mapped on
+	// the host.
+	return append(args, "--rpc", strings.Join(addresses, ","), "--split-mode", "layer", "--fit", "on", "--fit-target", "0")
+}
+
 func (a *App) start(bind string, port int) error {
 	if a.s != nil || a.off != nil {
 		return errors.New("Najpierw zatrzymaj serwer")
@@ -117,10 +127,10 @@ func (a *App) start(bind string, port int) error {
 			return fmt.Errorf("Worker %s niedostępny: %w", a.nodes[i].Address, e)
 		}
 	}
-	// Let llama.cpp inspect live backend memory and place as many layers as
-	// possible on every RPC worker. The earlier static planner deliberately left
-	// several GiB unused and rejected models that can run through host mmap/page
-	// file fallback. --fit is the runtime's native, tensor-aware allocator.
+	// Never reject a model through the old static planner. With RPC workers,
+	// llama.cpp measures their live memory and places tensors natively. Without
+	// workers, Windows receives the model directly so mmap/page-file fallback is
+	// not pre-empted by llama.cpp's physical-RAM fit check.
 	layers := 0
 	if len(a.nodes) > 0 {
 		layers = -1 // automatic; the exact placement is written to engine.log
@@ -132,7 +142,6 @@ func (a *App) start(bind string, port int) error {
 	}
 	probe.Close()
 	s := &Session{url: "http://" + address, key: token(), layers: layers, name: m.Name, done: make(chan struct{})}
-	args := []string{"--model", m.Path, "--offline", "--no-webui", "--no-agent", "--no-ui-mcp-proxy", "--cors-origins", "localhost", "--host", bind, "--port", strconv.Itoa(port), "--api-key", s.key, "--alias", "yourlm", "--ctx-size", "2048", "--parallel", "1", "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "--jinja", "--fit", "on", "--fit-target", "512"}
 	defer func() {
 		if a.s != s {
 			for _, l := range s.listeners {
@@ -149,9 +158,7 @@ func (a *App) start(bind string, port int) error {
 		s.listeners = append(s.listeners, l)
 		addresses = append(addresses, l.Addr().String())
 	}
-	if len(addresses) > 0 {
-		args = append(args, "--rpc", strings.Join(addresses, ","), "--split-mode", "layer")
-	}
+	args := engineArguments(m.Path, bind, port, s.key, addresses)
 	s.cmd = exec.Command(exe, args...)
 	// Runtime-specific environment variables can enable downloads, plugins,
 	// built-in shell/file tools or unauthenticated transports. Only explicit
@@ -256,28 +263,30 @@ func (a *App) state() map[string]any {
 		offerKey = a.off.manualKey
 	}
 	advice := ""
-	modelWarning := false
 	available := free
-	conservative := budget(total, free)
+	physical := total
 	for _, node := range a.nodes {
 		available += node.Free
-		conservative += node.Budget
+		physical += node.Total
 	}
 	if a.model.Name != "" && a.s == nil {
-		layers, _, err := plan(a.model, budget(total, free), a.nodes)
-		if err != nil {
-			modelWarning = true
+		if len(a.nodes) == 0 {
 			advice = fmt.Sprintf(
-				"Model ma %.1f GiB. Teraz urządzenia zgłaszają łącznie %.1f GiB dostępnego RAM (konserwatywny próg: %.1f GiB). Tryb maksymalny mimo to spróbuje automatycznego podziału llama.cpp i pamięci mapowanej Windows; zamknij inne aplikacje i licz się z intensywnym stronicowaniem albo niepowodzeniem ładowania.",
+				"Model %.1f GiB jest odblokowany. Host ma %.1f GiB fizycznego RAM i %.1f GiB dostępne teraz. YourLM nie zastosuje limitu planisty ani testu dopasowania do fizycznego RAM: Windows spróbuje załadować GGUF przez mmap i w razie potrzeby odczytywać wagi z dysku. Kliknij „Uruchom model bez limitu”.",
 				float64(a.model.Size)/float64(GiB),
+				float64(physical)/float64(GiB),
 				float64(available)/float64(GiB),
-				float64(conservative)/float64(GiB),
 			)
 		} else {
-			advice = fmt.Sprintf("Model mieści się także w konserwatywnym planie: %d warstw lokalnie, %d na workerach. Przy starcie llama.cpp ponownie zmierzy pamięć i wykorzysta możliwie dużo każdego urządzenia.", a.model.Layers-layers, layers)
+			advice = fmt.Sprintf(
+				"Model %.1f GiB jest odblokowany. Urządzenia mają łącznie %.1f GiB fizycznego RAM i %.1f GiB dostępne teraz. Rezerwa YourLM dla workerów wynosi 0 MiB: llama.cpp wykorzysta całe zgłaszane wolne miejsce, a pozostałe wagi zostawi w mmap na hoście. Kliknij „Uruchom model bez limitu”.",
+				float64(a.model.Size)/float64(GiB),
+				float64(physical)/float64(GiB),
+				float64(available)/float64(GiB),
+			)
 		}
 	}
-	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "modelWarning": modelWarning, "offer": code, "offerAddress": offerAddress, "offerKey": offerKey, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "available": available, "budget": budget(total, free), "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "usb": a.usb, "update": a.update, "last": a.last}
+	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "modelWarning": false, "offer": code, "offerAddress": offerAddress, "offerKey": offerKey, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "available": available, "physical": physical, "fitReserveMiB": 0, "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "usb": a.usb, "update": a.update, "last": a.last}
 }
 
 type input struct {

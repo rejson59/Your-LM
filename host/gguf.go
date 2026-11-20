@@ -3,13 +3,9 @@ package main
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strconv"
 	"strings"
 )
 
@@ -118,51 +114,4 @@ func inspect(path string) (Model, error) {
 		}
 	}
 	return m, errors.New("Brak block_count w metadanych GGUF")
-}
-func plan(m Model, host uint64, nodes []Node) (int, string, error) {
-	// Approximate block sizes; embeddings/output are conservatively reserved on the host.
-	if m.Size == 0 || m.Layers < 1 || host < m.Size/12 {
-		return 0, "", errors.New("Za mały budżet hosta na wagi modelu")
-	}
-	if len(nodes) == 0 {
-		if m.Size > host {
-			return 0, "", errors.New("Wagi przekraczają budżet hosta. Wybierz mniejszy GGUF lub dodaj worker.")
-		}
-		return 0, "", nil
-	}
-	fixed := m.Size / 12
-	block := (m.Size - fixed + uint64(m.Layers) - 1) / uint64(m.Layers)
-	caps := []uint64{(host - fixed) / block}
-	speeds := []float64{float64(host) * math.Sqrt(float64(runtime.NumCPU()))}
-	counts := make([]int, 1+len(nodes))
-	for _, n := range nodes {
-		if n.Budget < GiB/2 || n.Budget < block {
-			return 0, "", fmt.Errorf("%s: za mało pamięci na warstwę", n.Name)
-		}
-		caps = append(caps, n.Budget/block)
-		speeds = append(speeds, float64(n.Budget)*math.Sqrt(float64(max(n.Cores, 1))))
-	}
-	for layer := 0; layer < m.Layers; layer++ {
-		best := -1
-		var bestScore float64
-		for i, c := range caps {
-			score := speeds[i] / float64(counts[i]+1)
-			if uint64(counts[i]) < c && score > bestScore {
-				best = i
-				bestScore = score
-			}
-		}
-		if best < 0 {
-			return 0, "", errors.New("Wagi nie mieszczą się w budżetach węzłów po zaokrągleniu do pełnych warstw")
-		}
-		counts[best]++
-	}
-	parts := []string{}
-	for i, c := range counts[1:] {
-		if c == 0 {
-			return 0, "", fmt.Errorf("%s: plan nie przydziela warstw; odłącz ten worker", nodes[i].Name)
-		}
-		parts = append(parts, strconv.Itoa(c))
-	}
-	return m.Layers - counts[0], strings.Join(parts, ","), nil
 }

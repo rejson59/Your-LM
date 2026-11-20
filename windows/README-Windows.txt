@@ -1,4 +1,4 @@
-YourLM 0.2.0-rc2 — Windows x64 (maksymalne użycie Lenovo + Redmi)
+YourLM 0.2.0-rc3 — Windows x64 (maksymalne użycie Lenovo + Redmi)
 ==========================
 
 1. Pobierz YourLM.exe i uruchom go jako zwykły użytkownik.
@@ -27,10 +27,7 @@ laptopowi” i uruchom worker. W panelu Windows otwórz „Urządzenia → Dodaj
 telefon” i przepisz adres oraz krótki kod. Oba urządzenia muszą być w tym samym
 prywatnym Wi-Fi.
 
-Jeżeli antywirus zgłosi plik, NIE wybieraj „Zezwalaj”, nie dodawaj wyjątku i nie
-wyłączaj ochrony. Zachowaj nazwę wykrycia oraz nazwę pliku i zgłoś problem.
 Sumy SHA-256 plików wydania znajdują się w SHA256SUMS.
 
-Kod źródłowy i opis bezpieczeństwa:
+Kod źródłowy:
 https://github.com/rejson59/Your-LM
-https://github.com/rejson59/Your-LM/blob/arena/395e51e3-your-lm/SECURITY.md

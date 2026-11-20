@@ -71,24 +71,50 @@ func TestVersionOrdering(t *testing.T) {
 	}
 }
 
-func TestPlan(t *testing.T) {
-	m := Model{Size: 12 * GiB, Layers: 40}
-	n := Node{Budget: 4 * GiB, Cores: 4}
-	if _, _, e := plan(m, 10*GiB, nil); e == nil {
-		t.Fatal("oversized model")
+func TestEngineArgumentsDoNotBlockLargeModels(t *testing.T) {
+	containsPair := func(args []string, key, value string) bool {
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == key && args[i+1] == value {
+				return true
+			}
+		}
+		return false
 	}
-	c, s, e := plan(m, 10*GiB, []Node{n})
-	if e != nil || c < 1 || c >= 40 || s != fmt.Sprint(c) {
-		t.Fatalf("%d %s %v", c, s, e)
+	contains := func(args []string, value string) bool {
+		for _, arg := range args {
+			if arg == value {
+				return true
+			}
+		}
+		return false
 	}
-	if budget(16*GiB, GiB) != 0 {
-		t.Fatal("underflow")
+
+	cpu := engineArguments(`C:\models\large.gguf`, "127.0.0.1", 8080, "key", nil)
+	if !containsPair(cpu, "--fit", "off") {
+		t.Fatalf("CPU-only launch must bypass the physical-RAM fit rejection: %q", cpu)
 	}
-	n.Budget = 1
-	if _, _, e = plan(m, 10*GiB, []Node{n}); e == nil {
-		t.Fatal("insufficient worker RAM")
+	if contains(cpu, "--fit-target") || contains(cpu, "--rpc") {
+		t.Fatalf("CPU-only launch unexpectedly has an RPC memory target: %q", cpu)
+	}
+
+	rpc := engineArguments(`C:\models\large.gguf`, "127.0.0.1", 8080, "key", []string{"127.0.0.1:50052"})
+	for key, value := range map[string]string{
+		"--rpc":        "127.0.0.1:50052",
+		"--split-mode": "layer",
+		"--fit":        "on",
+		"--fit-target": "0",
+	} {
+		if !containsPair(rpc, key, value) {
+			t.Fatalf("RPC launch missing %s %s: %q", key, value, rpc)
+		}
+	}
+	for _, forbidden := range []string{"-ngl", "--n-gpu-layers", "--tensor-split"} {
+		if contains(rpc, forbidden) {
+			t.Fatalf("RPC launch pins placement with %s: %q", forbidden, rpc)
+		}
 	}
 }
+
 func TestRuntimeIntegrity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.exe")
 	body := []byte("known executable fixture")

@@ -13,13 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc2]') }}
+  PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc3]') }}
   ANDROID_CERT_SHA256: bb2639f3d49a2d7db0845884e76d6bb51152a6e9c0df92fcfe885a26c5de94a6
 
 jobs:
   android-arm64:
     name: Android ARM64 release gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc3]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -62,8 +62,8 @@ jobs:
           cert=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           [[ "$cert" == "$ANDROID_CERT_SHA256" ]] || { echo "Unexpected Android signing identity" >&2; exit 1; }
           badging=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")
-          grep -Fq "versionCode='5'" <<<"$badging"
-          grep -Fq "versionName='0.2.0-rc2'" <<<"$badging"
+          grep -Fq "versionCode='6'" <<<"$badging"
+          grep -Fq "versionName='0.2.0-rc3'" <<<"$badging"
           mkdir -p "$RUNNER_TEMP/apk-audit"
           unzip -q "$apk" 'lib/arm64-v8a/*.so' -d "$RUNNER_TEMP/apk-audit"
           cmp build/android-native/bin/ggml-rpc-server "$RUNNER_TEMP/apk-audit/lib/arm64-v8a/libylm_rpc.so"
@@ -84,7 +84,7 @@ jobs:
 
   android-runtime:
     name: Android x86_64 runtime gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc3]') }}
     runs-on: macos-15-intel
     timeout-minutes: 90
     steps:
@@ -258,8 +258,8 @@ jobs:
           & (Join-Path $component.FullName 'platform-tools\adb.exe') kill-server 2>$null
           "COMPONENT_ROOT=$($component.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
   publish-rc:
-    name: Publish v0.2.0-rc2 assets
-    if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc2]') }}
+    name: Publish v0.2.0-rc3 assets
+    if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc3]') }}
     needs: [android-runtime, windows-runtime]
     permissions:
       contents: write
@@ -281,14 +281,14 @@ jobs:
         run: |
           set -euo pipefail
           (cd packages && sha256sum -c SHA256SUMS)
-          tag=v0.2.0-rc2
+          tag=v0.2.0-rc3
           assets=(packages/YourLM.exe packages/YourLM-Android-arm64.apk packages/SHA256SUMS)
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc2' \
-              --notes-file windows/RELEASE-NOTES-0.2.0-rc2.md --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc3' \
+              --notes-file windows/RELEASE-NOTES-0.2.0-rc3.md --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$tag" "${assets[@]}" --prerelease --target "$GITHUB_SHA" \
-              --title 'YourLM 0.2.0-rc2' --notes-file windows/RELEASE-NOTES-0.2.0-rc2.md \
+              --title 'YourLM 0.2.0-rc3' --notes-file windows/RELEASE-NOTES-0.2.0-rc3.md \
               --repo "$GITHUB_REPOSITORY"
           fi
