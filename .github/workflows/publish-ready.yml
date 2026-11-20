@@ -20,17 +20,20 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Download already-built functional artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BUILD_RUN: ${{ inputs.run_id || '44800067367' }}
-        run: |
-          set -euo pipefail
-          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name android-arm64-build --dir .
-          gh run download "$BUILD_RUN" --repo "$GITHUB_REPOSITORY" \
-            --name windows-standalone-build --dir .
-          (cd packages && sha256sum -c SHA256SUMS)
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-arm64-build
+          path: .
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id || '44800067367' }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-standalone-build
+          path: .
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.run_id || '44800067367' }}
+      - name: Verify already-built functional artifacts
+        run: (cd packages && sha256sum -c SHA256SUMS)
       - name: Publish RC2
         env:
           GH_TOKEN: ${{ github.token }}
