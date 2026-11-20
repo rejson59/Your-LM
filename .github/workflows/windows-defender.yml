@@ -106,6 +106,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          : "${JAVA_HOME_17_X64:?macOS runner must provide JDK 17}"
+          export JAVA_HOME="$JAVA_HOME_17_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
           keytool -genkeypair -noprompt -keystore "$RUNNER_TEMP/android-gate.jks" \
             -storepass yourlm-gate -keypass yourlm-gate -alias yourlm \
             -dname "CN=YourLM CI" -keyalg RSA -keysize 2048 -validity 2
