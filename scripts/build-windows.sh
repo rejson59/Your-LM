@@ -37,7 +37,7 @@ set(CMAKE_C_COMPILER "$z" cc -target x86_64-windows-gnu)
 set(CMAKE_CXX_COMPILER "$z" c++ -target x86_64-windows-gnu)
 set(CMAKE_AR "$build/toolchain/ar")
 set(CMAKE_RANLIB "$build/toolchain/ranlib")
-set(CMAKE_EXE_LINKER_FLAGS "-static")
+set(CMAKE_EXE_LINKER_FLAGS "-static -s")
 EOF
 prefix="-ffile-prefix-map=$src=llama.cpp -ffile-prefix-map=$build=build"
 cmake -S "$src" -B "$build/llama" -G Ninja \

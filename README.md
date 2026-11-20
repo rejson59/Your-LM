@@ -56,7 +56,7 @@ git -C /tmp/yourlm-llama checkout c0b97be0b297177a88df08e96c01420976bb18d0
 LLAMA_SRC=/tmp/yourlm-llama scripts/build-windows.sh
 ```
 
-Windows wymaga Go 1.25.5, Zig 0.14.1, CMake i Ninja. Skrypt buduje dwa statyczne programy runtime ze źródła, wpisuje ich SHA-256 do kontrolera i tworzy zwykły katalog — bez instalatora, packera i strippingu symboli. Manifest oraz metadane PE są generowane z `windows/`. Szczegółowy opis zachowania i granic zaufania znajduje się w [SECURITY.md](SECURITY.md).
+Windows wymaga Go 1.25.5, Zig 0.14.1, CMake i Ninja. Skrypt buduje dwa statyczne programy runtime ze źródła, wpisuje ich SHA-256 do kontrolera i tworzy zwykły katalog — bez instalatora i packera. Kontroler Go zachowuje symbole (nie używa `-s -w`); runtime usuwa pomocnicze symbole linkera, dzięki czemu dwa czyste buildy są identyczne bajt w bajt. Manifest oraz metadane PE są generowane z `windows/`. Szczegółowy opis zachowania i granic zaufania znajduje się w [SECURITY.md](SECURITY.md).
 
 APK (Linux x64): Go 1.25.5, Zig 0.14.1 na `PATH`, CMake, Make, JDK 17, Android SDK platform/build-tools 34, `zip`. Skrypty niczego nie pobierają i nie zawierają klucza podpisującego.
 
