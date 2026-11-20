@@ -9,6 +9,64 @@ permissions:
   contents: read
 
 jobs:
+  android-arm64:
+    name: Android ARM64 NDK + runtime gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install pinned Android NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018"
+      - name: Fetch pinned llama.cpp source
+        shell: bash
+        run: |
+          set -euo pipefail
+          git init "$RUNNER_TEMP/llama.cpp"
+          git -C "$RUNNER_TEMP/llama.cpp" remote add origin https://github.com/ggml-org/llama.cpp
+          git -C "$RUNNER_TEMP/llama.cpp" fetch --depth 1 origin c0b97be0b297177a88df08e96c01420976bb18d0
+          git -C "$RUNNER_TEMP/llama.cpp" checkout --detach FETCH_HEAD
+      - name: Build and inspect Android ARM64 PIE executables
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
+          export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
+          export JOBS=2
+          scripts/build-native.sh build/android-native
+      - name: Execute exact ARM64 payloads inside Android
+        uses: ReactiveCircus/android-emulator-runner@4c44018e59b437e86cdfc41da381398f93ed8808 # v2.38.0
+        with:
+          api-level: 30
+          target: default
+          arch: arm64-v8a
+          cores: 2
+          ram-size: 3072M
+          disable-linux-hw-accel: true
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euo pipefail
+            adb push build/android-native/bin/ggml-rpc-server /data/local/tmp/ggml-rpc-server
+            adb push build/android-native/bin/llama-server /data/local/tmp/llama-server
+            adb shell chmod 700 /data/local/tmp/ggml-rpc-server /data/local/tmp/llama-server
+            timeout 45 adb shell /data/local/tmp/ggml-rpc-server --help | tee /tmp/rpc-help.txt
+            timeout 45 adb shell /data/local/tmp/llama-server --version | tee /tmp/server-version.txt
+            grep -q 'Usage:' /tmp/rpc-help.txt
+            grep -q 'version:' /tmp/server-version.txt
+      - name: Upload runtime-validated ARM64 engines
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-arm64-engines
+          path: |
+            build/android-native/bin/ggml-rpc-server
+            build/android-native/bin/llama-server
+          if-no-files-found: error
+          retention-days: 7
+
   defender:
     runs-on: windows-latest
     steps:

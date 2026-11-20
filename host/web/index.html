@@ -3,233 +3,202 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <meta name="theme-color" content="#17382f" />
-    <title>YourLM · Prywatna konsola</title>
+    <meta name="theme-color" content="#f5f7f4" />
+    <title>YourLM · Prywatna AI</title>
     <link href="/style.css" rel="stylesheet" />
   </head>
   <body>
-    <header>
-      <div class="brand">
-        <svg viewBox="0 0 40 40" width="38" aria-hidden="true">
-          <rect width="40" height="40" rx="10" fill="#25483b" />
-          <g
-            stroke="#ccf880"
-            fill="none"
-            stroke-width="2.5"
-            stroke-linejoin="round"
-          >
-            <path d="m9 16 11-6 11 6-11 6z M9 21l11 6 11-6 M9 26l11 6 11-6" />
-          </g></svg
-        ><b>Your<span>LM</span></b>
-      </div>
-      <div class="headerlabel">KONSOLA PRYWATNA</div>
-      <small class="online">● &nbsp; LOKALNIE</small>
-    </header>
-    <main>
-      <div class="sup">
-        WORKSPACE &nbsp;/&nbsp; <strong id="crumb">KLASTER</strong>
-      </div>
-      <div class="intro">
-        <div>
-          <h1 id="title">Centrum klastra</h1>
-          <p id="sub">
-            Zarządzaj pamięcią, modelami i urządzeniami w swojej sieci.
-          </p>
+    <div class="appShell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brandMark">Y</span>
+          <span><b>YourLM</b><small>Prywatna AI</small></span>
         </div>
-        <span class="version" id="build">v0.1.1 &nbsp; / &nbsp; b12562</span>
-      </div>
-      <nav>
-        <button data-tab="cluster" class="sel">01 &nbsp; Klaster</button
-        ><button data-tab="model">02 &nbsp; Modele i API</button
-        ><button data-tab="chat">03 &nbsp; Czat</button>
-      </nav>
-      <div id="notice" role="status" hidden></div>
-      <section id="cluster" class="tab">
-        <div class="hero">
-          <div class="heroText">
-            <div class="eyebrow"><i></i> &nbsp; TOPOLOGIA SIECI</div>
-            <h2 id="mode">Host lokalny</h2>
-            <p id="topdesc">Obliczenia na tym urządzeniu.</p>
-            <div class="heroActions"><button id="next" class="acid">Skonfiguruj model</button><button id="add">＋ Sparuj worker</button></div>
+        <nav aria-label="Główna nawigacja">
+          <button data-tab="cluster" class="sel">
+            <span class="navIcon">⌂</span><span>Urządzenia</span>
+          </button>
+          <button data-tab="model">
+            <span class="navIcon">◇</span><span>Model i API</span>
+          </button>
+          <button data-tab="chat">
+            <span class="navIcon">○</span><span>Czat</span>
+          </button>
+        </nav>
+        <div class="privacyCard">
+          <span class="statusDot"></span>
+          <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
+        </div>
+        <div class="sideVersion" id="build">v0.1.2 · b12562</div>
+      </aside>
+
+      <div class="workspace">
+        <header class="mobileHeader">
+          <div class="brand">
+            <span class="brandMark">Y</span><span><b>YourLM</b></span>
           </div>
-          <div class="diagram" aria-hidden="true">
-            <div class="orbit o1"></div>
-            <div class="orbit o2"></div>
-            <div class="orbit o3"></div>
-            <div class="hub">
-              <svg
-                width="40"
-                viewBox="0 0 32 32"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.6"
-              >
-                <rect x="7" y="7" width="18" height="18" rx="3" />
-                <rect x="12" y="12" width="8" height="8" rx="1" />
-                <path
-                  d="M12 3v4m8-4v4M12 25v4m8-4v4M3 12h4m-4 8h4m18-8h4m-4 8h4"
-                />
-              </svg>
+          <span class="localPill"><i></i> OFFLINE</span>
+        </header>
+        <main>
+          <div id="notice" role="status" hidden></div>
+
+          <section id="cluster" class="tab">
+            <div class="pageHead">
+              <div>
+                <div class="kicker" id="crumb">URZĄDZENIA</div>
+                <h1 id="title">Twoja lokalna AI</h1>
+                <p id="sub">Laptop uruchamia model. Telefon może pomóc obliczać jego warstwy.</p>
+              </div>
+              <span class="localPill desktopPill"><i></i> PRYWATNIE I LOKALNIE</span>
             </div>
-            <small>RUNTIME / CPU</small>
-          </div>
-        </div>
-        <div class="metrics">
-          <article>
-            <label>WĘZŁY W KONFIGURACJI</label><strong id="count">—</strong
-            ><small>Host + sparowane workery</small>
-          </article>
-          <article>
-            <label>PAMIĘĆ FIZYCZNA</label><strong id="ram">—</strong
-            ><small>Bez pamięci wirtualnej</small>
-          </article>
-          <article>
-            <label>BUDŻET NA WAGI</label><strong id="capacity">—</strong
-            ><small>Szacunek po rezerwie systemowej</small>
-          </article>
-        </div>
-        <div class="sectTitle">
-          <h2>Urządzenia</h2>
-          <small>INWENTARZ / LAN</small>
-        </div>
-        <div id="nodes"></div>
-        <div class="tip">
-          ↳ &nbsp; Zacznij od samego hosta. Dodanie pamięci przez Wi-Fi nie musi
-          przyspieszyć generowania.
-        </div>
-        <details id="offer">
-          <summary>Udostępnij ten komputer jako worker</summary>
-          <p>
-            Wymaga zainstalowanego silnika. Otwórz tylko na zaufanej sieci
-            prywatnej.
-          </p>
-          <select id="workerIP"></select
-          ><button id="offerBtn">Uruchom worker</button
-          ><textarea
-            id="offerCode"
-            readonly
-            hidden
-            aria-label="Prywatny kod workera"
-          ></textarea>
-          <div id="winQR"></div>
-        </details>
-      </section>
-      <section id="model" class="tab" hidden>
-        <div class="grid">
-          <article>
-            <label>01 / SILNIK</label>
-            <h2>llama.cpp</h2>
-            <p id="engine"></p>
-          </article>
-          <article>
-            <label>02 / BIBLIOTEKA GGUF</label>
-            <h2>Wybierz model</h2>
-            <p id="selected">Nie wybrano pliku.</p><p id="advice"></p>
-            <div class="row">
-              <button id="pick">Wybierz plik…</button
-              ><button id="manual" class="light">Podaj ścieżkę</button>
+
+            <div class="welcomeCard">
+              <div class="welcomeCopy">
+                <span class="eyebrow">AKTUALNA KONFIGURACJA</span>
+                <h2 id="mode">Tylko ten komputer</h2>
+                <p id="topdesc">Możesz od razu wybrać model albo dodać telefon jako worker.</p>
+                <div class="actions">
+                  <button id="next" class="primary">Wybierz model</button>
+                  <button id="add" class="secondary">＋ Dodaj telefon</button>
+                </div>
+              </div>
+              <div class="connectionArt" aria-hidden="true">
+                <div class="device laptop"><span></span><b>Laptop</b><small>HOST</small></div>
+                <div class="link"><i></i><i></i><i></i></div>
+                <div class="device phone"><span></span><b>Telefon</b><small>WORKER</small></div>
+              </div>
             </div>
-            <select
-              id="library"
-              aria-label="Modele z biblioteki"
-              hidden
-            ></select
-            ><small id="libdir"></small>
-          </article>
-        </div>
-        <article class="panel">
-          <label>03 / SERWER</label>
-          <h2>Lokalne API OpenAI</h2>
-          <p>
-            Domyślnie tylko na tym urządzeniu. Wybierz adres LAN wyłącznie w
-            zaufanej sieci Wi-Fi — API używa HTTP, nie TLS.
-          </p>
-          <div class="fields">
-            <label>Adres nasłuchu<select id="bind"></select></label
-            ><label
-              >Port<input
-                id="port"
-                type="number"
-                min="1024"
-                max="65535"
-                value="8080" /></label
-            ><button id="run">Uruchom model</button>
-          </div>
-          <div id="sessionInfo" hidden>
-            <p id="runstate"></p>
-            <pre id="endpoint"></pre>
-            <button id="copyKey">Kopiuj klucz API</button>
-            <button class="light" id="copyCfg">
-              Kopiuj konfigurację Continue
-            </button>
-          </div>
-        </article>
-        <article class="panel">
-          <label>PORADNIK / DOBÓR MODELU</label>
-          <h2>Najpierw sprawdź mały GGUF</h2>
-          <p>
-            <b>3–4B Q4_K_M</b> — test działania. Następnie porównaj 7–8B Q4 solo
-            i z Redmi. Dla Gemma 4 26B-A4B Abliterated i Mistral Small 3.2 24B
-            Abliterated sprawdź rozmiar konkretnego GGUF: MoE zmniejsza pracę na
-            token, ale nie usuwa z RAM nieaktywnych ekspertów. Uwzględnij też KV
-            cache, bufory i temperaturę telefonu.
-          </p>
-        </article>
-      </section>
-      <section id="chat" class="tab" hidden>
-        <article class="panel">
-          <label>SESJA / OFFLINE</label>
-          <div class="sectTitle">
-            <h2>Rozmowa prywatna</h2>
-            <button class="light" id="clear">Wyczyść</button>
-          </div>
-          <p id="chatstatus"></p>
-          <small id="speed"></small>
-          <div id="messages" aria-live="polite"></div>
-          <form id="send">
-            <textarea
-              id="prompt"
-              placeholder="Napisz wiadomość…"
-              rows="3"
-              required
-            ></textarea
-            ><button>Wyślij ↗</button>
-          </form>
-          <small>Historia istnieje tylko w pamięci tej karty.</small>
-        </article>
-      </section>
-      <footer>
-        <b>YourLM</b><span>LOCAL INFERENCE SYSTEM &nbsp; / &nbsp; 01</span>
-      </footer>
-    </main>
+
+            <div class="howItWorks">
+              <div class="step"><span>1</span><div><b>Wybierz model</b><small>GGUF zostaje na hoście</small></div></div>
+              <div class="step"><span>2</span><div><b>Opcjonalnie dodaj telefon</b><small>Ten sam prywatny Wi-Fi</small></div></div>
+              <div class="step"><span>3</span><div><b>Uruchom czat lub API</b><small>OpenAI-compatible /v1</small></div></div>
+            </div>
+
+            <div class="metrics">
+              <article><span class="metricIcon">●</span><div><small>URZĄDZENIA</small><strong id="count">—</strong><p>host + workery</p></div></article>
+              <article><span class="metricIcon">▤</span><div><small>FIZYCZNY RAM</small><strong id="ram">—</strong><p>bez rozszerzeń flash</p></div></article>
+              <article><span class="metricIcon">◒</span><div><small>BUDŻET WAG</small><strong id="capacity">—</strong><p>po bezpiecznej rezerwie</p></div></article>
+            </div>
+
+            <article class="sectionCard devicesCard">
+              <div class="sectionTitle">
+                <div><span class="eyebrow">TWOJA SIEĆ</span><h2>Połączone urządzenia</h2></div>
+                <button id="addTop" class="textButton">＋ Dodaj telefon</button>
+              </div>
+              <div id="nodes"></div>
+              <div class="infoStrip">Telefon zwiększa dostępną pamięć, ale Wi-Fi może ograniczać szybkość. Najpierw porównaj ten sam mały model bez workera i z workerem.</div>
+            </article>
+
+            <details id="offer" class="sectionCard workerOffer">
+              <summary><span>Udostępnij ten komputer innemu hostowi</span><small>TRYB WORKERA WINDOWS</small></summary>
+              <div class="detailsBody">
+                <p>Użyj tylko w zaufanej sieci prywatnej. Wybierz adres Wi-Fi lub Ethernet tego komputera.</p>
+                <div class="inlineFields"><label>Adres sieci<select id="workerIP"></select></label><button id="offerBtn">Uruchom worker</button></div>
+                <div id="offerShare" hidden>
+                  <div class="manualValues">
+                    <label>Adres parowania<input id="offerAddress" readonly /></label>
+                    <label>Kod parowania<input id="offerKey" readonly /></label>
+                  </div>
+                  <button id="copyOffer" class="secondary">Kopiuj adres i kod</button>
+                  <details class="qrDetails"><summary>Pokaż kod QR</summary><div id="winQR"></div></details>
+                  <textarea id="offerCode" readonly hidden aria-label="Pełny prywatny kod workera"></textarea>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section id="model" class="tab" hidden>
+            <div class="pageHead">
+              <div><div class="kicker">MODEL I API</div><h1>Uruchom własny GGUF</h1><p>Plik pozostaje na Twoim urządzeniu. YourLM niczego nie pobiera.</p></div>
+            </div>
+
+            <div class="setupGrid">
+              <article class="sectionCard setupCard">
+                <span class="stepNumber">1</span><span class="eyebrow">PLIK MODELU</span>
+                <h2>Wybierz model GGUF</h2>
+                <p id="selected">Nie wybrano pliku.</p>
+                <p id="advice" class="advice"></p>
+                <div class="actions"><button id="pick">Wybierz plik…</button><button id="manual" class="secondary">Podaj ścieżkę</button></div>
+                <select id="library" aria-label="Modele z biblioteki" hidden></select>
+                <small id="libdir" class="pathHint"></small>
+              </article>
+
+              <article class="sectionCard setupCard">
+                <span class="stepNumber">2</span><span class="eyebrow">SILNIK</span>
+                <h2>Sprawdź gotowość</h2>
+                <div class="runtimeStatus"><i></i><p id="engine"></p></div>
+                <p class="muted">Runtime llama.cpp b12562 jest dołączony i sprawdzany przed każdym startem.</p>
+              </article>
+            </div>
+
+            <article class="sectionCard serverCard">
+              <div class="serverIntro"><span class="stepNumber">3</span><div><span class="eyebrow">CZAT I OPENAI API</span><h2>Uruchom model</h2><p>Na tym urządzeniu wybierz 127.0.0.1. Adres LAN wybieraj tylko dla zaufanych klientów w tej samej sieci.</p></div></div>
+              <div class="inlineFields serverFields">
+                <label>Adres nasłuchu<select id="bind"></select></label>
+                <label>Port<input id="port" type="number" min="1024" max="65535" value="8080" /></label>
+                <button id="run" class="primary">Uruchom model</button>
+              </div>
+              <div id="sessionInfo" class="sessionBox" hidden>
+                <div><span class="liveDot"></span><b id="runstate"></b></div>
+                <label>Adres API</label><pre id="endpoint"></pre>
+                <div class="actions"><button id="copyKey">Kopiuj klucz API</button><button class="secondary" id="copyCfg">Kopiuj konfigurację Continue</button></div>
+              </div>
+            </article>
+
+            <article class="sectionCard recommendation">
+              <span class="recommendIcon">i</span>
+              <div><h3>Zacznij od małego modelu</h3><p><b>3–4B Q4_K_M</b> sprawdzi cały przepływ. Dopiero później testuj 7–8B. Gemma 4 26B-A4B i Mistral Small 24B wymagają pamięci na wszystkie wagi, KV cache i bufory — MoE nie usuwa nieaktywnych ekspertów z RAM.</p></div>
+            </article>
+          </section>
+
+          <section id="chat" class="tab" hidden>
+            <div class="pageHead chatHead">
+              <div><div class="kicker">CZAT LOKALNY</div><h1>Rozmowa prywatna</h1><p id="chatstatus">Najpierw uruchom model.</p></div>
+              <button class="secondary" id="clear">Wyczyść rozmowę</button>
+            </div>
+            <article class="chatCard">
+              <div id="messages" aria-live="polite">
+                <div class="emptyChat"><span>Y</span><h2>Gotowy, gdy model będzie działać</h2><p>Historia pozostaje tylko w pamięci tej karty.</p></div>
+              </div>
+              <small id="speed"></small>
+              <form id="send"><textarea id="prompt" placeholder="Napisz wiadomość…" rows="3" required></textarea><button aria-label="Wyślij">Wyślij ↑</button></form>
+            </article>
+          </section>
+
+          <footer><span>YourLM 0.1.2</span><span>LOKALNE WNIOSKOWANIE · BEZ CHMURY</span></footer>
+        </main>
+      </div>
+    </div>
+
     <dialog id="pair">
-      <button class="close light" aria-label="Zamknij">×</button
-      ><label>PAROWANIE / TLS</label>
-      <h2>Dodaj urządzenie</h2>
-      <p>
-        Uruchom worker, następnie zeskanuj jego kod kamerą hosta lub wklej
-        prywatny kod sesji.
-      </p>
-      <button id="scan" class="light">Włącz kamerę</button
-      ><video id="video" autoplay playsinline muted hidden></video
-      ><textarea
-        id="code"
-        placeholder="YLM1|…"
-        aria-label="Kod sesji"
-      ></textarea
-      ><button id="pairBtn">Połącz bezpiecznie</button>
-      <p class="error"></p>
+      <button class="close iconButton" aria-label="Zamknij">×</button>
+      <span class="eyebrow">DODAJ WORKER</span>
+      <h2>Połącz telefon z hostem</h2>
+      <p class="dialogLead">Na telefonie wybierz <b>Pomóż laptopowi</b> i uruchom worker. Telefon niczego nie skanuje — to tutaj wpisujesz pokazane dane.</p>
+      <div class="pairSteps"><span><i>1</i>Ten sam Wi-Fi</span><span><i>2</i>Worker włączony</span><span><i>3</i>Adres i kod</span></div>
+      <div class="manualPair">
+        <label>Adres parowania z telefonu<input id="pairAddress" inputmode="decimal" autocomplete="off" placeholder="192.168.1.42:45123" /></label>
+        <label>Kod parowania<input id="pairKey" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCDE-FGHJK-LMNPQ-RSTVW" /></label>
+        <button id="pairManualBtn" class="primary full">Połącz telefon</button>
+      </div>
+      <div class="or"><span>lub użyj kamery laptopa</span></div>
+      <button id="scan" class="secondary full">Zeskanuj QR</button>
+      <video id="video" autoplay playsinline muted hidden></video>
+      <details class="advancedPair"><summary>Mam pełny kod sesji</summary><textarea id="code" placeholder="YLM1|…" aria-label="Pełny kod sesji"></textarea><button id="pairBtn" class="secondary full">Połącz pełnym kodem</button></details>
+      <p class="error" role="alert"></p>
     </dialog>
+
     <dialog id="pathDlg">
-      <button class="close light" aria-label="Zamknij">×</button
-      ><label>BIBLIOTEKA / IMPORT</label>
-      <h2>Ścieżka lokalna</h2>
-      <p>Plik pozostaje na dysku hosta.</p>
-      <input id="path" placeholder="D:\Modele\model.gguf" /><button id="choose">
-        Wczytaj metadane
-      </button>
-      <p class="error"></p>
+      <button class="close iconButton" aria-label="Zamknij">×</button>
+      <span class="eyebrow">BIBLIOTEKA MODELU</span>
+      <h2>Podaj lokalną ścieżkę</h2>
+      <p class="dialogLead">Plik GGUF pozostanie dokładnie w tym miejscu na dysku.</p>
+      <label>Ścieżka do pliku<input id="path" placeholder="D:\Modele\model.gguf" /></label>
+      <button id="choose" class="primary full">Wczytaj metadane</button>
+      <p class="error" role="alert"></p>
     </dialog>
+
     <script src="/jsQR.js"></script>
     <script src="/qrcode.js"></script>
     <script src="/app.js"></script>

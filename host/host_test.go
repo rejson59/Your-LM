@@ -149,6 +149,10 @@ func TestCode(t *testing.T) {
 
 // Real TLS with the production desktop worker handshake, then an actual TCP relay.
 func testNode(t *testing.T, rpc string) Node {
+	return testNodeWithSecret(t, rpc, token())
+}
+
+func testNodeWithSecret(t *testing.T, rpc, secret string) Node {
 	t.Helper()
 	temp := httptest.NewTLSServer(nil)
 	cfg := temp.TLS
@@ -158,7 +162,7 @@ func testNode(t *testing.T, rpc string) Node {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { l.Close() })
-	o := Offer{secret: token(), slots: make(chan struct{}, 16), local: rpc}
+	o := Offer{secret: secret, slots: make(chan struct{}, 16), local: rpc}
 	go func() {
 		for {
 			c, e := l.Accept()
@@ -171,6 +175,52 @@ func testNode(t *testing.T, rpc string) Node {
 	}()
 	return Node{Address: l.Addr().String(), pin: fmt.Sprintf("%x", sha256.Sum256(cfg.Certificates[0].Certificate[0])), secret: o.secret}
 }
+func TestManualPairing(t *testing.T) {
+	key := "ABCDE-FGHJK-LMNPQ-RSTUV"
+	canonical, err := canonicalManual(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixed key above is intentionally invalid (U is excluded) and must be
+	// rejected before any network request.
+	if _, err = pairManual("127.0.0.1:1", key); err == nil {
+		t.Fatal("accepted ambiguous manual key")
+	}
+	key = "ABCDE-FGHJK-LMNPQ-RSTVW"
+	canonical, err = canonicalManual(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := testNodeWithSecret(t, "127.0.0.1:1", derivedSessionSecret(canonical))
+	pair, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pair.Close()
+	go func() {
+		for {
+			c, err := pair.Accept()
+			if err != nil {
+				return
+			}
+			go serveManualPair(c, canonical, n.Address, n.pin)
+		}
+	}()
+	got, err := pairManual(pair.Addr().String(), strings.ToLower(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Address != n.Address || got.pin != n.pin || got.secret != derivedSessionSecret(canonical) {
+		t.Fatalf("unexpected manual pairing result: %#v", got)
+	}
+	if err = got.refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = pairManual(pair.Addr().String(), "ABCDE-FGHJK-LMNPQ-RSTVX"); err == nil || !strings.Contains(err.Error(), "nie pasuje") {
+		t.Fatal("wrong key was not rejected", err)
+	}
+}
+
 func TestPairAndBridge(t *testing.T) {
 	l, e := net.Listen("tcp4", "127.0.0.1:0")
 	if e != nil {

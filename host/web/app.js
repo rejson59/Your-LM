@@ -1,269 +1,294 @@
 "use strict";
-const $ = (id) => document.getElementById(id),
-  key = location.hash.slice(1) || sessionStorage.getItem("yourlm") || "";
+
+const $ = (id) => document.getElementById(id);
+const key = location.hash.slice(1) || sessionStorage.getItem("yourlm") || "";
 if (location.hash) {
   sessionStorage.setItem("yourlm", key);
   history.replaceState(null, "", location.pathname);
 }
-let state,
-  messages = [],
-  pending = false,
-  stream = null,
-  scanId = 0,
-  offered = "",
-  lastSession = "";
+
+let state;
+let messages = [];
+let pending = false;
+let stream = null;
+let scanId = 0;
+let offered = "";
+let lastSession = "";
+
 const gib = (n) =>
   (Number(n || 0) / 1073741824).toLocaleString("pl-PL", {
     maximumFractionDigits: 1,
   });
-function note(s) {
-  $("notice").textContent = s;
-  $("notice").hidden = !s;
+
+function note(value) {
+  $("notice").textContent = value;
+  $("notice").hidden = !value;
 }
+
 async function api(op, params) {
-  let res = await fetch("/api/" + op, {
+  const response = await fetch("/api/" + op, {
     method: params ? "POST" : "GET",
     headers: { "X-YourLM": key, "Content-Type": "application/json" },
     body: params ? JSON.stringify(params) : undefined,
   });
-  if (!res.ok) throw Error((await res.text()).trim());
-  return res.json();
+  if (!response.ok) throw Error((await response.text()).trim());
+  return response.json();
 }
-function el(n, t) {
-  let x = document.createElement(n);
-  x.textContent = t;
-  return x;
+
+function el(name, text) {
+  const item = document.createElement(name);
+  item.textContent = text;
+  return item;
 }
-function options(id, arr, first) {
-  let s = $(id),
-    vals = JSON.stringify(arr);
-  if (s.dataset.vals === vals) return;
-  let prev = s.value;
-  s.replaceChildren();
-  if (first) s.add(new Option(first, ""));
-  for (let v of arr) s.add(new Option(id === "library" ? v.split(/[\\/]/).pop() : v, v));
-  s.dataset.vals = vals;
-  if (arr.includes(prev)) s.value = prev;
+
+function options(id, values, first) {
+  const select = $(id);
+  const signature = JSON.stringify(values);
+  if (select.dataset.vals === signature) return;
+  const previous = select.value;
+  select.replaceChildren();
+  if (first) select.add(new Option(first, ""));
+  for (const value of values) {
+    const title = id === "library" ? value.split(/[\\/]/).pop() : value;
+    select.add(new Option(title, value));
+  }
+  select.dataset.vals = signature;
+  if (values.includes(previous)) select.value = previous;
 }
-function node(name, role, meta, address) {
-  let row = el("div", "");
+
+function device(name, role, meta, address) {
+  const row = el("div", "");
   row.className = "node";
-  let icon = el("span", address ? "RPC" : "CPU");
+  const icon = el("span", address ? "TEL" : "PC");
   icon.className = "icon";
-  let d = el("div", "");
-  d.append(el("b", name), el("small", meta));
-  row.append(icon, d, el("em", role));
+  const details = el("div", "");
+  details.append(el("b", name), el("small", meta));
+  row.append(icon, details, el("em", role));
   if (address) {
-    let b = el("button", "Odłącz");
-    b.className = "light";
-    b.disabled = !!state.session;
-    b.onclick = () => act("remove", { address });
-    row.append(b);
+    const remove = el("button", "Odłącz");
+    remove.disabled = Boolean(state.session);
+    remove.onclick = () => act("remove", { address });
+    row.append(remove);
   }
   return row;
 }
-function render(s) {
-  state = s;
-  $("build").textContent = `v${s.version}  /  b12562`;
-  $("build").title = `Kod źródłowy: ${s.commit}`;
-  let nodes = s.nodes || [],
-    sess = s.session,
-    sz = nodes.reduce((a, n) => a + n.total, s.total),
-    cap = nodes.reduce((a, n) => a + n.budget, s.budget);
-  $("count").textContent = 1 + nodes.length;
-  $("mode").textContent = s.offer
-    ? "Tryb workera"
-    : nodes.length
-      ? "Klaster hybrydowy"
-      : "Host lokalny";
-  $("topdesc").textContent = nodes.length
-    ? "Podział warstw CPU przez szyfrowane połączenia w LAN."
-    : "Obliczenia na tym urządzeniu, bez usług chmurowych.";
-  $("ram").textContent = gib(sz) + " GiB";
-  $("capacity").textContent = gib(cap) + " GiB";
+
+function render(nextState) {
+  state = nextState;
+  $("build").textContent = `v${state.version} · b12562`;
+  $("build").title = `Commit źródłowy: ${state.commit}`;
+
+  const workers = state.nodes || [];
+  const session = state.session;
+  const totalRam = workers.reduce((sum, node) => sum + node.total, state.total);
+  const capacity = workers.reduce((sum, node) => sum + node.budget, state.budget);
+  $("count").textContent = 1 + workers.length;
+  $("ram").textContent = gib(totalRam) + " GiB";
+  $("capacity").textContent = gib(capacity) + " GiB";
+
+  if (state.offer) {
+    $("mode").textContent = "Ten komputer jest workerem";
+    $("topdesc").textContent = "Oczekuje na bezpieczne połączenie z innym hostem YourLM.";
+  } else if (workers.length) {
+    $("mode").textContent = workers.length === 1 ? "Laptop + telefon" : `Host + ${workers.length} workery`;
+    $("topdesc").textContent = "Urządzenia są połączone szyfrowanym tunelem w prywatnej sieci.";
+  } else {
+    $("mode").textContent = "Tylko ten komputer";
+    $("topdesc").textContent = "Możesz od razu wybrać model albo dodać telefon jako worker.";
+  }
+
   $("nodes").replaceChildren(
-    node(
-      s.host,
+    device(
+      state.host,
       "HOST",
-      `${s.os} · ${s.cores} wątków · ${gib(s.total)} GiB RAM`,
+      `${state.os === "windows" ? "Windows" : "Android"} · ${state.cores} wątków · ${gib(state.total)} GiB RAM`,
     ),
-    ...nodes.map((n) =>
-      node(
-        n.name,
+    ...workers.map((worker) =>
+      device(
+        worker.name,
         "WORKER",
-        `${n.address} · ${n.cores} wątków · ${gib(n.total)} GiB RAM`,
-        n.address,
+        `${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB RAM`,
+        worker.address,
       ),
     ),
   );
-  $("next").hidden = !!s.offer;
-  $("next").textContent = sess?.ready ? "Otwórz czat" : s.model.name ? "Przejdź do serwera" : "Skonfiguruj model";
-  $("add").disabled = !!sess || !!s.offer;
-  $("offer").hidden = s.os !== "windows";
-  options("workerIP", s.ips.slice(1));
-  $("offerBtn").textContent = s.offer ? "Zatrzymaj worker" : "Uruchom worker";
-  $("offerCode").hidden = !s.offer;
-  $("offerCode").value = s.offer;
-  if (s.offer !== offered) {
-    offered = s.offer;
+
+  $("next").hidden = Boolean(state.offer);
+  $("next").textContent = session?.ready
+    ? "Otwórz czat"
+    : state.model.name
+      ? "Uruchom model"
+      : "Wybierz model";
+  for (const id of ["add", "addTop"]) $(id).disabled = Boolean(session || state.offer);
+
+  $("offer").hidden = state.os !== "windows";
+  options("workerIP", state.ips.slice(1));
+  $("offerBtn").textContent = state.offer ? "Zatrzymaj worker" : "Uruchom worker";
+  $("offerCode").value = state.offer || "";
+  $("offerCode").hidden = true;
+  $("offerShare").hidden = !state.offer;
+  $("offerAddress").value = state.offerAddress || "";
+  $("offerKey").value = state.offerKey || "";
+  if (state.offer !== offered) {
+    offered = state.offer;
     $("winQR").replaceChildren();
     if (offered) {
-      let qr = qrcode(0, "M");
+      const qr = qrcode(0, "M");
       qr.addData(offered);
       qr.make();
       $("winQR").innerHTML = qr.createSvgTag(4, 16);
     }
   }
-  $("engine").textContent = s.runtime
-    ? "b12562 · dołączony do pakietu; suma SHA-256 jest sprawdzana przed uruchomieniem"
-    : "Brak kompletnego silnika. Zamknij program i wypakuj cały pakiet ZIP — nie uruchamiaj samego EXE.";
-  $("selected").textContent = s.model.name
-    ? `${s.model.name} · ${gib(s.model.size)} GiB · ${s.model.layers} warstw`
+
+  $("engine").textContent = state.runtime
+    ? "Silnik jest gotowy i przeszedł kontrolę integralności."
+    : "Brakuje kompletnego silnika. Zamknij program i wypakuj ponownie cały pakiet — nie uruchamiaj samego EXE.";
+  $("selected").textContent = state.model.name
+    ? `${state.model.name} · ${gib(state.model.size)} GiB · ${state.model.layers} warstw`
     : "Nie wybrano pliku.";
-  $("advice").textContent = s.advice;
-  $("pick").hidden = s.os !== "windows";
-  $("pick").disabled = $("manual").disabled = !!sess;
-  options("library", s.models || [], "Wybierz z biblioteki…");
-  $("library").hidden = !s.models.length;
-  $("library").disabled = !!sess;
-  $("libdir").textContent = "Folder modeli: " + s.library;
-  options("bind", s.ips);
-  $("bind").disabled = $("port").disabled = !!sess;
-  $("run").textContent = sess ? "Zatrzymaj model" : "Uruchom model";
-  $("run").disabled = !sess && (!s.model.name || !s.runtime || !!s.offer);
-  $("sessionInfo").hidden = !sess;
-  if (sess) {
-    $("endpoint").textContent = sess.url;
+  $("advice").textContent = state.advice || "Po wybraniu pliku pokażemy szacowany podział pamięci i warstw.";
+  $("pick").hidden = state.os !== "windows";
+  $("pick").disabled = $("manual").disabled = Boolean(session);
+  options("library", state.models || [], "Wybierz z prywatnej biblioteki…");
+  $("library").hidden = !state.models.length;
+  $("library").disabled = Boolean(session);
+  $("libdir").textContent = "Biblioteka: " + state.library;
+
+  options("bind", state.ips);
+  $("bind").disabled = $("port").disabled = Boolean(session);
+  $("run").textContent = session ? "Zatrzymaj model" : "Uruchom model";
+  $("run").disabled = !session && (!state.model.name || !state.runtime || Boolean(state.offer));
+  $("sessionInfo").hidden = !session;
+  if (session) {
+    $("endpoint").textContent = session.url;
     $("runstate").textContent =
-      (sess.ready ? "Gotowy" : "Ładowanie modelu…") +
-      ` · ${sess.layers} warstw na workerach`;
+      (session.ready ? "Model gotowy" : "Ładowanie modelu…") +
+      ` · ${session.layers} warstw na workerach`;
   }
-  $("chatstatus").textContent = sess?.ready
-    ? sess.name
-    : sess
-      ? "Trwa ładowanie modelu."
-      : "Wybierz i uruchom model w zakładce Modele i API.";
-  $("send").querySelector("button").disabled = !sess?.ready || pending;
-  if (lastSession && lastSession !== sess?.key) {
+
+  $("chatstatus").textContent = session?.ready
+    ? `${session.name} działa lokalnie.`
+    : session
+      ? "Model jest ładowany. To może potrwać kilka minut."
+      : "Najpierw wybierz i uruchom model w zakładce Model i API.";
+  $("send").querySelector("button").disabled = !session?.ready || pending;
+  $("prompt").disabled = !session?.ready || pending;
+  if (lastSession && lastSession !== session?.key) {
     messages = [];
     $("speed").textContent = "";
     drawChat();
   }
-  lastSession = sess?.key || "";
-  if (s.last && s.last !== render.last) note(s.last);
-  render.last = s.last;
+  lastSession = session?.key || "";
+  if (state.last && state.last !== render.last) note(state.last);
+  render.last = state.last;
 }
-async function act(op, data = {}, dlg) {
+
+async function act(op, data = {}, dialog) {
   try {
     note("");
-    if (dlg) dlg.querySelector(".error").textContent = "";
-    let s = await api(op, data);
-    render(s);
-    if (dlg) dlg.close();
+    if (dialog) dialog.querySelector(".error").textContent = "";
+    const updated = await api(op, data);
+    render(updated);
+    if (dialog) dialog.close();
     return true;
-  } catch (e) {
-    if (dlg) dlg.querySelector(".error").textContent = e.message;
-    else note(e.message);
+  } catch (error) {
+    if (dialog) dialog.querySelector(".error").textContent = error.message;
+    else note(error.message);
     return false;
   }
 }
-const headings = {
-  cluster: [
-    "Centrum klastra",
-    "Zarządzaj pamięcią, modelami i urządzeniami w swojej sieci.",
-    "KLASTER",
-  ],
-  model: [
-    "Modele i API",
-    "Wczytaj własne wagi GGUF i udostępnij lokalny endpoint.",
-    "RUNTIME",
-  ],
-  chat: [
-    "Czat lokalny",
-    "Rozmawiaj bezpośrednio z modelem uruchomionym na Twoim sprzęcie.",
-    "CZAT",
-  ],
-};
-document.querySelectorAll("nav button").forEach(
-  (b) =>
-    (b.onclick = () => {
-      for (let t of document.querySelectorAll(".tab"))
-        t.hidden = t.id !== b.dataset.tab;
-      document
-        .querySelectorAll("nav button")
-        .forEach((v) => v.classList.toggle("sel", v === b));
-      let [h, p, c] = headings[b.dataset.tab];
-      $("title").textContent = h;
-      $("sub").textContent = p;
-      $("crumb").textContent = c;
-    }),
-);
-$("next").onclick = () => document.querySelector(`[data-tab=${state?.session?.ready ? "chat" : "model"}]`).click();
-$("add").onclick = () => {
+
+function openTab(name) {
+  for (const tab of document.querySelectorAll(".tab")) tab.hidden = tab.id !== name;
+  for (const button of document.querySelectorAll("nav button")) button.classList.toggle("sel", button.dataset.tab === name);
+  document.title = `YourLM · ${{ cluster: "Urządzenia", model: "Model i API", chat: "Czat" }[name]}`;
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+document.querySelectorAll("nav button").forEach((button) => {
+  button.onclick = () => openTab(button.dataset.tab);
+});
+
+$("next").onclick = () => openTab(state?.session?.ready ? "chat" : "model");
+function openPairing() {
   $("pair").showModal();
   $("pair").querySelector(".error").textContent = "";
-};
+  setTimeout(() => $("pairAddress").focus(), 50);
+}
+$("add").onclick = openPairing;
+$("addTop").onclick = openPairing;
 $("manual").onclick = () => $("pathDlg").showModal();
-document
-  .querySelectorAll(".close")
-  .forEach((b) => (b.onclick = () => b.closest("dialog").close()));
+document.querySelectorAll(".close").forEach((button) => {
+  button.onclick = () => button.closest("dialog").close();
+});
+
+$("pairManualBtn").onclick = () =>
+  act(
+    "pair-manual",
+    { pairAddress: $("pairAddress").value.trim(), pairKey: $("pairKey").value.trim() },
+    $("pair"),
+  );
 $("pairBtn").onclick = () => act("pair", { code: $("code").value }, $("pair"));
-$("choose").onclick = () =>
-  act("model", { path: $("path").value }, $("pathDlg"));
-$("library").onchange = (e) =>
-  e.target.value && act("model", { path: e.target.value });
+$("pairKey").oninput = (event) => {
+  event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "");
+};
+$("choose").onclick = () => act("model", { path: $("path").value }, $("pathDlg"));
+$("library").onchange = (event) => event.target.value && act("model", { path: event.target.value });
 $("pick").onclick = () => act("pick");
-$("offerBtn").onclick = () =>
-  act(state.offer ? "unoffer" : "offer", { bind: $("workerIP").value });
+$("offerBtn").onclick = () => act(state.offer ? "unoffer" : "offer", { bind: $("workerIP").value });
 $("run").onclick = () => {
   if (
     !state.session &&
     $("bind").value !== "127.0.0.1" &&
-    !confirm("Udostępnić API przez HTTP w zaufanej sieci prywatnej?")
-  )
-    return;
+    !confirm("Udostępnić API przez zwykły HTTP w tej zaufanej sieci prywatnej?")
+  ) return;
   act(state.session ? "stop" : "start", {
     bind: $("bind").value,
     port: Number($("port").value),
   });
 };
+
 function stopScan() {
   scanId++;
-  stream?.getTracks().forEach((t) => t.stop());
+  stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   $("video").hidden = true;
   $("scan").disabled = false;
+  $("scan").textContent = "Zeskanuj QR";
 }
+
 $("pair").onclose = () => {
   stopScan();
   $("code").value = "";
 };
+
 $("scan").onclick = async () => {
-  let id = ++scanId;
+  const id = ++scanId;
   $("scan").disabled = true;
+  $("scan").textContent = "Szukam kodu…";
   try {
-    let cam = await navigator.mediaDevices.getUserMedia({
-      video: { width: 640, facingMode: { ideal: "environment" } },
+    const camera = await navigator.mediaDevices.getUserMedia({
+      video: { width: 720, facingMode: { ideal: "environment" } },
     });
     if (scanId !== id) {
-      cam.getTracks().forEach((t) => t.stop());
+      camera.getTracks().forEach((track) => track.stop());
       return;
     }
-    stream = cam;
-    let v = $("video");
-    v.srcObject = cam;
-    v.hidden = false;
-    await v.play();
-    let c = document.createElement("canvas"),
-      ctx = c.getContext("2d", { willReadFrequently: true });
-    function scan() {
+    stream = camera;
+    const video = $("video");
+    video.srcObject = camera;
+    video.hidden = false;
+    await video.play();
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    function scanFrame() {
       if (scanId !== id) return;
-      if (v.videoWidth) {
-        c.width = v.videoWidth;
-        c.height = v.videoHeight;
-        ctx.drawImage(v, 0, 0);
-        let img = ctx.getImageData(0, 0, c.width, c.height),
-          qr = jsQR(img.data, img.width, img.height);
+      if (video.videoWidth) {
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        context.drawImage(video, 0, 0);
+        const image = context.getImageData(0, 0, canvas.width, canvas.height);
+        const qr = jsQR(image.data, image.width, image.height);
         if (qr?.data.startsWith("YLM1|")) {
           $("code").value = qr.data;
           stopScan();
@@ -271,74 +296,101 @@ $("scan").onclick = async () => {
           return;
         }
       }
-      setTimeout(scan, 180);
+      setTimeout(scanFrame, 160);
     }
-    scan();
-  } catch (e) {
+    scanFrame();
+  } catch (error) {
     stopScan();
     $("pair").querySelector(".error").textContent =
-      "Kamera niedostępna. Wklej kod sesji.";
+      "Kamera jest niedostępna. Przepisz adres i kod pokazane na telefonie.";
   }
 };
-async function copy(s) {
+
+async function copy(value) {
   try {
-    await navigator.clipboard.writeText(s);
+    await navigator.clipboard.writeText(value);
     note("Skopiowano do schowka.");
   } catch {
-    note("Schowek niedostępny.");
+    const area = document.createElement("textarea");
+    area.value = value;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.append(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    note(ok ? "Skopiowano do schowka." : "Schowek jest niedostępny.");
   }
 }
+
+$("copyOffer").onclick = () => copy(`Adres: ${state.offerAddress}\nKod: ${state.offerKey}`);
 $("copyKey").onclick = () => copy(state.session.key);
 $("copyCfg").onclick = () =>
   copy(
     `name: YourLM\nversion: 1.0.0\nschema: v1\nmodels:\n  - name: YourLM lokalny\n    provider: openai\n    model: yourlm\n    apiBase: ${state.session.url}\n    apiKey: ${state.session.key}\n    roles: [chat, edit, apply]`,
   );
+
 function drawChat() {
-  let list = $("messages");
+  const list = $("messages");
+  if (!messages.length) {
+    const empty = el("div", "");
+    empty.className = "emptyChat";
+    empty.append(el("span", "Y"), el("h2", "Twoja prywatna rozmowa"), el("p", "Wiadomości pozostają tylko w pamięci tej karty."));
+    list.replaceChildren(empty);
+    return;
+  }
   list.replaceChildren(
-    ...messages.map((m) => {
-      let d = el("div", "");
-      d.className = "bubble";
-      d.append(
-        el("b", m.role === "user" ? "TY" : "YOUR LM"),
-        document.createTextNode(m.content),
+    ...messages.map((message) => {
+      const bubble = el("div", "");
+      bubble.className = "bubble " + (message.role === "user" ? "user" : "assistant");
+      bubble.append(
+        el("b", message.role === "user" ? "TY" : "YOUR LM"),
+        document.createTextNode(message.content),
       );
-      return d;
+      return bubble;
     }),
   );
+  list.scrollTop = list.scrollHeight;
 }
+
 $("clear").onclick = () => {
   if (!pending) {
     messages = [];
     drawChat();
   }
 };
-$("send").onsubmit = async (e) => {
-  e.preventDefault();
-  let p = $("prompt").value.trim();
-  if (!p || pending) return;
+
+$("prompt").onkeydown = (event) => {
+  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+    event.preventDefault();
+    $("send").requestSubmit();
+  }
+};
+
+$("send").onsubmit = async (event) => {
+  event.preventDefault();
+  const prompt = $("prompt").value.trim();
+  if (!prompt || pending) return;
   pending = true;
-  let session = state.session?.key;
-  messages.push({ role: "user", content: p });
+  const session = state.session?.key;
+  messages.push({ role: "user", content: prompt });
   $("prompt").value = "";
   drawChat();
   render(state);
   try {
-    let j = await api("chat", { messages });
+    const response = await api("chat", { messages });
     if (session === state.session?.key) {
-      let answer = j.choices?.[0]?.message?.content;
-      if (typeof answer !== "string") throw Error("Brak tekstu odpowiedzi");
+      const answer = response.choices?.[0]?.message?.content;
+      if (typeof answer !== "string") throw Error("Silnik nie zwrócił tekstu odpowiedzi");
       messages.push({ role: "assistant", content: answer });
-      let rate = j.timings?.predicted_per_second;
-      if (Number.isFinite(rate))
-        $("speed").textContent =
-          "Ostatnia odpowiedź: " + rate.toFixed(1) + " tokenów/s";
+      const rate = response.timings?.predicted_per_second;
+      if (Number.isFinite(rate)) $("speed").textContent = `Ostatnia odpowiedź: ${rate.toFixed(1)} tokenów/s`;
     }
-  } catch (e) {
-    note(e.message);
+  } catch (error) {
+    note(error.message);
     if (session === state.session?.key) {
       messages.pop();
-      $("prompt").value = p;
+      $("prompt").value = prompt;
     }
   } finally {
     pending = false;
@@ -346,13 +398,16 @@ $("send").onsubmit = async (e) => {
     render(state);
   }
 };
+
 async function refresh() {
   try {
     render(await api("state"));
-  } catch (e) {
-    note(e.message);
+  } catch (error) {
+    note(error.message);
   } finally {
     setTimeout(refresh, 3000);
   }
 }
+
+drawChat();
 refresh();

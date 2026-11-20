@@ -27,13 +27,23 @@ import (
 
 // Offer a desktop CPU through the same pinned-TLS protocol as Android.
 type Offer struct {
-	listener            net.Listener
-	cmd                 *exec.Cmd
-	code, secret, local string
-	slots               chan struct{}
+	listener, pairListener                 net.Listener
+	cmd                                    *exec.Cmd
+	code, secret, local, manualKey, pairAt string
+	slots                                  chan struct{}
 }
 
-func (o *Offer) close() { o.listener.Close(); o.cmd.Process.Kill() }
+func (o *Offer) close() {
+	if o.listener != nil {
+		o.listener.Close()
+	}
+	if o.pairListener != nil {
+		o.pairListener.Close()
+	}
+	if o.cmd != nil && o.cmd.Process != nil {
+		o.cmd.Process.Kill()
+	}
+}
 func (a *App) offer(ip string) error {
 	if a.s != nil || a.off != nil {
 		return errors.New("Zatrzymaj aktywną sesję")
@@ -67,9 +77,15 @@ func (a *App) offer(ip string) error {
 	if e != nil {
 		return e
 	}
+	pairListener, e := net.Listen("tcp4", ip+":0")
+	if e != nil {
+		l.Close()
+		return e
+	}
 	local, e := net.Listen("tcp4", "127.0.0.1:0")
 	if e != nil {
 		l.Close()
+		pairListener.Close()
 		return e
 	}
 	addr := local.Addr().String()
@@ -81,20 +97,43 @@ func (a *App) offer(ip string) error {
 	prepareChild(cmd)
 	if e = cmd.Start(); e != nil {
 		l.Close()
+		pairListener.Close()
 		return e
 	}
 	trackChild(cmd)
-	o := &Offer{listener: l, cmd: cmd, secret: token(), local: addr, slots: make(chan struct{}, 16)}
-	o.code = fmt.Sprintf("YLM1|%s|%x|%s", l.Addr(), sha256.Sum256(der), o.secret)
+	manual := manualCode()
+	canonical, _ := canonicalManual(manual)
+	pin := fmt.Sprintf("%x", sha256.Sum256(der))
+	o := &Offer{
+		listener:     l,
+		pairListener: pairListener,
+		cmd:          cmd,
+		secret:       derivedSessionSecret(canonical),
+		local:        addr,
+		manualKey:    manual,
+		pairAt:       pairListener.Addr().String(),
+		slots:        make(chan struct{}, 16),
+	}
+	o.code = fmt.Sprintf("YLM1|%s|%s|%s", l.Addr(), pin, o.secret)
 	a.off = o
 	go func() {
 		cmd.Wait()
 		l.Close()
+		pairListener.Close()
 		a.Lock()
 		if a.off == o {
 			a.off = nil
 		}
 		a.Unlock()
+	}()
+	go func() {
+		for {
+			c, err := pairListener.Accept()
+			if err != nil {
+				return
+			}
+			serveManualPair(c, canonical, l.Addr().String(), pin)
+		}
 	}()
 	go func() {
 		for {

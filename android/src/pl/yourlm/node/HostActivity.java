@@ -19,28 +19,38 @@ public final class HostActivity extends Activity {
   public void onCreate(Bundle state) {
     super.onCreate(state);
     TextView waiting = new TextView(this);
-    waiting.setText("Uruchamianie lokalnego hosta…");
+    waiting.setText("YourLM\n\nUruchamianie prywatnej konsoli…");
+    waiting.setTextSize(20);
+    waiting.setTextColor(0xff14251e);
+    waiting.setGravity(android.view.Gravity.CENTER);
+    waiting.setPadding(48, 48, 48, 48);
+    waiting.setBackgroundColor(0xfff4f6f2);
     setContentView(waiting);
+    getWindow().setStatusBarColor(0xfff4f6f2);
+    getWindow().getDecorView().setSystemUiVisibility(android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR);
     getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     new Thread(() -> {
       try {
         File libs = new File(getApplicationInfo().nativeLibraryDir);
+        File controller = new File(libs, "libylm_host.so");
+        File engine = new File(libs, "libylm_server.so");
+        Worker.requireArm64Pie(controller);
+        Worker.requireArm64Pie(engine);
+        File hostLog = new File(getCacheDir(), "host.log");
+        if (hostLog.exists()) hostLog.delete();
         ProcessBuilder pb = new ProcessBuilder(
-          new File(libs, "libylm_host.so").getPath(),
+          controller.getPath(),
           "-no-browser"
         );
         pb.environment().put("YOURLM_HOME", getFilesDir().getPath());
-        pb.environment().put(
-          "YOURLM_ENGINE",
-          new File(libs, "libylm_server.so").getPath()
-        );
+        pb.environment().put("YOURLM_ENGINE", engine.getPath());
         pb.environment().put("HOME", getFilesDir().getPath());
         pb.environment().put("TMPDIR", getCacheDir().getPath());
         try {
           pb.environment().put("YOURLM_LAN", Worker.lan().getHostAddress());
         } catch (Exception ignored) {}
         pb.directory(getFilesDir());
-        pb.redirectError(new File(getCacheDir(), "host.log"));
+        pb.redirectError(hostLog);
         Process p = pb.start();
         host = p;
         if (closed) {
@@ -53,7 +63,20 @@ public final class HostActivity extends Activity {
         if (
           url == null ||
           !url.matches("http://127\\.0\\.0\\.1:[0-9]+/#([a-f0-9]{48})")
-        ) throw new IOException("Host nie zwrócił adresu konsoli");
+        ) {
+          String exit = "";
+          if (!p.isAlive()) {
+            try {
+              exit = " (kod wyjścia " + p.exitValue() + ")";
+            } catch (Exception ignored) {}
+          }
+          String log = Worker.logTail(hostLog, 12000);
+          throw new IOException(
+            "Host nie zwrócił adresu konsoli" +
+            exit +
+            (log.isEmpty() ? ". Brak komunikatu w logu." : ".\n\nLog natywny:\n" + log)
+          );
+        }
         runOnUiThread(() -> {
           if (closed) return;
           view = new WebView(this);

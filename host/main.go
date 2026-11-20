@@ -239,9 +239,11 @@ func (a *App) state() map[string]any {
 	if s := a.s; s != nil {
 		session = map[string]any{"url": s.url + "/v1", "key": s.key, "layers": s.layers, "name": s.name, "ready": s.ready}
 	}
-	code := ""
+	code, offerAddress, offerKey := "", "", ""
 	if a.off != nil {
 		code = a.off.code
+		offerAddress = a.off.pairAt
+		offerKey = a.off.manualKey
 	}
 	advice := ""
 	if a.model.Name != "" && a.s == nil {
@@ -252,13 +254,13 @@ func (a *App) state() map[string]any {
 			advice = fmt.Sprintf("Szacunkowo mieści się w RAM: %d warstw lokalnie, %d na workerach. Kontekst: 2048 tokenów.", a.model.Layers-layers, layers)
 		}
 	}
-	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "offer": code, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "budget": budget(total, free), "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "last": a.last}
+	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "offer": code, "offerAddress": offerAddress, "offerKey": offerKey, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "budget": budget(total, free), "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "last": a.last}
 }
 
 type input struct {
-	Code, Path, Address, Bind string
-	Port                      int
-	Messages                  []struct {
+	Code, Path, Address, Bind, PairAddress, PairKey string
+	Port                                            int
+	Messages                                        []struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
 	} `json:"messages"`
@@ -307,15 +309,19 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			a.s.stopping = true
 			e = a.s.cmd.Process.Kill()
 		}
-	case "pair", "remove", "model", "pick":
+	case "pair", "pair-manual", "remove", "model", "pick":
 		if a.s != nil {
 			e = errors.New("Zatrzymaj model przed zmianą konfiguracji")
 			break
 		}
 		switch op {
-		case "pair":
+		case "pair", "pair-manual":
 			var n Node
-			n, e = parseCode(in.Code)
+			if op == "pair" {
+				n, e = parseCode(in.Code)
+			} else {
+				n, e = pairManual(in.PairAddress, in.PairKey)
+			}
 			if e == nil {
 				for _, x := range a.nodes {
 					if x.Address == n.Address {
