@@ -114,6 +114,23 @@ function render(nextState) {
     `Aktualna wersja: ${update.current || state.version}. Aktualizacje są sprawdzane automatycznie.`;
   $("releaseLink").hidden = !update.pageUrl;
   if (update.pageUrl) $("releaseLink").href = update.pageUrl;
+  const shortcutText = update.ready
+    ? "Uruchom ponownie"
+    : update.downloading
+      ? "Pobieranie…"
+      : update.available
+        ? `Pobierz ${update.latest}`
+        : update.checking
+          ? "Sprawdzanie…"
+          : update.error
+            ? "Spróbuj ponownie"
+            : `Sprawdź aktualizacje · ${update.current || state.version}`;
+  for (const button of document.querySelectorAll(".updateShortcut")) {
+    button.disabled = Boolean(update.downloading || update.checking);
+    button.classList.toggle("available", Boolean(update.available || update.ready));
+    const text = button.querySelector(".updateShortcutText");
+    if (text) text.textContent = shortcutText;
+  }
 
   const usb = state.usb || { devices: [] };
   const usbDevices = usb.devices || [];
@@ -287,8 +304,15 @@ $("next").onclick = () => openTab(state?.session?.ready ? "chat" : "model");
 $("usbRefresh").onclick = () => act("usb-refresh");
 $("usbInstall").onclick = () => act("usb-install", { serial: $("usbDevice").value });
 $("checkUpdate").onclick = () => act("update-check");
-$("updateAction").onclick = () =>
-  act(state?.update?.ready ? "update-apply" : "update-download");
+function updateOperation() {
+  if (state?.update?.ready) return "update-apply";
+  if (state?.update?.available) return "update-download";
+  return "update-check";
+}
+$("updateAction").onclick = () => act(updateOperation());
+document.querySelectorAll(".updateShortcut").forEach((button) => {
+  button.onclick = () => act(updateOperation());
+});
 function openPairing() {
   $("pair").showModal();
   $("pair").querySelector(".error").textContent = "";
