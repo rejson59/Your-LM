@@ -41,7 +41,7 @@ function options(id, arr, first) {
   let prev = s.value;
   s.replaceChildren();
   if (first) s.add(new Option(first, ""));
-  for (let v of arr) s.add(new Option(v, v));
+  for (let v of arr) s.add(new Option(id === "library" ? v.split(/[\\/]/).pop() : v, v));
   s.dataset.vals = vals;
   if (arr.includes(prev)) s.value = prev;
 }
@@ -94,6 +94,8 @@ function render(s) {
       ),
     ),
   );
+  $("next").hidden = !!s.offer;
+  $("next").textContent = sess?.ready ? "Otwórz czat" : s.model.name ? "Przejdź do serwera" : "Skonfiguruj model";
   $("add").disabled = !!sess || !!s.offer;
   $("offer").hidden = s.os !== "windows";
   options("workerIP", s.ips.slice(1));
@@ -198,6 +200,7 @@ document.querySelectorAll("nav button").forEach(
       $("crumb").textContent = c;
     }),
 );
+$("next").onclick = () => document.querySelector(`[data-tab=${state?.session?.ready ? "chat" : "model"}]`).click();
 $("add").onclick = () => {
   $("pair").showModal();
   $("pair").querySelector(".error").textContent = "";

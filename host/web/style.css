@@ -190,6 +190,9 @@ nav button.sel {
   background: #caf596;
   color: #183a2a;
 }
+.heroActions { display: flex; flex-wrap: wrap; gap: 8px; }
+.grid > article { min-width: 0; }
+#library { max-width: 100%; }
 .diagram {
   position: absolute;
   left: 65%;
