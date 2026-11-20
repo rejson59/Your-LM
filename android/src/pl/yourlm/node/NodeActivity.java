@@ -151,10 +151,18 @@ public final class NodeActivity extends Activity {
     names.addView(text("YourLM", 20, INK, true));
     names.addView(text(section, 12, MUTED, false));
     row.addView(names, new LinearLayout.LayoutParams(0, -2, 1));
-    TextView local = text("OFFLINE", 11, GREEN_DARK, true);
+    TextView local = text("LOKALNIE", 11, GREEN_DARK, true);
     local.setGravity(Gravity.CENTER);
     local.setPadding(dp(11), dp(6), dp(11), dp(6));
     local.setBackground(shape(MINT, 20, 0));
+    local.setContentDescription(
+      "Model działa lokalnie. Internet jest używany tylko do aktualizacji."
+    );
+    local.setOnClickListener(v -> Toast.makeText(
+      this,
+      "Model działa lokalnie. Internet jest używany tylko do aktualizacji.",
+      Toast.LENGTH_LONG
+    ).show());
     row.addView(local);
     page.addView(row, lp(-1, -2, 0, 30));
   }

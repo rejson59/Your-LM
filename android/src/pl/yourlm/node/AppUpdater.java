@@ -23,7 +23,7 @@ final class AppUpdater {
   static final class State {
     String current = "";
     String latest = "";
-    String message = "Aktualizacje są sprawdzane automatycznie.";
+    String message = "Aktualizacje są sprawdzane automatycznie przez GitHub.";
     String releaseURL = "";
     String assetURL = "";
     String digest = "";
@@ -155,6 +155,7 @@ final class AppUpdater {
           JSONObject selected = null;
           String apk = "";
           String apkDigest = "";
+          boolean newerReleaseSeen = false;
           boolean allowPrerelease = state.current.contains("-");
           for (int i = 0; i < releases.length(); i++) {
             JSONObject release = releases.getJSONObject(i);
@@ -164,6 +165,7 @@ final class AppUpdater {
             ) continue;
             String tag = release.optString("tag_name");
             if (!newer(tag, state.current)) continue;
+            newerReleaseSeen = true;
             JSONArray assets = release.optJSONArray("assets");
             if (assets == null) continue;
             for (int j = 0; j < assets.length(); j++) {
@@ -191,7 +193,9 @@ final class AppUpdater {
             state.releaseURL = "";
             state.assetURL = "";
             state.digest = "";
-            state.message = "Masz najnowszą wersję " + state.current + ".";
+            state.message = newerReleaseSeen
+              ? "Połączono z GitHub. Nowsze wydanie nie zawiera zweryfikowanego APK dla tego telefonu."
+              : "Połączono z GitHub. Wersja " + state.current + " jest obecnie najnowszym opublikowanym wydaniem.";
           } else {
             String next = selected
               .optString("tag_name")
@@ -202,7 +206,7 @@ final class AppUpdater {
             state.assetURL = apk;
             state.digest = apkDigest;
             state.available = true;
-            state.message = "Dostępna jest wersja " + state.latest + ".";
+            state.message = "Połączono z GitHub. Dostępna jest wersja " + state.latest + ".";
           }
         } catch (Exception e) {
           state.message = "Nie udało się sprawdzić aktualizacji: " + e.getMessage();
