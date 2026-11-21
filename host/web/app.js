@@ -20,6 +20,14 @@ const gib = (n) =>
     maximumFractionDigits: 1,
   });
 
+function elapsed(seconds) {
+  const total = Math.max(0, Number(seconds || 0));
+  if (total < 60) return `${total} s`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${minutes} min ${String(rest).padStart(2, "0")} s`;
+}
+
 function note(value) {
   $("notice").textContent = value;
   $("notice").hidden = !value;
@@ -162,6 +170,7 @@ function render(nextState) {
 
   const workers = state.nodes || [];
   const session = state.session;
+  const engineState = state.engine || {};
   const totalRam = workers.reduce((sum, node) => sum + node.total, state.total);
   const availableRam = workers.reduce((sum, node) => sum + node.free, state.free);
   $("count").textContent = 1 + workers.length;
@@ -243,15 +252,21 @@ function render(nextState) {
   $("bind").disabled = $("port").disabled = Boolean(session);
   $("run").textContent = session ? "Zatrzymaj model" : "Uruchom model bez limitu";
   $("run").disabled = !session && (!state.model.name || !state.runtime || Boolean(state.offer));
-  $("sessionInfo").hidden = !session;
-  if (session) {
-    $("endpoint").textContent = session.url;
-    $("runstate").textContent =
-      (session.ready ? "Model gotowy" : "Ładowanie modelu…") +
-      (session.layers < 0
-        ? " · automatyczny maksymalny podział host/workery"
-        : ` · ${session.layers} warstw na workerach`);
+  const hasEngineDetails = Boolean(session || engineState.log || engineState.path);
+  $("sessionInfo").hidden = !hasEngineDetails;
+  $("sessionInfo").classList.toggle("loading", Boolean(session && !session.ready));
+  $("sessionInfo").classList.toggle("failed", Boolean(!session && state.last));
+  $("apiDetails").hidden = !session;
+  $("engineDiagnostics").hidden = !hasEngineDetails;
+  if (hasEngineDetails) {
+    $("runstate").textContent = engineState.phase || (session?.ready ? "Model gotowy" : "Ostatnia sesja silnika");
+    $("loadMeta").textContent = session
+      ? `${engineState.mode || "Tryb lokalny"} · czas ${elapsed(engineState.elapsed)}`
+      : "Ostatnia diagnostyka jest dostępna poniżej.";
+    $("engineLogPath").textContent = engineState.path ? `Plik: ${engineState.path}` : "";
+    $("engineLog").textContent = engineState.log || "Oczekiwanie na pierwszy komunikat llama.cpp…";
   }
+  if (session) $("endpoint").textContent = session.url;
 
   $("chatstatus").textContent = session?.ready
     ? `${session.name} działa lokalnie.`
@@ -427,6 +442,9 @@ async function copy(value) {
 }
 
 $("copyOffer").onclick = () => copy(`Adres: ${state.offerAddress}\nKod: ${state.offerKey}`);
+$("copyEngineLog").onclick = () => copy(
+  `YourLM ${state.version}\n${state.engine?.phase || "Diagnostyka silnika"}\n${state.engine?.path || ""}\n\n${state.engine?.log || "Brak komunikatów w logu."}`,
+);
 $("copyKey").onclick = () => copy(state.session.key);
 $("copyCfg").onclick = () =>
   copy(

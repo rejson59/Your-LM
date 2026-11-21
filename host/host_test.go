@@ -115,6 +115,27 @@ func TestEngineArgumentsDoNotBlockLargeModels(t *testing.T) {
 	}
 }
 
+func TestEngineProgressPhases(t *testing.T) {
+	for _, test := range []struct {
+		log, want string
+		ready     bool
+	}{
+		{"", "Uruchamianie silnika llama.cpp", false},
+		{"srv load_model: loading model", "Odczytywanie modelu GGUF", false},
+		{"load_tensors: offloaded 8 layers", "Rozmieszczanie wag na urządzeniach", false},
+		{"llama_kv_cache: size", "Tworzenie kontekstu i buforów", false},
+		{"listening on http://127.0.0.1", "Finalizowanie lokalnego API", false},
+		{"anything", "Model gotowy", true},
+	} {
+		if got := enginePhase(test.log, test.ready); got != test.want {
+			t.Fatalf("enginePhase(%q, %v)=%q, want %q", test.log, test.ready, got, test.want)
+		}
+	}
+	if got := cleanEngineLog("one\r\ntwo\x00\rthree"); got != "one\ntwo\nthree" {
+		t.Fatalf("cleanEngineLog returned %q", got)
+	}
+}
+
 func TestRuntimeIntegrity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.exe")
 	body := []byte("known executable fixture")

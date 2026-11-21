@@ -19,7 +19,7 @@ env:
 jobs:
   android-arm64:
     name: Android ARM64 release gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc3]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc3]') && !contains(github.event.head_commit.message, '[validate fast]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -84,7 +84,7 @@ jobs:
 
   android-runtime:
     name: Android x86_64 runtime gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc3]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc3]') && !contains(github.event.head_commit.message, '[validate fast]') }}
     runs-on: macos-15-intel
     timeout-minutes: 90
     steps:

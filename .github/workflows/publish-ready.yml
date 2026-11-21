@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   publish:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish rc3]') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish rc3]') || contains(github.event.head_commit.message, '[validate fast]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -32,7 +32,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          unformatted=$(gofmt -l host/*.go)
+          [[ -z "$unformatted" ]] || { echo "Go files need gofmt: $unformatted" >&2; exit 1; }
           go test ./host
+          go vet ./...
           node --check host/web/app.js
           server_file="$RUNNER_TEMP/base/release-scan/llama-server.exe"
           rpc_file="$RUNNER_TEMP/base/release-scan/ggml-rpc-server.exe"
@@ -62,6 +65,7 @@ jobs:
           cp packages/YourLM-Android-arm64.apk release/
           (cd release && sha256sum YourLM.exe YourLM-Android-arm64.apk > SHA256SUMS && sha256sum -c SHA256SUMS)
       - name: Publish RC3
+        if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish rc3]') }}
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

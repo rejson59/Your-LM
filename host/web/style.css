@@ -327,9 +327,18 @@ h3 { margin: 0 0 5px; font-size: 17px; }
 .serverFields input { width: 110px; }
 .serverFields button { min-width: 170px; }
 .sessionBox { margin-top: 15px; padding: 16px; border: 1px solid #cbe4d5; border-radius: 12px; background: #f2faf5; }
-.sessionBox > div:first-child { display: flex; align-items: center; gap: 9px; }
+.sessionBox.failed { border-color: #e5b5ad; background: #fff4f1; }
+.engineHeadline { display: flex; align-items: flex-start; gap: 10px; }
+.engineHeadline b, .engineHeadline small { display: block; }
+.engineHeadline small { margin-top: 2px; color: var(--muted); }
 .sessionBox label { margin-top: 12px; }
-.liveDot { display: inline-block; margin: 0; }
+.liveDot { display: inline-block; margin: 5px 0 0; }
+.sessionBox.loading .liveDot { animation: enginePulse 1.25s ease-in-out infinite; }
+#engineDiagnostics { margin-top: 14px; border-top: 1px solid #d6e6db; padding-top: 11px; }
+#engineDiagnostics summary { color: var(--green-dark); font-weight: 750; }
+#engineLogPath { display: block; margin: 7px 0; color: var(--muted); overflow-wrap: anywhere; }
+#engineLog { max-height: 260px; overflow: auto; color: #d7f5e3; border-color: #263b31; background: #112019; font: 11px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; }
+@keyframes enginePulse { 50% { opacity: .35; transform: scale(.8); } }
 .recommendation { display: flex; gap: 14px; margin-top: 14px; background: #fffaf0; border-color: #eee0bd; box-shadow: none; }
 .recommendIcon { display: grid; width: 32px; height: 32px; place-items: center; flex: 0 0 auto; border-radius: 50%; color: #7a5b17; background: #f5e7bd; font-weight: 800; }
 .recommendation p { margin: 0; font-size: 13px; }

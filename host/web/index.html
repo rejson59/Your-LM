@@ -193,9 +193,17 @@
                 <button id="run" class="primary">Uruchom model bez limitu</button>
               </div>
               <div id="sessionInfo" class="sessionBox" hidden>
-                <div><span class="liveDot"></span><b id="runstate"></b></div>
-                <label>Adres API</label><pre id="endpoint"></pre>
-                <div class="actions"><button id="copyKey">Kopiuj klucz API</button><button class="secondary" id="copyCfg">Kopiuj konfigurację Continue</button></div>
+                <div class="engineHeadline"><span class="liveDot"></span><div><b id="runstate"></b><small id="loadMeta"></small></div></div>
+                <div id="apiDetails">
+                  <label>Adres API</label><pre id="endpoint"></pre>
+                  <div class="actions"><button id="copyKey">Kopiuj klucz API</button><button class="secondary" id="copyCfg">Kopiuj konfigurację Continue</button></div>
+                </div>
+                <details id="engineDiagnostics">
+                  <summary>Postęp ładowania i log silnika</summary>
+                  <small id="engineLogPath"></small>
+                  <pre id="engineLog">Oczekiwanie na pierwszy komunikat llama.cpp…</pre>
+                  <button id="copyEngineLog" class="secondary">Kopiuj diagnostykę</button>
+                </details>
               </div>
             </article>
 

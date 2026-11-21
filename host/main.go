@@ -59,14 +59,18 @@ type Session struct {
 	listeners []net.Listener
 	url, key  string
 	layers    int
+	workers   int
 	name      string
 	ready     bool
+	started   time.Time
+	logPath   string
 	done      chan struct{}
 }
 type App struct {
 	off *Offer
 	sync.Mutex
 	dir, engine, library, last    string
+	lastEngineLog, lastEnginePath string
 	runtimeRoot, adbPath, apkPath string
 	nodes                         []Node
 	model                         Model
@@ -99,6 +103,37 @@ func engineArguments(modelPath, bind string, port int, key string, addresses []s
 	// back an additional artificial reserve; unassigned weights remain mapped on
 	// the host.
 	return append(args, "--rpc", strings.Join(addresses, ","), "--split-mode", "layer", "--fit", "on", "--fit-target", "0")
+}
+
+func cleanEngineLog(value string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	value = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || r >= 32 {
+			return r
+		}
+		return -1
+	}, value)
+	return strings.TrimSpace(value)
+}
+
+func enginePhase(engineLog string, ready bool) string {
+	if ready {
+		return "Model gotowy"
+	}
+	text := strings.ToLower(engineLog)
+	switch {
+	case strings.Contains(text, "listening on http") || strings.Contains(text, "server is listening"):
+		return "Finalizowanie lokalnego API"
+	case strings.Contains(text, "kv cache") || strings.Contains(text, "kv_cache") || strings.Contains(text, "llama_context"):
+		return "Tworzenie kontekstu i buforów"
+	case strings.Contains(text, "load_tensors") || strings.Contains(text, "offload") || strings.Contains(text, "fit"):
+		return "Rozmieszczanie wag na urządzeniach"
+	case strings.Contains(text, "loading model") || strings.Contains(text, "model_loader") || strings.Contains(text, "load_model"):
+		return "Odczytywanie modelu GGUF"
+	default:
+		return "Uruchamianie silnika llama.cpp"
+	}
 }
 
 func (a *App) start(bind string, port int) error {
@@ -141,7 +176,15 @@ func (a *App) start(bind string, port int) error {
 		return fmt.Errorf("Port API niedostępny: %w", e)
 	}
 	probe.Close()
-	s := &Session{url: "http://" + address, key: token(), layers: layers, name: m.Name, done: make(chan struct{})}
+	s := &Session{
+		url:     "http://" + address,
+		key:     token(),
+		layers:  layers,
+		workers: len(a.nodes),
+		name:    m.Name,
+		logPath: filepath.Join(a.dir, "engine.log"),
+		done:    make(chan struct{}),
+	}
 	defer func() {
 		if a.s != s {
 			for _, l := range s.listeners {
@@ -166,7 +209,7 @@ func (a *App) start(bind string, port int) error {
 	// the authenticated bridges.
 	s.cmd.Env = childEnv()
 	s.cmd.Dir = filepath.Dir(exe)
-	logfile, e := os.OpenFile(filepath.Join(a.dir, "engine.log"), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	logfile, e := os.OpenFile(s.logPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if e != nil {
 		return e
 	}
@@ -178,17 +221,23 @@ func (a *App) start(bind string, port int) error {
 		return e
 	}
 	trackChild(s.cmd)
+	s.started = time.Now()
 	a.s = s
 	a.last = ""
+	a.lastEngineLog = ""
+	a.lastEnginePath = ""
 	go func() {
 		e := s.cmd.Wait()
 		logfile.Close()
+		engineLog := cleanEngineLog(logTail(s.logPath, 24<<10))
 		for _, l := range s.listeners {
 			l.Close()
 		}
 		a.Lock()
+		a.lastEngineLog = engineLog
+		a.lastEnginePath = s.logPath
 		if e != nil && !s.stopping {
-			a.last = "Proces zakończony: " + e.Error() + ". Diagnostyka: " + filepath.Join(a.dir, "engine.log")
+			a.last = "Model nie został uruchomiony: " + e.Error() + ". Otwórz diagnostykę silnika poniżej i skopiuj log."
 		}
 		a.s = nil
 		a.Unlock()
@@ -252,9 +301,28 @@ func (a *App) state() map[string]any {
 			models = append(models, filepath.Join(a.library, d.Name()))
 		}
 	}
-	var session any
+	var session, engine any
 	if s := a.s; s != nil {
+		engineLog := cleanEngineLog(logTail(s.logPath, 24<<10))
+		elapsed := int(time.Since(s.started).Seconds())
+		mode := "Windows mmap · bez testu fizycznego RAM"
+		if s.workers > 0 {
+			mode = fmt.Sprintf("%d workerów · automatyczny podział · rezerwa 0 MiB", s.workers)
+		}
 		session = map[string]any{"url": s.url + "/v1", "key": s.key, "layers": s.layers, "name": s.name, "ready": s.ready}
+		engine = map[string]any{
+			"active": true, "ready": s.ready, "phase": enginePhase(engineLog, s.ready),
+			"elapsed": elapsed, "log": engineLog, "path": s.logPath, "mode": mode,
+		}
+	} else if a.lastEngineLog != "" || a.lastEnginePath != "" {
+		phase := "Ostatnia sesja zakończona"
+		if a.last != "" {
+			phase = "Uruchomienie modelu nie powiodło się"
+		}
+		engine = map[string]any{
+			"active": false, "ready": false, "phase": phase,
+			"elapsed": 0, "log": a.lastEngineLog, "path": a.lastEnginePath,
+		}
 	}
 	code, offerAddress, offerKey := "", "", ""
 	if a.off != nil {
@@ -286,7 +354,7 @@ func (a *App) state() map[string]any {
 			)
 		}
 	}
-	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "modelWarning": false, "offer": code, "offerAddress": offerAddress, "offerKey": offerKey, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "available": available, "physical": physical, "fitReserveMiB": 0, "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "usb": a.usb, "update": a.update, "last": a.last}
+	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "modelWarning": false, "offer": code, "offerAddress": offerAddress, "offerKey": offerKey, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "available": available, "physical": physical, "fitReserveMiB": 0, "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "engine": engine, "usb": a.usb, "update": a.update, "last": a.last}
 }
 
 type input struct {
