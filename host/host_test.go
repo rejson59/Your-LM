@@ -134,6 +134,13 @@ func TestEngineProgressPhases(t *testing.T) {
 	if got := cleanEngineLog("one\r\ntwo\x00\rthree"); got != "one\ntwo\nthree" {
 		t.Fatalf("cleanEngineLog returned %q", got)
 	}
+	path := filepath.Join(t.TempDir(), "engine.log")
+	if err := os.WriteFile(path, []byte("0123456789"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if got := engineLogTail(path, 4); got != "6789" {
+		t.Fatalf("engineLogTail returned %q", got)
+	}
 }
 
 func TestRuntimeIntegrity(t *testing.T) {

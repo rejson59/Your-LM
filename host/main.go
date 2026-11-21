@@ -105,6 +105,30 @@ func engineArguments(modelPath, bind string, port int, key string, addresses []s
 	return append(args, "--rpc", strings.Join(addresses, ","), "--split-mode", "layer", "--fit", "on", "--fit-target", "0")
 }
 
+func engineLogTail(path string, maxBytes int64) string {
+	if maxBytes <= 0 {
+		return ""
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return ""
+	}
+	start := max(info.Size()-maxBytes, 0)
+	if _, err = file.Seek(start, io.SeekStart); err != nil {
+		return ""
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxBytes))
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
 func cleanEngineLog(value string) string {
 	value = strings.ReplaceAll(value, "\r\n", "\n")
 	value = strings.ReplaceAll(value, "\r", "\n")
@@ -229,7 +253,7 @@ func (a *App) start(bind string, port int) error {
 	go func() {
 		e := s.cmd.Wait()
 		logfile.Close()
-		engineLog := cleanEngineLog(logTail(s.logPath, 24<<10))
+		engineLog := cleanEngineLog(engineLogTail(s.logPath, 24<<10))
 		for _, l := range s.listeners {
 			l.Close()
 		}
@@ -303,7 +327,7 @@ func (a *App) state() map[string]any {
 	}
 	var session, engine any
 	if s := a.s; s != nil {
-		engineLog := cleanEngineLog(logTail(s.logPath, 24<<10))
+		engineLog := cleanEngineLog(engineLogTail(s.logPath, 24<<10))
 		elapsed := int(time.Since(s.started).Seconds())
 		mode := "Windows mmap · bez testu fizycznego RAM"
 		if s.workers > 0 {
