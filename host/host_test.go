@@ -31,7 +31,7 @@ func TestMetadata(t *testing.T) {
 	str := func(s string) { put(uint64(len(s))); b.WriteString(s) }
 	b.WriteString("GGUF")
 	put(uint32(3))
-	put(uint64(20))
+	put(uint64(2))
 	put(uint64(2))
 	str("tokenizer.ggml.tokens")
 	put(uint32(9))
@@ -42,13 +42,28 @@ func TestMetadata(t *testing.T) {
 	str("llama.block_count")
 	put(uint32(4))
 	put(uint32(32))
+	tensorInfoStart := b.Len()
+	str("small.weight")
+	put(uint32(1))
+	put(uint64(16))
+	put(uint32(0))
+	put(uint64(0))
+	str("large.weight")
+	put(uint32(1))
+	put(uint64(32))
+	put(uint32(0))
+	put(uint64(64))
+	for b.Len()%32 != 0 {
+		b.WriteByte(0)
+	}
+	b.Write(make([]byte, 64+128))
 	path := filepath.Join(t.TempDir(), "test.gguf")
 	os.WriteFile(path, b.Bytes(), 0600)
 	m, e := inspect(path)
-	if e != nil || m.Layers != 32 {
+	if e != nil || m.Layers != 32 || m.LargestTensorBytes != 128 {
 		t.Fatalf("%+v %v", m, e)
 	}
-	os.WriteFile(path, b.Bytes()[:b.Len()-1], 0600)
+	os.WriteFile(path, b.Bytes()[:tensorInfoStart+1], 0600)
 	if _, e = inspect(path); e == nil {
 		t.Fatal("accepted truncated GGUF")
 	}
@@ -91,7 +106,7 @@ func TestEngineArgumentsDoNotBlockLargeModels(t *testing.T) {
 		return false
 	}
 
-	cpu := engineArguments(`C:\models\large.gguf`, "127.0.0.1", 8080, "key", nil)
+	cpu := engineArguments(`C:\models\large.gguf`, "127.0.0.1", 8080, "key", nil, 0)
 	if !containsPair(cpu, "--fit", "off") {
 		t.Fatalf("CPU-only launch must bypass the physical-RAM fit rejection: %q", cpu)
 	}
@@ -99,12 +114,12 @@ func TestEngineArgumentsDoNotBlockLargeModels(t *testing.T) {
 		t.Fatalf("CPU-only launch unexpectedly has an RPC memory target: %q", cpu)
 	}
 
-	rpc := engineArguments(`C:\models\large.gguf`, "127.0.0.1", 8080, "key", []string{"127.0.0.1:50052"})
+	rpc := engineArguments(`C:\models\large.gguf`, "127.0.0.1", 8080, "key", []string{"127.0.0.1:50052"}, 2048)
 	for key, value := range map[string]string{
 		"--rpc":        "127.0.0.1:50052",
 		"--split-mode": "layer",
 		"--fit":        "on",
-		"--fit-target": "1024",
+		"--fit-target": "2048",
 	} {
 		if !containsPair(rpc, key, value) {
 			t.Fatalf("RPC launch missing %s %s: %q", key, value, rpc)
@@ -113,6 +128,22 @@ func TestEngineArgumentsDoNotBlockLargeModels(t *testing.T) {
 	for _, forbidden := range []string{"-ngl", "--n-gpu-layers", "--tensor-split"} {
 		if contains(rpc, forbidden) {
 			t.Fatalf("RPC launch pins placement with %s: %q", forbidden, rpc)
+		}
+	}
+}
+
+func TestWorkerFitTargetAccountsForTensorLoadingPeak(t *testing.T) {
+	for _, test := range []struct {
+		largest uint64
+		want    int
+	}{
+		{0, 2048},
+		{208 << 20, 2048},
+		{300 << 20, 2304},
+		{512 << 20, 3072},
+	} {
+		if got := workerFitTargetMiB(test.largest); got != test.want {
+			t.Fatalf("workerFitTargetMiB(%d)=%d, want %d", test.largest, got, test.want)
 		}
 	}
 }
@@ -387,7 +418,7 @@ func TestWorkerDiagnosticsUsesCachedSnapshot(t *testing.T) {
 	address := listener.Addr().String()
 	listener.Close()
 	received := time.Date(2026, time.November, 20, 12, 0, 0, 0, time.UTC)
-	cached := []byte(`{"workerBuild":"cached-test","rpcAlive":true}`)
+	cached := []byte(`{"workerBuild":"cached-test","rpcAlive":true,"memoryAvailableBytes":614088704,"exitHistory":[{"reason":"LOW_MEMORY"}]}`)
 	report := workerDiagnosticsReport(
 		[]Node{{Name: "Redmi", Address: address}},
 		map[string]WorkerDiagnosticSnapshot{
@@ -397,6 +428,7 @@ func TestWorkerDiagnosticsUsesCachedSnapshot(t *testing.T) {
 	for _, expected := range []string{
 		"Nie udało się pobrać raportu po awarii",
 		"Ostatnia udana migawka pobrana przez Windows podczas ładowania: 2026-11-20T12:00:00Z",
+		"Ocena pamięci: ostatnia migawka miała 0.57 GiB dostępnego RAM",
 		`"workerBuild":"cached-test"`,
 	} {
 		if !strings.Contains(report, expected) {

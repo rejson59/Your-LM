@@ -168,23 +168,64 @@ final class Worker implements Closeable {
     return newest;
   }
 
-  long processResidentBytes() {
-    if (rpc == null || !rpc.isAlive()) {
-      rpcPid = 0;
-      return 0;
-    }
-    if (rpcPid == 0) rpcPid = findProcessId();
-    if (rpcPid == 0) return 0;
-    File status = new File("/proc/" + rpcPid + "/status");
-    try (BufferedReader reader = new BufferedReader(new FileReader(status))) {
+  private static long processMemoryBytes(int pid, String file, String field) {
+    if (pid <= 0) return 0;
+    try (
+      BufferedReader reader = new BufferedReader(
+        new FileReader(new File("/proc/" + pid + "/" + file))
+      )
+    ) {
+      String prefix = field + ":";
       String line;
       while ((line = reader.readLine()) != null) {
-        if (!line.startsWith("VmRSS:")) continue;
+        if (!line.startsWith(prefix)) continue;
         String[] fields = line.trim().split("\\s+");
         return fields.length >= 2 ? Long.parseLong(fields[1]) * 1024L : 0;
       }
     } catch (Exception ignored) {}
     return 0;
+  }
+
+  private static long processStatusBytes(int pid, String field) {
+    return processMemoryBytes(pid, "status", field);
+  }
+
+  private static long processPssBytes(int pid) {
+    return processMemoryBytes(pid, "smaps_rollup", "Pss");
+  }
+
+  private static int processId(Process process) {
+    if (process == null) return 0;
+    try {
+      Object value = Process.class.getMethod("pid").invoke(process);
+      if (value instanceof Long) return Math.toIntExact((Long) value);
+    } catch (Throwable ignored) {}
+    return 0;
+  }
+
+  long processResidentBytes() {
+    if (rpc == null || !rpc.isAlive()) {
+      rpcPid = 0;
+      return 0;
+    }
+    if (rpcPid == 0) {
+      rpcPid = processId(rpc);
+      if (rpcPid == 0) rpcPid = findProcessId();
+    }
+    return processStatusBytes(rpcPid, "VmRSS");
+  }
+
+  private long appResidentBytes() {
+    return processStatusBytes(android.os.Process.myPid(), "VmRSS");
+  }
+
+  private long combinedProcessFootprintBytes() {
+    processResidentBytes();
+    int appPid = android.os.Process.myPid();
+    long rpcPss = processPssBytes(rpcPid);
+    long appPss = processPssBytes(appPid);
+    if (rpcPss > 0 && appPss > 0) return rpcPss + appPss;
+    return processStatusBytes(rpcPid, "VmRSS") + processStatusBytes(appPid, "VmRSS");
   }
 
   /** Reject a packaging regression before Android tries to execute it. */
@@ -341,7 +382,8 @@ final class Worker implements Closeable {
       lastForwardingError = "";
       recordEvent("native_start", "Launching " + bin.getPath());
       rpc = builder.start();
-      rpcPid = findProcessId();
+      rpcPid = processId(rpc);
+      if (rpcPid == 0) rpcPid = findProcessId();
     } catch (IOException e) {
       rpcPid = 0;
       throw new IOException(failure("Android odmówił uruchomienia silnika", bin), e);
@@ -415,8 +457,23 @@ final class Worker implements Closeable {
     }
   }
 
+  private static boolean isRoutineSocketClose(Throwable error) {
+    for (Throwable current = error; current != null; current = current.getCause()) {
+      if (!(current instanceof SocketException)) continue;
+      String message = current.getMessage();
+      if (message == null) continue;
+      message = message.toLowerCase(Locale.ROOT);
+      if (
+        message.contains("socket closed") || message.contains("socket is closed")
+      ) return true;
+    }
+    return false;
+  }
+
   private void recordForwardingError(String stage, Throwable error) {
-    if (closed) return;
+    if (
+      closed || (stage.equals("native_to_host") && isRoutineSocketClose(error))
+    ) return;
     long now = System.currentTimeMillis();
     String details = stage + ": " + exceptionDetails(error);
     lastForwardingErrorAt = now;
@@ -573,6 +630,7 @@ final class Worker implements Closeable {
     long[] cache = new long[3];
     cacheStats(rpcCache, cache);
     long resident = processResidentBytes();
+    int appPid = android.os.Process.myPid();
     boolean alive = rpc != null && rpc.isAlive();
     JSONObject out = new JSONObject();
     try {
@@ -582,10 +640,21 @@ final class Worker implements Closeable {
         .put("sdk", Build.VERSION.SDK_INT)
         .put("workerBuild", WORKER_BUILD)
         .put("capturedAtEpochMs", System.currentTimeMillis())
-        .put("appProcessPid", android.os.Process.myPid())
+        .put("appProcessPid", appPid)
         .put("rpcAlive", alive)
         .put("rpcPid", rpcPid)
         .put("rpcResidentBytes", resident)
+        .put("rpcPssBytes", processPssBytes(rpcPid))
+        .put("rpcPeakResidentBytes", processStatusBytes(rpcPid, "VmHWM"))
+        .put("rpcAnonymousResidentBytes", processStatusBytes(rpcPid, "RssAnon"))
+        .put("rpcFileResidentBytes", processStatusBytes(rpcPid, "RssFile"))
+        .put("rpcSharedResidentBytes", processStatusBytes(rpcPid, "RssShmem"))
+        .put("rpcSwapBytes", processStatusBytes(rpcPid, "VmSwap"))
+        .put("appResidentBytes", appResidentBytes())
+        .put("appPssBytes", processPssBytes(appPid))
+        .put("appSwapBytes", processStatusBytes(appPid, "VmSwap"))
+        .put("combinedProcessFootprintBytes", combinedProcessFootprintBytes())
+        .put("processMemoryMetric", "PSS when available, otherwise RSS")
         .put("rpcStartedAtEpochMs", rpcStartedAt)
         .put("rpcStoppedAtEpochMs", rpcStoppedAt)
         .put("rpcExitSummary", nativeExitSummary(rpcExitCode))
@@ -832,7 +901,7 @@ final class Worker implements Closeable {
           .put("total", m.totalMem)
           .put("free", m.availMem)
           .put("used", Math.max(0, m.totalMem - m.availMem))
-          .put("allocation", processResidentBytes())
+          .put("allocation", combinedProcessFootprintBytes())
           .put("cores", Runtime.getRuntime().availableProcessors())
           .put("build", WORKER_BUILD)
           .put("alive", rpc != null && rpc.isAlive())

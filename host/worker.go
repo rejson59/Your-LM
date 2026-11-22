@@ -142,6 +142,37 @@ func (n Node) diagnostics() ([]byte, error) {
 	return json.MarshalIndent(report, "", "  ")
 }
 
+func workerMemoryAssessment(report []byte) string {
+	var snapshot struct {
+		MemoryAvailableBytes uint64 `json:"memoryAvailableBytes"`
+		MemoryLow            bool   `json:"memoryLow"`
+		ExitHistory          []struct {
+			Reason string `json:"reason"`
+		} `json:"exitHistory"`
+	}
+	if json.Unmarshal(report, &snapshot) != nil {
+		return ""
+	}
+	lowMemoryExits := 0
+	for _, exit := range snapshot.ExitHistory {
+		if exit.Reason == "LOW_MEMORY" {
+			lowMemoryExits++
+		}
+	}
+	if snapshot.MemoryAvailableBytes == 0 && !snapshot.MemoryLow && lowMemoryExits == 0 {
+		return ""
+	}
+	if snapshot.MemoryAvailableBytes >= GiB && !snapshot.MemoryLow && lowMemoryExits == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"Ocena pamięci: ostatnia migawka miała %.2f GiB dostępnego RAM; memoryLow=%v; historia Androida zawiera %d zakończeń LOW_MEMORY. To wskazuje na presję pamięci telefonu, a nie sam limit przepustowości Wi-Fi.\n",
+		float64(snapshot.MemoryAvailableBytes)/float64(GiB),
+		snapshot.MemoryLow,
+		lowMemoryExits,
+	)
+}
+
 func workerDiagnosticsReport(nodes []Node, cached map[string]WorkerDiagnosticSnapshot) string {
 	if len(nodes) == 0 {
 		return ""
@@ -185,6 +216,7 @@ func workerDiagnosticsReport(nodes []Node, cached map[string]WorkerDiagnosticSna
 		} else {
 			out.WriteString("Raport pobrany bezpośrednio po awarii:\n")
 		}
+		out.WriteString(workerMemoryAssessment(report))
 		out.Write(report)
 		out.WriteByte('\n')
 	}

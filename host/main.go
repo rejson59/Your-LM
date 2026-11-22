@@ -32,6 +32,25 @@ import (
 //go:embed web/*
 var web embed.FS
 
+const (
+	workerBaseFitReserveMiB    = 1024
+	workerMinimumFitReserveMiB = 2048
+	workerTransientCopies      = 4
+	workerFitRoundMiB          = 256
+)
+
+func workerFitTargetMiB(largestTensorBytes uint64) int {
+	// Loading a cache miss can temporarily overlap the destination tensor,
+	// transport buffers, dirty cache pages and backend bookkeeping. Reserve four
+	// tensor extents in addition to llama.cpp's normal 1 GiB runtime margin. RC9
+	// proved that one static GiB was insufficient for a 208 MiB MoE tensor.
+	tensorMiB := (largestTensorBytes + (1 << 20) - 1) >> 20
+	target := uint64(workerBaseFitReserveMiB) + workerTransientCopies*tensorMiB
+	target = max(target, uint64(workerMinimumFitReserveMiB))
+	target = (target + workerFitRoundMiB - 1) / workerFitRoundMiB * workerFitRoundMiB
+	return int(target)
+}
+
 func token() string {
 	var b [24]byte
 	if _, e := rand.Read(b[:]); e != nil {
@@ -66,6 +85,8 @@ type Session struct {
 	url, key             string
 	layers               int
 	workers              int
+	fitReserveMiB        int
+	largestTensorBytes   uint64
 	nodes                []Node
 	workerReports        map[string]WorkerDiagnosticSnapshot
 	name                 string
@@ -99,7 +120,7 @@ func (a *App) binary() string {
 	}
 	return executable(root)
 }
-func engineArguments(modelPath, bind string, port int, key string, addresses []string) []string {
+func engineArguments(modelPath, bind string, port int, key string, addresses []string, fitReserveMiB int) []string {
 	args := []string{"--model", modelPath, "--offline", "--no-webui", "--no-agent", "--no-ui-mcp-proxy", "--cors-origins", "localhost", "--host", bind, "--port", strconv.Itoa(port), "--api-key", key, "--alias", "yourlm", "--ctx-size", "2048", "--parallel", "1", "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "--jinja"}
 	if len(addresses) == 0 {
 		// Native --fit compares a CPU-only model with physical RAM and rejects it
@@ -108,11 +129,10 @@ func engineArguments(modelPath, bind string, port int, key string, addresses []s
 		// weights normally.
 		return append(args, "--fit", "off")
 	}
-	// Keep llama.cpp's recommended 1 GiB margin on every RPC device. Using a
-	// zero margin filled Android's reported available RAM with tensor buffers and
-	// left no safe headroom for the worker process, TLS bridge, filesystem cache
-	// or a change in system pressure. Unassigned weights remain mapped on host.
-	return append(args, "--rpc", strings.Join(addresses, ","), "--split-mode", "layer", "--fit", "on", "--fit-target", "1024")
+	// The target includes the model's largest encoded tensor, so fitting covers
+	// the cache-miss loading peak rather than final allocations alone. Unassigned
+	// weights remain mapped on the host.
+	return append(args, "--rpc", strings.Join(addresses, ","), "--split-mode", "layer", "--fit", "on", "--fit-target", strconv.Itoa(fitReserveMiB))
 }
 
 func engineLogTail(path string, maxBytes int64) string {
@@ -219,6 +239,7 @@ func (a *App) start(bind string, port int) error {
 	if e != nil {
 		return e
 	}
+	a.model = m
 	for i := range a.nodes {
 		if e := a.nodes[i].refresh(); e != nil {
 			return fmt.Errorf("Worker %s niedostępny: %w", a.nodes[i].Address, e)
@@ -238,16 +259,22 @@ func (a *App) start(bind string, port int) error {
 		return fmt.Errorf("Port API niedostępny: %w", e)
 	}
 	probe.Close()
+	fitReserveMiB := 0
+	if len(a.nodes) > 0 {
+		fitReserveMiB = workerFitTargetMiB(m.LargestTensorBytes)
+	}
 	s := &Session{
-		url:           "http://" + address,
-		key:           token(),
-		layers:        layers,
-		workers:       len(a.nodes),
-		nodes:         append([]Node(nil), a.nodes...),
-		workerReports: make(map[string]WorkerDiagnosticSnapshot),
-		name:          m.Name,
-		logPath:       filepath.Join(a.dir, "engine.log"),
-		done:          make(chan struct{}),
+		url:                "http://" + address,
+		key:                token(),
+		layers:             layers,
+		workers:            len(a.nodes),
+		fitReserveMiB:      fitReserveMiB,
+		largestTensorBytes: m.LargestTensorBytes,
+		nodes:              append([]Node(nil), a.nodes...),
+		workerReports:      make(map[string]WorkerDiagnosticSnapshot),
+		name:               m.Name,
+		logPath:            filepath.Join(a.dir, "engine.log"),
+		done:               make(chan struct{}),
 	}
 	defer func() {
 		if a.s != s {
@@ -275,7 +302,7 @@ func (a *App) start(bind string, port int) error {
 		s.listeners = append(s.listeners, l)
 		addresses = append(addresses, l.Addr().String())
 	}
-	args := engineArguments(m.Path, bind, port, s.key, addresses)
+	args := engineArguments(m.Path, bind, port, s.key, addresses, fitReserveMiB)
 	s.cmd = exec.Command(exe, args...)
 	// Runtime-specific environment variables can enable downloads, plugins,
 	// built-in shell/file tools or unauthenticated transports. Only explicit
@@ -321,12 +348,15 @@ func (a *App) start(bind string, port int) error {
 			sent := s.rpcSent.Load()
 			received := s.rpcReceived.Load()
 			failureReport := fmt.Sprintf(
-				"\n\n===== DIAGNOSTYKA SESJI =====\nBłąd procesu: %v\nCzas do awarii: %d s\nWysłano przez most RPC hosta: %d B (średnio %.2f MiB/s; to nie jest test samego Wi-Fi)\nOdebrano przez most RPC hosta: %d B\nRezerwa fit workera: 1024 MiB\n",
+				"\n\n===== DIAGNOSTYKA SESJI =====\nBłąd procesu: %v\nCzas do awarii: %d s\nWysłano przez most RPC hosta: %d B (średnio %.2f MiB/s; to nie jest test samego Wi-Fi)\nOdebrano przez most RPC hosta: %d B\nNajwiększy tensor GGUF: %d B (%.2f MiB)\nRezerwa fit workera: %d MiB (uwzględnia szczyt ładowania tego tensora)\n",
 				e,
 				elapsedSeconds,
 				sent,
 				float64(sent)/float64(elapsedSeconds)/(1024*1024),
 				received,
+				s.largestTensorBytes,
+				float64(s.largestTensorBytes)/float64(1<<20),
+				s.fitReserveMiB,
 			)
 			failureReport += workerDiagnosticsReport(sessionNodes, cachedReports)
 			if reportFile, openErr := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0600); openErr == nil {
@@ -473,7 +503,7 @@ func (a *App) state() map[string]any {
 		elapsed := int(time.Since(s.started).Seconds())
 		mode := "Windows mmap · bez testu fizycznego RAM"
 		if s.workers > 0 {
-			mode = fmt.Sprintf("%d workerów · automatyczny podział · bezpieczna rezerwa 1024 MiB · trwała pamięć podręczna RPC", s.workers)
+			mode = fmt.Sprintf("%d workerów · automatyczny podział · rezerwa szczytu ładowania %d MiB · trwała pamięć podręczna RPC", s.workers, s.fitReserveMiB)
 		}
 		lastLogAge, logBytes := -1, int64(0)
 		if info, err := os.Stat(s.logPath); err == nil {
@@ -526,6 +556,10 @@ func (a *App) state() map[string]any {
 	}
 	actualAllocation := hostProcess.Resident + workerAllocation
 	mappedModel := a.model.Size
+	fitReserveMiB := 0
+	if len(a.nodes) > 0 {
+		fitReserveMiB = workerFitTargetMiB(a.model.LargestTensorBytes)
+	}
 	if a.model.Name != "" && a.s == nil {
 		if len(a.nodes) == 0 {
 			advice = fmt.Sprintf(
@@ -538,17 +572,15 @@ func (a *App) state() map[string]any {
 			)
 		} else {
 			advice = fmt.Sprintf(
-				"Model %.1f GiB jest odblokowany. Lenovo i workery mają razem %.1f GiB fizycznego RAM: %.1f GiB zajmują teraz systemy i aplikacje, a %.1f GiB jest natychmiast dostępne. Dostępne teraz nie jest limitem całej puli: YourLM pozostawia na każdym workerze 1024 MiB zapasu dla Androida i procesu RPC, a reszta GGUF pozostanie w mmap Windows. Pamięć RPC przyspieszy kolejne uruchomienia.",
+				"Model %.1f GiB jest odblokowany. Lenovo i workery mają razem %.1f GiB fizycznego RAM: %.1f GiB zajmują teraz systemy i aplikacje, a %.1f GiB jest natychmiast dostępne. Dostępne teraz nie jest limitem całej puli: YourLM wyliczył %d MiB zapasu na worker na podstawie największego tensora (%.1f MiB), a reszta GGUF pozostanie w mmap Windows. Pamięć RPC przyspieszy kolejne uruchomienia.",
 				float64(a.model.Size)/float64(GiB),
 				float64(physical)/float64(GiB),
 				float64(osUsed)/float64(GiB),
 				float64(available)/float64(GiB),
+				fitReserveMiB,
+				float64(a.model.LargestTensorBytes)/float64(1<<20),
 			)
 		}
-	}
-	fitReserveMiB := 0
-	if len(a.nodes) > 0 {
-		fitReserveMiB = 1024
 	}
 	memoryState := map[string]any{
 		"host": hostMemory, "hostProcess": hostProcess,

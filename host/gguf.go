@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -57,10 +58,21 @@ func (r headerReader) values(t uint32, n uint64) error {
 }
 
 type Model struct {
-	Path   string `json:"path"`
-	Name   string `json:"name"`
-	Size   uint64 `json:"size"`
-	Layers int    `json:"layers"`
+	Path               string `json:"path"`
+	Name               string `json:"name"`
+	Size               uint64 `json:"size"`
+	Layers             int    `json:"layers"`
+	LargestTensorBytes uint64 `json:"largestTensorBytes"`
+}
+
+func aligned(value, alignment uint64) (uint64, bool) {
+	if alignment == 0 || alignment > 1<<20 || alignment&(alignment-1) != 0 {
+		return 0, false
+	}
+	if value > ^uint64(0)-(alignment-1) {
+		return 0, false
+	}
+	return (value + alignment - 1) &^ (alignment - 1), true
 }
 
 func inspect(path string) (Model, error) {
@@ -84,34 +96,109 @@ func inspect(path string) (Model, error) {
 	var magic [4]byte
 	var ver uint32
 	var tensors, fields uint64
-	if r.read(&magic) != nil || string(magic[:]) != "GGUF" || r.read(&ver) != nil || (ver != 2 && ver != 3) || r.read(&tensors) != nil || tensors == 0 || r.read(&fields) != nil || fields > 65536 {
+	if r.read(&magic) != nil || string(magic[:]) != "GGUF" || r.read(&ver) != nil || (ver != 2 && ver != 3) || r.read(&tensors) != nil || tensors == 0 || tensors > 1<<20 || r.read(&fields) != nil || fields > 65536 {
 		return m, errors.New("Niepoprawny nagłówek GGUF v2/v3")
 	}
+	var layers uint32
+	alignment := uint32(32)
 	for i := uint64(0); i < fields; i++ {
 		key, e := r.str()
 		if e != nil {
 			return m, e
 		}
-		var t uint32
-		if r.read(&t) != nil {
+		var valueType uint32
+		if r.read(&valueType) != nil {
 			return m, io.ErrUnexpectedEOF
 		}
-		if strings.HasSuffix(key, ".block_count") && t == 4 {
-			var layers uint32
-			if r.read(&layers) != nil || layers == 0 || layers > 2048 {
-				return m, errors.New("Niepoprawna liczba warstw")
-			}
-			return Model{path, filepath.Base(path), uint64(st.Size()), int(layers)}, nil
-		}
-		var n uint64 = 1
-		if t == 9 {
-			if r.read(&t) != nil || r.read(&n) != nil {
+		var count uint64 = 1
+		isArray := valueType == 9
+		if isArray {
+			if r.read(&valueType) != nil || r.read(&count) != nil {
 				return m, io.ErrUnexpectedEOF
 			}
 		}
-		if e := r.values(t, n); e != nil {
+		if !isArray && valueType == 4 && (strings.HasSuffix(key, ".block_count") || key == "general.alignment") {
+			var value uint32
+			if r.read(&value) != nil {
+				return m, io.ErrUnexpectedEOF
+			}
+			if strings.HasSuffix(key, ".block_count") {
+				if value == 0 || value > 2048 {
+					return m, errors.New("Niepoprawna liczba warstw")
+				}
+				layers = value
+			} else {
+				alignment = value
+			}
+			continue
+		}
+		if e := r.values(valueType, count); e != nil {
 			return m, e
 		}
 	}
-	return m, errors.New("Brak block_count w metadanych GGUF")
+	if layers == 0 {
+		return m, errors.New("Brak block_count w metadanych GGUF")
+	}
+	if _, ok := aligned(0, uint64(alignment)); !ok {
+		return m, errors.New("Niepoprawne wyrównanie GGUF")
+	}
+
+	offsets := make([]uint64, 0, tensors)
+	for i := uint64(0); i < tensors; i++ {
+		if _, e := r.str(); e != nil {
+			return m, e
+		}
+		var dimensions, tensorType uint32
+		if r.read(&dimensions) != nil || dimensions == 0 || dimensions > 8 {
+			return m, errors.New("Niepoprawny opis tensora GGUF")
+		}
+		for d := uint32(0); d < dimensions; d++ {
+			var extent uint64
+			if r.read(&extent) != nil || extent == 0 {
+				return m, errors.New("Niepoprawny wymiar tensora GGUF")
+			}
+		}
+		var offset uint64
+		if r.read(&tensorType) != nil || r.read(&offset) != nil {
+			return m, io.ErrUnexpectedEOF
+		}
+		offsets = append(offsets, offset)
+	}
+	position, e := f.Seek(0, io.SeekCurrent)
+	if e != nil {
+		return m, e
+	}
+	dataStart, ok := aligned(uint64(position), uint64(alignment))
+	if !ok || dataStart > uint64(st.Size()) {
+		return m, errors.New("Niepoprawna sekcja danych GGUF")
+	}
+	dataBytes := uint64(st.Size()) - dataStart
+	sort.Slice(offsets, func(i, j int) bool { return offsets[i] < offsets[j] })
+	var largest uint64
+	for i, offset := range offsets {
+		if offset > dataBytes {
+			return m, errors.New("Tensor wykracza poza plik GGUF")
+		}
+		end := dataBytes
+		for j := i + 1; j < len(offsets); j++ {
+			if offsets[j] != offset {
+				end = offsets[j]
+				break
+			}
+		}
+		if end < offset {
+			return m, errors.New("Niepoprawne przesunięcie tensora GGUF")
+		}
+		largest = max(largest, end-offset)
+	}
+	if largest == 0 {
+		return m, errors.New("Brak danych tensorów w GGUF")
+	}
+	return Model{
+		Path:               path,
+		Name:               filepath.Base(path),
+		Size:               uint64(st.Size()),
+		Layers:             int(layers),
+		LargestTensorBytes: largest,
+	}, nil
 }
