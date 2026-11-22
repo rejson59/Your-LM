@@ -5,7 +5,7 @@ RC6 dodaje czytelny panel postępu dla długiego startu dużych modeli, w tym ko
 ### Co się zmieniło
 
 - Pasek pokazuje sześć potwierdzonych etapów startu: uruchomienie silnika, metadane GGUF, plan pamięci, ładowanie/przesyłanie wag, kontekst i finalizację API.
-- Etapy są wyraźnie opisane jako orientacyjne. Dokładne `100%` pojawia się dopiero po faktycznej gotowości modelu; aplikacja nie udaje procentu tensorów, którego samodzielny `llama-server` nie udostępnia.
+- Etapy są wyraźnie opisane jako orientacyjne. Pasek wypełnia się całkowicie dopiero po faktycznej gotowości modelu; aplikacja nie udaje procentu tensorów, którego samodzielny `llama-server` nie udostępnia.
 - Podczas ładowania panel mierzy odczyt dysku, zużycie czasu CPU, zmiany logu oraz ruch RPC do i z workera. Dzięki temu pokazuje, kiedy model rzeczywiście nadal pracuje.
 - Podpowiedź wyjaśnia, czy warto czekać. Dopiero po co najmniej trzech minutach i pełnej minucie bez mierzalnej aktywności sugeruje zatrzymanie i próbę bez workera.
 - Dodano bezpośredni przycisk **Zatrzymaj ładowanie**, czas trwania oraz dostępny niżej pełny log diagnostyczny.
