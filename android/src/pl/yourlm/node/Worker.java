@@ -889,7 +889,8 @@ final class Worker implements Closeable {
     restartAttempts++;
     notifyStateChanged();
     launchNative(true);
-    publishSnapshot("native_recovered");
+    recordEvent("native_recovered", "attempt=" + restartAttempts);
+    diagnostics(true);
     return true;
   }
 
