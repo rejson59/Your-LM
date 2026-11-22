@@ -79,6 +79,7 @@ func TestVersionOrdering(t *testing.T) {
 		{"0.2.0-rc2", "0.2.0-rc1", true},
 		{"0.2.0-rc10", "0.2.0-rc2", true},
 		{"0.2.0-rc11", "0.2.0-rc10", true},
+		{"0.2.0-rc12", "0.2.0-rc11", true},
 		{"0.2.0-rc1", "0.2.0", false},
 		{"0.1.9", "0.2.0", false},
 		{"0.2.0", "0.2.0", false},

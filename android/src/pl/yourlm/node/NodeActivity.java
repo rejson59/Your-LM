@@ -9,6 +9,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.*;
 import android.provider.OpenableColumns;
+import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
 import io.nayuki.qrcodegen.QrCode;
@@ -425,6 +426,7 @@ public final class NodeActivity extends Activity {
       status.addView(copyLog, lp(-1, dp(50), 14, 0));
     }
     page.addView(status, lp(-1, -2, 0, 14));
+    addMemoryTools();
 
     LinearLayout steps = card(SURFACE, LINE);
     steps.addView(label("TRZY KROKI"));
@@ -445,6 +447,42 @@ public final class NodeActivity extends Activity {
         false
       )
     );
+  }
+
+  void addMemoryTools() {
+    LinearLayout memory = card(SURFACE, LINE);
+    memory.addView(label("PRZYGOTUJ PAMIĘĆ TELEFONU"));
+    memory.addView(
+      text("Zamknij ciężkie aplikacje przed dużym modelem", 19, INK, true),
+      lp(-1, -2, 7, 3)
+    );
+    memory.addView(
+      text(
+        memoryLine() +
+        ". Android bez roota nie pozwala YourLM niezawodnie zamknąć cudzych aplikacji. Użyj systemowego widoku aplikacji, zakończ gry, aparat i ciężkie przeglądarki, ale nie wymuszaj zatrzymania YourLM.",
+        13,
+        MUTED,
+        false
+      )
+    );
+    Button settings = button("Otwórz systemową listę aplikacji", false);
+    settings.setOnClickListener(
+      v -> {
+        try {
+          startActivity(new Intent(Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS));
+        } catch (Exception unavailable) {
+          startActivity(new Intent(Settings.ACTION_SETTINGS));
+        }
+      }
+    );
+    memory.addView(settings, lp(-1, dp(50), 13, 0));
+    Button refresh = button("Odśwież pomiar RAM", false);
+    refresh.setOnClickListener(v -> {
+      if (screen == PHONE) showPhone();
+      else showWorker();
+    });
+    memory.addView(refresh, lp(-1, dp(48), 8, 0));
+    page.addView(memory, lp(-1, -2, 0, 14));
   }
 
   void addStep(LinearLayout parent, String number, String value) {
@@ -497,6 +535,7 @@ public final class NodeActivity extends Activity {
       )
     );
     page.addView(ready, lp(-1, -2, 0, 14));
+    addMemoryTools();
 
     LinearLayout manual = card(SURFACE, 0xff9fcdb4);
     manual.addView(label("NA LAPTOPIE: KLASTER → DODAJ TELEFON"));
@@ -631,6 +670,7 @@ public final class NodeActivity extends Activity {
       ),
       lp(-1, -2, 0, 18)
     );
+    addMemoryTools();
 
     LinearLayout library = card(SURFACE, LINE);
     library.addView(label("1 / BIBLIOTEKA MODELI"));

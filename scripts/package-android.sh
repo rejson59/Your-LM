@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 : "${KS_PASS:?Set keystore password}"
 : "${ANDROID_HOME:?Set ANDROID_HOME}"
 export KS_PASS
-version=0.2.0-rc11
+version=0.2.0-rc12
 abi=${ANDROID_ABI:-arm64-v8a}
 case "$abi" in
   arm64-v8a)

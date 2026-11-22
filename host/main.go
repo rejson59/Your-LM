@@ -110,6 +110,8 @@ type App struct {
 	update                        UpdateState
 	hf                            HFState
 	hfCancel                      func()
+	cleanup                       CleanupState
+	cleanupBusy                   bool
 }
 
 func (a *App) binary() string {
@@ -603,7 +605,7 @@ func (a *App) state() map[string]any {
 		"nodes": a.nodes, "ips": ips(), "model": a.model, "models": models,
 		"library": a.library, "runtime": a.hasRuntime(), "session": session,
 		"engine": engine, "usb": a.usb, "update": a.update,
-		"huggingFace": a.hf, "last": a.last,
+		"huggingFace": a.hf, "cleanup": a.cleanup, "last": a.last,
 	}
 }
 
@@ -611,6 +613,7 @@ type input struct {
 	Code, Path, Address, Bind, PairAddress, PairKey, Serial string
 	Query, Repo, File                                       string
 	Port                                                    int
+	PIDs                                                    []int `json:"pids"`
 	Messages                                                []struct {
 		Role    string `json:"role"`
 		Content string `json:"content"`
@@ -655,6 +658,10 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		a.huggingFaceAPI(w, r, op, in)
 		return
 	}
+	if op == "cleanup-scan" || op == "cleanup-close" {
+		a.cleanupAPI(w, op, in)
+		return
+	}
 	a.Lock()
 	defer a.Unlock()
 	var e error
@@ -666,7 +673,11 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			a.off.close()
 		}
 	case "start":
-		e = a.start(in.Bind, in.Port)
+		if a.cleanupBusy {
+			e = errors.New("poczekaj na zakończenie sprawdzania pamięci")
+		} else {
+			e = a.start(in.Bind, in.Port)
+		}
 	case "stop":
 		if a.s != nil {
 			a.s.stopping = true
@@ -817,6 +828,7 @@ func main() {
 		runtimeRoot: components.runtimeRoot,
 		adbPath:     components.adbPath,
 		apkPath:     components.apkPath,
+		cleanup:     CleanupState{Supported: cleanupPlatformSupported()},
 	}
 	if runtime.GOOS != "windows" {
 		a.engine = os.Getenv("YOURLM_ENGINE")

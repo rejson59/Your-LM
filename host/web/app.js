@@ -15,6 +15,8 @@ let scanId = 0;
 let offered = "";
 let lastSession = "";
 let loadSample = null;
+let cleanupRevision = -1;
+const cleanupSelection = new Set();
 
 const gib = (n) =>
   (Number(n || 0) / 1073741824).toLocaleString("pl-PL", {
@@ -298,6 +300,104 @@ function renderHuggingFace(hf = {}) {
   }
 }
 
+function cleanupSelectedApps(cleanup = state?.cleanup || {}) {
+  const selected = new Set(cleanupSelection);
+  return (cleanup.apps || []).filter((app) => app.closable && selected.has(Number(app.pid)));
+}
+
+function updateCleanupSelection(cleanup = state?.cleanup || {}, session = state?.session) {
+  const selected = cleanupSelectedApps(cleanup);
+  const total = selected.reduce((sum, app) => sum + Number(app.resident || 0), 0);
+  $("cleanupSelection").textContent = selected.length
+    ? `${selected.length} ${selected.length === 1 ? "aplikacja" : "aplikacje"} · około ${humanBytes(total)} RAM roboczego`
+    : "Nic nie zaznaczono.";
+  $("cleanupClose").disabled = !selected.length || Boolean(session) || Boolean(cleanup.busy);
+}
+
+function cleanupAppRow(app) {
+  const row = el("label", "");
+  row.className = `cleanupApp${app.closable ? "" : " protected"}`;
+  const checkWrap = el("span", "");
+  checkWrap.className = "cleanupCheck";
+  const check = document.createElement("input");
+  check.type = "checkbox";
+  check.disabled = !app.closable;
+  check.checked = cleanupSelection.has(Number(app.pid));
+  check.setAttribute("aria-label", app.closable ? `Zaznacz ${app.title}` : `${app.title} jest chroniona`);
+  check.onchange = () => {
+    if (check.checked) cleanupSelection.add(Number(app.pid));
+    else cleanupSelection.delete(Number(app.pid));
+    updateCleanupSelection();
+  };
+  checkWrap.append(check);
+  const details = el("div", "");
+  details.append(el("b", app.title || app.name));
+  const processMeta = `${app.name} · PID ${app.pid} · ${Number(app.processes || 1)} ${Number(app.processes || 1) === 1 ? "proces" : "procesy"}`;
+  details.append(el("small", app.closable ? processMeta : `${processMeta} · ${app.protectedReason || "chroniona"}`));
+  const memory = el("span", `~${humanBytes(app.resident)}`);
+  memory.className = "cleanupMemory";
+  row.append(checkWrap, details, memory);
+  return row;
+}
+
+function cleanupOutcomeRow(outcome) {
+  const row = el("div", "");
+  row.className = `cleanupOutcome ${outcome.status || "not-requested"}`;
+  const details = el("div", "");
+  details.append(
+    el("b", outcome.title || outcome.name),
+    el("small", `${outcome.name} · PID ${outcome.pid} · ${outcome.detail || "Brak szczegółów."}`),
+  );
+  const labels = {
+    closed: "ZAMKNIĘTA",
+    "closed-unconfirmed": "ZAMKNIĘTA?",
+    remaining: "NADAL OTWARTA",
+    "not-requested": "NIEWYSŁANA",
+  };
+  const badge = el("span", labels[outcome.status] || "SPRAWDŹ");
+  row.append(details, badge);
+  return row;
+}
+
+function renderCleanup(cleanup = {}, session) {
+  $("cleanupCard").hidden = !cleanup.supported;
+  if (!cleanup.supported) return;
+  $("cleanupScan").disabled = Boolean(cleanup.busy);
+  $("cleanupScan").textContent = cleanup.busy ? "Sprawdzam…" : "Sprawdź aplikacje";
+  const revision = Number(cleanup.revision || 0);
+  if (revision !== cleanupRevision) {
+    cleanupRevision = revision;
+    cleanupSelection.clear();
+    const apps = cleanup.apps || [];
+    if (!cleanup.error && !(cleanup.outcomes || []).length) {
+      for (const app of apps.filter((item) => item.closable).slice(0, 32)) {
+        cleanupSelection.add(Number(app.pid));
+      }
+    }
+    $("cleanupApps").replaceChildren(...apps.map(cleanupAppRow));
+    if (revision > 0 && !apps.length) {
+      const empty = el("div", "Nie znaleziono zwykłych aplikacji z widocznymi oknami.");
+      empty.className = "infoStrip";
+      $("cleanupApps").append(empty);
+    }
+  }
+  const apps = cleanup.apps || [];
+  $("cleanupActions").hidden = !apps.some((app) => app.closable);
+  let result = cleanup.error || cleanup.message || "Kliknij „Sprawdź aplikacje”, aby zobaczyć przybliżony RAM widocznych programów.";
+  if ((cleanup.outcomes || []).length) {
+    const before = Number(cleanup.beforeAvailable || 0);
+    const after = Number(cleanup.afterAvailable || 0);
+    result += ` Dostępny RAM: ${humanBytes(before)} → ${humanBytes(after)}.`;
+    if (after > before) result += ` Wzrost o około ${humanBytes(after - before)}.`;
+    else if (after < before) result += ` Chwilowy pomiar jest niższy o ${humanBytes(before - after)}; użycie systemu może zmieniać się w tle.`;
+    else result += " Pomiar nie wykazał zmiany.";
+  }
+  $("cleanupResult").textContent = result;
+  $("cleanupResult").classList.toggle("bad", Boolean(cleanup.error));
+  $("cleanupOutcomes").replaceChildren(...(cleanup.outcomes || []).map(cleanupOutcomeRow));
+  updateCleanupSelection(cleanup, session);
+}
+
 function render(nextState) {
   state = nextState;
   $("build").textContent = `v${state.version} · b12562`;
@@ -395,6 +495,7 @@ function render(nextState) {
   $("commitHelp").textContent = mappedModel
     ? `Wybrany plik ${gib(mappedModel)} GiB jest mapowany jako strony pliku; zajętość RAM rośnie według rzeczywiście używanych stron i buforów.`
     : "Wybierz GGUF, aby zobaczyć jego pełny rozmiar mapowania osobno od wolnego RAM.";
+  renderCleanup(state.cleanup || {}, session);
 
   if (state.offer) {
     $("mode").textContent = "Ten komputer jest workerem";
@@ -707,6 +808,27 @@ $("scan").onclick = async () => {
     $("pair").querySelector(".error").textContent =
       "Kamera jest niedostępna. Przepisz adres i kod pokazane na telefonie.";
   }
+};
+
+$("cleanupScan").onclick = async () => {
+  $("cleanupScan").disabled = true;
+  $("cleanupScan").textContent = "Sprawdzam…";
+  await act("cleanup-scan");
+  renderCleanup(state?.cleanup || {}, state?.session);
+};
+
+$("cleanupClose").onclick = async () => {
+  const selected = cleanupSelectedApps();
+  if (!selected.length) return;
+  const total = selected.reduce((sum, app) => sum + Number(app.resident || 0), 0);
+  const names = selected.slice(0, 5).map((app) => `• ${app.title || app.name}`).join("\n");
+  const more = selected.length > 5 ? `\n• oraz ${selected.length - 5} kolejnych` : "";
+  if (!confirm(`Zapisz niezapisaną pracę. YourLM wyśle zwykłą prośbę o zamknięcie — bez wymuszania.\n\n${names}${more}\n\nPrzybliżony RAM: ${humanBytes(total)}. Kontynuować?`)) return;
+  $("cleanupClose").disabled = true;
+  $("cleanupClose").textContent = "Zamykam łagodnie…";
+  await act("cleanup-close", { pids: selected.map((app) => Number(app.pid)) });
+  $("cleanupClose").textContent = "Zamknij wybrane łagodnie";
+  renderCleanup(state?.cleanup || {}, state?.session);
 };
 
 async function copy(value) {

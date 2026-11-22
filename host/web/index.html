@@ -44,7 +44,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc11 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc12 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -109,6 +109,22 @@
               <article><span class="metricIcon">Y</span><div><small>AKTYWNA ALOKACJA YOURLM</small><strong id="processRam">—</strong><p>rzeczywisty RAM procesów silnika</p></div></article>
             </div>
             <div class="memoryCommit"><b id="commitTitle">Pamięć mapowana i limit systemu</b><span id="commitRam">—</span><small id="commitHelp">Limit zatwierdzeń nie jest sztucznym budżetem YourLM.</small></div>
+
+            <article id="cleanupCard" class="sectionCard cleanupCard" hidden>
+              <div class="sectionTitle">
+                <div><span class="eyebrow">PRZYGOTUJ WINDOWS</span><h2>Odzyskaj pamięć przed modelem</h2></div>
+                <button id="cleanupScan" class="secondary">Sprawdź aplikacje</button>
+              </div>
+              <p>YourLM pokazuje programy bieżącego użytkownika z widocznymi oknami i wstępnie zaznacza największe bezpieczne pozycje. Odznacz wszystko, czego nie chcesz zamykać. Procesy systemowe, zabezpieczenia, instalatory, terminale, programy administratora oraz YourLM są chronione. Zapisz pracę przed zamknięciem.</p>
+              <div id="cleanupApps" class="cleanupApps"></div>
+              <div id="cleanupActions" class="cleanupActions" hidden>
+                <span id="cleanupSelection">Nic nie zaznaczono.</span>
+                <button id="cleanupClose" disabled>Zamknij wybrane łagodnie</button>
+              </div>
+              <div id="cleanupResult" class="infoStrip" aria-live="polite">Kliknij „Sprawdź aplikacje”, aby zobaczyć przybliżony RAM widocznych programów.</div>
+              <div id="cleanupOutcomes" class="cleanupOutcomes" aria-label="Wyniki zamykania aplikacji"></div>
+              <small>Przycisk wysyła standardowe WM_CLOSE — nie zabija procesów. Program z niezapisanym dokumentem może wyświetlić własne pytanie i pozostać otwarty. Pamięci systemu, sterowników i cache Windows nie da się bezpiecznie wyzerować.</small>
+            </article>
 
             <article class="sectionCard devicesCard">
               <div class="sectionTitle">
@@ -180,7 +196,7 @@
 
           <section id="model" class="tab" hidden>
             <div class="pageHead">
-              <div><div class="kicker">MODEL I API</div><h1>Uruchom własny GGUF</h1><p>Plik pozostaje na Twoim urządzeniu. YourLM niczego nie pobiera.</p></div>
+              <div><div class="kicker">MODEL I API</div><h1>Uruchom własny GGUF</h1><p>Plik pozostaje na Twoim urządzeniu. Internet jest używany tylko wtedy, gdy jawnie wyszukasz lub pobierzesz wybrany model.</p></div>
             </div>
 
             <div class="setupGrid">
@@ -256,7 +272,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc11</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc12</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>
