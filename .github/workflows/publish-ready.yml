@@ -173,8 +173,15 @@ jobs:
             [IO.File]::WriteAllBytes((Join-Path 'host\embedded' $_), [byte[]]@())
           }
           try {
-            go test -mod=vendor ./host
-            if ($LASTEXITCODE -ne 0) { throw 'Windows Go tests failed' }
+            $testLog = Join-Path $env:RUNNER_TEMP 'windows-go-tests.log'
+            go test -mod=vendor -count=1 ./host 2>&1 | Tee-Object -FilePath $testLog
+            $testStatus = $LASTEXITCODE
+            if ($testStatus -ne 0) {
+              $detail = ((Get-Content -LiteralPath $testLog | Select-Object -Last 80) -join "`n")
+              $detail = $detail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+              Write-Host "::error title=Windows Go tests failed::$detail"
+              throw "Windows Go tests failed with exit code $testStatus"
+            }
           } finally { Remove-Item -Recurse -Force 'host\embedded' }
       - name: Verify Menu Start, Installed Apps, downgrade protection, and uninstall
         shell: pwsh
