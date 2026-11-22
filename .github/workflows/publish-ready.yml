@@ -157,15 +157,30 @@ jobs:
           path: .
           github-token: ${{ github.token }}
           run-id: '45040206040'
-      - name: Verify checksums and publish public prerelease
+      - name: Verify promoted artifact layout and checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          for file in \
+            packages/YourLM.exe \
+            packages/YourLM-Android-arm64.apk \
+            packages/SHA256SUMS; do
+            [[ -s "$file" ]] || { echo "::error title=Missing promoted asset::$file"; exit 1; }
+          done
+          [[ $(head -c2 packages/YourLM.exe) == MZ ]] || {
+            echo '::error title=Invalid Windows asset::YourLM.exe is not a PE executable'
+            exit 1
+          }
+          if ! (cd packages && sha256sum -c SHA256SUMS); then
+            echo '::error title=Promoted checksum mismatch::The successful build artifacts do not match SHA256SUMS'
+            exit 1
+          fi
+      - name: Publish public RC7 prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          (cd packages && sha256sum -c SHA256SUMS)
-          test "$(head -c2 packages/YourLM.exe)" = MZ
-          test -s packages/YourLM-Android-arm64.apk
           tag=v0.2.0-rc7
           assets=(packages/YourLM.exe packages/YourLM-Android-arm64.apk packages/SHA256SUMS)
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
