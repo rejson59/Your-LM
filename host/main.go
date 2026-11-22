@@ -631,7 +631,19 @@ func main() {
 		return
 	}
 	cleanupDesktopUpdate()
+	handledInstall, installErr := ensureDesktopInstall(os.Args[1:])
+	if installErr != nil {
+		if handledInstall {
+			log.Print("Operacja instalacji YourLM nie powiodła się: ", installErr)
+			os.Exit(1)
+		}
+		log.Print("Nie udało się zarejestrować YourLM w Windows; uruchamiam bieżący plik: ", installErr)
+	}
+	if handledInstall {
+		return
+	}
 	nobrowser := flag.Bool("no-browser", false, "do not launch the browser")
+	flag.Bool("portable", false, "run without per-user Windows installation")
 	flag.Parse()
 	dir, _ := os.UserConfigDir()
 	dir = filepath.Join(dir, "YourLM")

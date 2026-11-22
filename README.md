@@ -1,6 +1,6 @@
 # YourLM — prywatny klaster GGUF
 
-**0.2.0-rc4 · natywne okno Windows · worker Android w tle · szybki cache RPC · Windows x64 i Android ARM64 (9+)**
+**0.2.0-rc5 · natywne okno Windows · worker Android w tle · szybki cache RPC · Windows x64 i Android ARM64 (9+)**
 
 YourLM uruchamia `llama.cpp` na CPU i potrafi przenieść część warstw modelu na inne urządzenia. To jedna inferencja z podziałem warstw, a nie rozsyłanie całego pytania do kilku niezależnych chatbotów. Nie wymaga konta, chmury ani roota. Aplikacja nie dodaje własnego filtra treści; zachowanie zależy od modelu i jego szablonu czatu.
 
@@ -8,15 +8,15 @@ Gotowe pliki są publikowane na stronie [GitHub Releases](https://github.com/rej
 
 | Gotowy plik | Do czego służy |
 |---|---|
-| `YourLM.exe` | Samodzielna aplikacja Windows. Silnik, ADB i APK są w środku — bez ZIP-a i plików obok. |
+| `YourLM.exe` | Samodzielna aplikacja Windows. Silnik, ADB i APK są w środku; pierwszy start instaluje ją per-user i dodaje do Menu Start. |
 | `YourLM-Android-arm64.apk` | APK na Redmi lub inny zgodny ARM64. Worker, samodzielny czat lub host klastra. |
 | `SHA256SUMS` | Sumy kontrolne plików wydania. |
 
-**Modele nie są dołączone.** Potrzebny jest jednoplikowy, tekstowy GGUF typu *instruct/chat*, ze źródła, któremu ufasz, na licencji odpowiedniej do Twojego zastosowania. Panel, skaner QR i czat działają lokalnie. Pierwszy start EXE rozpakowuje przypięty runtime i minimalny ADB do prywatnego `%AppData%\YourLM\`; pliki są sprawdzane i automatycznie odtwarzane przy uszkodzeniu. Internet jest potrzebny tylko do sprawdzania/pobierania aktualizacji, nie do inferencji.
+**Modele nie są dołączone.** Potrzebny jest jednoplikowy, tekstowy GGUF typu *instruct/chat*, ze źródła, któremu ufasz, na licencji odpowiedniej do Twojego zastosowania. Panel, skaner QR i czat działają lokalnie. Pierwszy start EXE kopiuje aplikację do `%LocalAppData%\Programs\YourLM\`, dodaje ją do Menu Start i rozpakowuje przypięty runtime oraz minimalny ADB do prywatnego `%AppData%\YourLM\`; pliki są sprawdzane i automatycznie odtwarzane przy uszkodzeniu. Instalacja jest per-user, bez administratora. Internet jest potrzebny tylko do sprawdzania/pobierania aktualizacji, nie do inferencji.
 
 ## Pierwsze uruchomienie: Lenovo + Redmi
 
-1. **Najpierw sam laptop.** Pobierz `YourLM.exe` i uruchom jako zwykły użytkownik — nigdy jako administrator. Niczego nie wypakowuj. Panel otworzy się bezpośrednio w natywnym oknie programu (WebView2), nie w zwykłej karcie przeglądarki. Przeglądarka jest wyłącznie awaryjnym fallbackiem, gdy środowisko WebView2 jest niedostępne.
+1. **Najpierw sam laptop.** Pobierz `YourLM.exe` i uruchom jako zwykły użytkownik — nigdy jako administrator. Niczego nie wypakowuj. YourLM zainstaluje się dla bieżącego użytkownika, pojawi się w Menu Start oraz w Ustawieniach Windows i otworzy panel w natywnym oknie WebView2. Pobrany plik z folderu Pobrane można później usunąć. Parametr `--portable` świadomie pomija instalację. Przeglądarka jest wyłącznie awaryjnym fallbackiem, gdy środowisko WebView2 jest niedostępne.
 2. **Modele i API → Wybierz model.** Wybierz swój lokalny GGUF systemowym oknem pliku. Na pierwszy test proponujemy **3–4B Q4_K_M**, nie 26B. Pozostaw `127.0.0.1`, kliknij **Uruchom model**, poczekaj na „Gotowy” i otwórz **Czat**. Kontroler przed startem sprawdzi dołączony `llama-server.exe`; nie pobiera programu z sieci.
 3. **Zainstaluj aplikację na Redmi.** W panelu Windows otwórz **Telefon USB** i wykonaj trzy pokazane kroki. W HyperOS włącz Debugowanie USB oraz, jeśli jest wymagane, **Instalowanie przez USB**. YourLM wykryje urządzenie i użyje `adb install -r`, aby instalować kolejne wersje bez kasowania danych. APK z Releases pozostaje alternatywą; Android zawsze pokazuje systemowe potwierdzenie instalacji.
 4. **Dołącz Redmi jako worker.** Zatrzymaj model na laptopie, połącz urządzenia z tym samym prywatnym Wi-Fi i na telefonie wybierz **Pomóż laptopowi → Uruchom worker w tle**. Główny plik GGUF pozostaje na hoście; telefon może przechować w prywatnych danych aplikacji cache przydzielonych tensorów. Telefon pokaże **adres parowania** i 20-znakowy **kod parowania**. Na laptopie wybierz **Urządzenia → Dodaj telefon** i przepisz oba pola. Kamera laptopa jest tylko opcją; telefon niczego nie skanuje.
@@ -44,9 +44,9 @@ Odczytaj **URL `/v1` i klucz** w zakładce **Modele i API** po uruchomieniu serw
 - **API LAN to HTTP z kluczem Bearer, nie HTTPS.** Korzystaj wyłącznie w zaufanej prywatnej sieci; nie przekierowuj portów na routerze. Do niezaufanej sieci potrzebny jest osobny bezpieczny transport. Panel zarządzania nie jest wystawiany w LAN. Klucz API zmienia się po każdym uruchomieniu modelu. Historia w panelu pozostaje w pamięci karty, a silnik zapisuje lokalny log diagnostyczny; zewnętrzne klienty mogą przechowywać własną historię.
 - Jeśli parowanie nie działa: sprawdź wspólne Wi-Fi, brak izolacji klientów/Guest Wi-Fi, prywatny IPv4 oraz aktualny adres i kod pokazany na telefonie. Przepisz wszystkie cztery grupy kodu; nie wpisuj pełnego `YLM1|…` w pole krótkiego kodu. Kamera laptopa jest tylko opcją. Zapora Windows powinna dopuszczać połączenia wyłącznie w profilu prywatnym. Android szuka interfejsu Wi-Fi `wlan*`.
 - Po utracie workera zatrzymaj serwer, usuń niedostępny węzeł i uruchom model ponownie. Brak migracji trwającej generacji i automatycznego failover. Worker Android działa jako usługa pierwszoplanowa przy wyłączonym ekranie; nie usuwaj jego stałego powiadomienia i nie używaj systemowej opcji „Wymuś zatrzymanie”. Cache RPC może zajmować kilka GiB prywatnej pamięci telefonu. Zapisz model na hoście z odpowiednim zapasem miejsca. Podczas ładowania bardzo dużych plików system nadal może przerwać proces, jeśli naprawdę wyczerpie zasoby.
-- Dane Windows: `%AppData%\YourLM\` (`models`, ustawienia, log i wersjonowane `components`). Aktualizacja podmienia tylko EXE; modele i konfiguracja pozostają. Runtime, ADB oraz instalacyjny APK są odzyskiwane z pliku wydania, a zmienione komponenty są odtwarzane przed użyciem.
+- Program Windows: `%LocalAppData%\Programs\YourLM\YourLM.exe`; skrót znajduje się w Menu Start, a wpis odinstalowania w ustawieniach bieżącego użytkownika. Dane Windows: `%AppData%\YourLM\` (`models`, ustawienia, log i wersjonowane `components`). Aktualizacja podmienia tylko zainstalowany EXE; modele i konfiguracja pozostają. Odinstalowanie również celowo zachowuje prywatne dane. Runtime, ADB oraz instalacyjny APK są odzyskiwane z pliku wydania, a zmienione komponenty są odtwarzane przed użyciem.
 - EXE nie ma komercyjnego podpisu Authenticode. Ma jawne informacje wersji, manifest `asInvoker` i nie wymaga administratora. Od 0.2.0-rc1 APK używa stałej tożsamości aktualizacji projektu (certyfikat SHA-256 `bb2639f3d49a2d7db0845884e76d6bb51152a6e9c0df92fcfe885a26c5de94a6`), przeznaczonej do wszystkich następnych wydań. Weryfikuj sumy plików. Jeśli antywirus zgłosi alarm, nie zezwalaj ani nie dodawaj wyjątku — zgłoś pełną nazwę detekcji i SHA-256. Własny build podpisany innym kluczem wymaga odinstalowania poprzedniego APK (to usuwa prywatne kopie modeli). Wagi źródłowe zachowaj osobno.
-- W tej wersji nie ma generowania obrazów, Vision, automatycznego pobierania modeli ani obsługi wieloczęściowych GGUF. Kod i pliki są gotowe do testów; nie testowano instalacji na fizycznym Lenovo ani Redmi.
+- W tej wersji nie ma generowania obrazów, Vision, automatycznego pobierania modeli ani obsługi wieloczęściowych GGUF. CI sprawdza instalację per-user, skrót Menu Start, wpis Zainstalowanych aplikacji, uruchomienie i odinstalowanie na Windows; nadal potrzebne są testy na fizycznym Lenovo i Redmi.
 
 ## Testy i budowanie
 

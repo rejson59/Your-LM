@@ -1,7 +1,7 @@
 {
   "FixedFileInfo": {
-    "FileVersion": {"Major": 0, "Minor": 2, "Patch": 0, "Build": 4},
-    "ProductVersion": {"Major": 0, "Minor": 2, "Patch": 0, "Build": 4},
+    "FileVersion": {"Major": 0, "Minor": 2, "Patch": 0, "Build": 5},
+    "ProductVersion": {"Major": 0, "Minor": 2, "Patch": 0, "Build": 5},
     "FileFlagsMask": "3f",
     "FileFlags": "00",
     "FileOS": "040004",
@@ -12,14 +12,14 @@
     "Comments": "Open-source local GGUF controller; source: github.com/rejson59/Your-LM",
     "CompanyName": "YourLM open-source project",
     "FileDescription": "YourLM native local GGUF controller",
-    "FileVersion": "0.2.0-rc4",
+    "FileVersion": "0.2.0-rc5",
     "InternalName": "YourLM",
     "LegalCopyright": "Copyright (c) 2026 YourLM contributors",
     "LegalTrademarks": "",
     "OriginalFilename": "YourLM.exe",
     "PrivateBuild": "",
     "ProductName": "YourLM",
-    "ProductVersion": "0.2.0-rc4",
+    "ProductVersion": "0.2.0-rc5",
     "SpecialBuild": ""
   },
   "VarFileInfo": {"Translation": {"LangID": "0409", "CharsetID": "04B0"}}

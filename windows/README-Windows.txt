@@ -1,6 +1,6 @@
-YourLM 0.2.0-rc4 — Windows x64 (natywne okno + Lenovo/Redmi bez sztucznego limitu)
+YourLM 0.2.0-rc5 — Windows x64 (natywne okno + Lenovo/Redmi bez sztucznego limitu)
 
-Uruchom pojedynczy YourLM.exe jako zwykły użytkownik. Program otwiera panel bezpośrednio w swoim natywnym oknie WebView2; zwykła przeglądarka jest używana tylko awaryjnie, gdy WebView2 jest niedostępny. Runtime llama.cpp, minimalny ADB i aktualne APK są wbudowane w EXE oraz przygotowywane w prywatnym %AppData%\YourLM.
+Uruchom pobrany pojedynczy YourLM.exe jako zwykły użytkownik. Przy pierwszym starcie program instaluje się bez administratora w %LocalAppData%\Programs\YourLM, dodaje skrót do Menu Start i wpis w Ustawienia → Aplikacje → Zainstalowane aplikacje, a następnie otwiera panel bezpośrednio w natywnym oknie WebView2. Zwykła przeglądarka jest używana tylko awaryjnie, gdy WebView2 jest niedostępny. Runtime llama.cpp, minimalny ADB i aktualne APK są wbudowane w EXE oraz przygotowywane w prywatnym %AppData%\YourLM. Parametr --portable pomija instalację.
 
 W zakładce Telefon USB podłącz odblokowany telefon z włączonym debugowaniem USB i użyj przycisku Zainstaluj lub zaktualizuj. `adb install -r` zachowuje prywatne dane aplikacji.
 
