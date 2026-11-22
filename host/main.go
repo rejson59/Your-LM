@@ -184,6 +184,13 @@ func advanceEngineProgress(previous, current EngineProgress) EngineProgress {
 	return current
 }
 
+func engineFailureMessage(err error, engineLog string) string {
+	if strings.Contains(engineLog, "Remote RPC server crashed or returned malformed response") {
+		return "Połączenie z workerem RPC zostało przerwane podczas przesyłania wag. Sprawdź komunikat na Redmi, wolne miejsce telefonu i stabilność Wi-Fi. Otwórz diagnostykę silnika poniżej, aby skopiować pełny log."
+	}
+	return "Model nie został uruchomiony: " + err.Error() + ". Otwórz diagnostykę silnika poniżej i skopiuj log."
+}
+
 func (a *App) start(bind string, port int) error {
 	if a.s != nil || a.off != nil {
 		return errors.New("Najpierw zatrzymaj serwer")
@@ -285,7 +292,7 @@ func (a *App) start(bind string, port int) error {
 		a.lastEngineLog = engineLog
 		a.lastEnginePath = s.logPath
 		if e != nil && !s.stopping {
-			a.last = "Model nie został uruchomiony: " + e.Error() + ". Otwórz diagnostykę silnika poniżej i skopiuj log."
+			a.last = engineFailureMessage(e, engineLog)
 		}
 		a.s = nil
 		a.Unlock()

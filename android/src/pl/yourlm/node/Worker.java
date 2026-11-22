@@ -299,6 +299,7 @@ final class Worker implements Closeable {
       .redirectOutput(logFile);
     File rpcCache = new File(ctx.getFilesDir(), "rpc-cache");
     rpcCache.mkdirs();
+    removeStaleCacheParts(rpcCache);
     builder.environment().put("HOME", ctx.getFilesDir().getPath());
     builder.environment().put("TMPDIR", ctx.getCacheDir().getPath());
     builder.environment().put("LLAMA_CACHE", rpcCache.getPath());
@@ -342,6 +343,21 @@ final class Worker implements Closeable {
       pin +
       "|" +
       secret;
+  }
+
+  private static void removeStaleCacheParts(File directory) {
+    File[] entries = directory.listFiles();
+    if (entries == null) return;
+    for (File entry : entries) {
+      if (entry.isDirectory()) {
+        removeStaleCacheParts(entry);
+      } else if (
+        entry.getName().startsWith(".incoming-") &&
+        entry.getName().endsWith(".part")
+      ) {
+        entry.delete();
+      }
+    }
   }
 
   private String failure(String heading, File bin) {
@@ -516,7 +532,7 @@ final class Worker implements Closeable {
           .put("used", Math.max(0, m.totalMem - m.availMem))
           .put("allocation", processResidentBytes())
           .put("cores", Runtime.getRuntime().availableProcessors())
-          .put("build", "b12562")
+          .put("build", "b12562-ylm-rpc1")
           .toString();
         s.getOutputStream().write((info + "\n").getBytes(StandardCharsets.UTF_8));
         return;

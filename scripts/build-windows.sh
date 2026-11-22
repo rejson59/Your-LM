@@ -7,11 +7,12 @@ cd "$(dirname "$0")/.."
 : "${LLAMA_SRC:?Checkout ggml-org/llama.cpp at the pinned commit}"
 src=$(cd "$LLAMA_SRC" && pwd)
 commit=c0b97be0b297177a88df08e96c01420976bb18d0
-version=0.2.0-rc6
+version=0.2.0-rc7
 if [[ $(git -C "$src" rev-parse HEAD) != "$commit" ]]; then
   echo "Expected llama.cpp b12562 ($commit)" >&2
   exit 1
 fi
+LLAMA_SRC="$src" scripts/apply-llama-patches.sh
 for tool in go cmake ninja zig python3; do
   command -v "$tool" >/dev/null || { echo "Missing $tool" >&2; exit 1; }
 done

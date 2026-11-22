@@ -11,6 +11,7 @@ expected_llama=c0b97be0b297177a88df08e96c01420976bb18d0
   echo "Expected llama.cpp b12562 ($expected_llama)" >&2
   exit 1
 }
+LLAMA_SRC="$src" "$(dirname "$0")/apply-llama-patches.sh"
 
 ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-${NDK_HOME:-}}}
 : "${ndk:?Set ANDROID_NDK_HOME to Android NDK 27.2.12479018}"

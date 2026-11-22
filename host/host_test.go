@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -201,6 +202,51 @@ func TestChildEnvironment(t *testing.T) {
 	}
 	if !strings.Contains(joined, "\nYOURLM_TEST_SAFE=kept\n") || !strings.Contains(joined, "\nGGML_RPC_NO_COMM=1\n") {
 		t.Fatal("safe or mandatory child variable missing")
+	}
+}
+
+func TestWorkerRequiresPatchedRuntime(t *testing.T) {
+	valid := Node{Build: rpcWorkerBuild, Total: 8 * GiB, Free: 4 * GiB, Cores: 8}
+	if err := validateWorkerInfo(valid); err != nil {
+		t.Fatal(err)
+	}
+	valid.Build = "b12562"
+	if err := validateWorkerInfo(valid); err == nil || !strings.Contains(err.Error(), "zaktualizuj") {
+		t.Fatalf("old worker was not rejected with update guidance: %v", err)
+	}
+}
+
+func TestRemoveStaleRPCParts(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "rpc")
+	if err := os.MkdirAll(nested, 0700); err != nil {
+		t.Fatal(err)
+	}
+	partial := filepath.Join(nested, ".incoming-7.part")
+	complete := filepath.Join(nested, "0123456789abcdef")
+	if err := os.WriteFile(partial, []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(complete, []byte("complete"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	removeStaleRPCParts(root)
+	if _, err := os.Stat(partial); !os.IsNotExist(err) {
+		t.Fatalf("stale partial cache was not removed: %v", err)
+	}
+	if _, err := os.Stat(complete); err != nil {
+		t.Fatalf("complete cache was removed: %v", err)
+	}
+}
+
+func TestEngineFailureMessage(t *testing.T) {
+	rpc := engineFailureMessage(errors.New("exit status 3"), "Remote RPC server crashed or returned malformed response")
+	if !strings.Contains(rpc, "workerem RPC") || !strings.Contains(rpc, "Redmi") {
+		t.Fatalf("RPC failure is not actionable: %q", rpc)
+	}
+	generic := engineFailureMessage(errors.New("exit status 2"), "other failure")
+	if !strings.Contains(generic, "exit status 2") {
+		t.Fatalf("generic failure lost its cause: %q", generic)
 	}
 }
 

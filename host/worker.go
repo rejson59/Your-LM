@@ -85,7 +85,20 @@ func (n Node) dial(mode string) (net.Conn, error) {
 	return c, nil
 }
 
-const GiB uint64 = 1 << 30
+const (
+	GiB            uint64 = 1 << 30
+	rpcWorkerBuild        = "b12562-ylm-rpc1"
+)
+
+func validateWorkerInfo(info Node) error {
+	if info.Build != rpcWorkerBuild {
+		return fmt.Errorf("Niekompatybilny worker %q — zaktualizuj YourLM na urządzeniu do tej samej wersji", info.Build)
+	}
+	if info.Total == 0 || info.Free > info.Total || info.Cores <= 0 {
+		return errors.New("Niekompatybilny worker")
+	}
+	return nil
+}
 
 func (n *Node) refresh() error {
 	c, e := n.dial("INFO")
@@ -98,8 +111,8 @@ func (n *Node) refresh() error {
 	if e != nil {
 		return e
 	}
-	if info.Build != "b12562" || info.Total == 0 || info.Free > info.Total || info.Cores <= 0 {
-		return errors.New("Niekompatybilny worker")
+	if e = validateWorkerInfo(info); e != nil {
+		return e
 	}
 	if info.Used == 0 || info.Used > info.Total {
 		info.Used = info.Total - info.Free

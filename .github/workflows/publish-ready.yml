@@ -1,4 +1,4 @@
-name: Fast RC6 validation and publication
+name: Fast RC7 controller validation
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 env:
@@ -14,7 +14,9 @@ env:
 
 jobs:
   validate:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[validate fast]') || contains(github.event.head_commit.message, '[publish rc6 fast]') }}
+    # This fast lane reuses baseline native binaries and must never publish RC7.
+    # The full release workflow rebuilds llama.cpp with YourLM's RPC cache patch.
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[validate fast]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -44,7 +46,7 @@ jobs:
           set -euo pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"
-      - name: Compile and stable-sign the RC6 Android application
+      - name: Compile and stable-sign the RC7 Android application
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -58,8 +60,8 @@ jobs:
           export SERVER_BIN="$RUNNER_TEMP/android/build/android-native/bin/llama-server"
           scripts/package-android.sh
           badging=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging packages/YourLM-Android-arm64.apk)
-          grep -Fq "versionCode='9'" <<<"$badging"
-          grep -Fq "versionName='0.2.0-rc6'" <<<"$badging"
+          grep -Fq "versionCode='10'" <<<"$badging"
+          grep -Fq "versionName='0.2.0-rc7'" <<<"$badging"
       - name: Test and build the updated standalone EXE
         shell: bash
         run: |
@@ -95,14 +97,14 @@ jobs:
           server=$(sha256sum "$server_file" | cut -d' ' -f1)
           rpc=$(sha256sum "$rpc_file" | cut -d' ' -f1)
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
-            -ldflags="-H=windowsgui -X main.serverHash=$server -X main.rpcHash=$rpc -X main.buildVersion=0.2.0-rc6 -X main.buildCommit=$GITHUB_SHA" \
+            -ldflags="-H=windowsgui -X main.serverHash=$server -X main.rpcHash=$rpc -X main.buildVersion=0.2.0-rc7 -X main.buildCommit=$GITHUB_SHA" \
             -o release/YourLM.exe ./host
           cp packages/YourLM-Android-arm64.apk release/
           (cd release && sha256sum YourLM.exe YourLM-Android-arm64.apk > SHA256SUMS && sha256sum -c SHA256SUMS)
-      - name: Upload validated RC6 package
+      - name: Upload controller-only RC7 validation package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: rc6-fast-package
+          name: rc7-controller-validation
           path: |
             release/YourLM.exe
             release/YourLM-Android-arm64.apk
@@ -121,38 +123,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: rc6-fast-package
-          path: ${{ runner.temp }}/rc6
+          name: rc7-controller-validation
+          path: ${{ runner.temp }}/rc7
       - name: Verify Menu Start, Installed Apps, and uninstall
         shell: pwsh
-        run: tests/windows-install-smoke.ps1 "$env:RUNNER_TEMP\rc6"
-
-  publish:
-    name: Publish v0.2.0-rc6
-    needs: [validate, windows-install]
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[publish rc6 fast]') }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: rc6-fast-package
-          path: .
-      - name: Publish RC6 after Windows installation passes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          tag=v0.2.0-rc6
-          assets=(release/YourLM.exe release/YourLM-Android-arm64.apk release/SHA256SUMS)
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc6' \
-              --notes-file windows/RELEASE-NOTES-0.2.0-rc6.md --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$tag" "${assets[@]}" --prerelease --target "$GITHUB_SHA" \
-              --title 'YourLM 0.2.0-rc6' --notes-file windows/RELEASE-NOTES-0.2.0-rc6.md \
-              --repo "$GITHUB_REPOSITORY"
-          fi
+        run: tests/windows-install-smoke.ps1 "$env:RUNNER_TEMP\rc7"

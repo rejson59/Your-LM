@@ -32,6 +32,15 @@ type Offer struct {
 	slots                                  chan struct{}
 }
 
+func removeStaleRPCParts(root string) {
+	_ = filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err == nil && !entry.IsDir() && strings.HasPrefix(entry.Name(), ".incoming-") && strings.HasSuffix(entry.Name(), ".part") {
+			_ = os.Remove(path)
+		}
+		return nil
+	})
+}
+
 func (o *Offer) close() {
 	if o.listener != nil {
 		o.listener.Close()
@@ -96,6 +105,7 @@ func (a *App) offer(ip string) error {
 		pairListener.Close()
 		return e
 	}
+	removeStaleRPCParts(cache)
 	cmd := exec.Command(path, "-H", "127.0.0.1", "-p", port, "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "-c")
 	cmd.Dir = filepath.Dir(path)
 	cmd.Env = append(childEnv(), "LLAMA_CACHE="+cache)
@@ -179,7 +189,7 @@ func (o *Offer) serve(c net.Conn) {
 		}
 		json.NewEncoder(c).Encode(Node{
 			Name: n, Total: stats.Total, Free: stats.Available, Used: stats.Used,
-			Allocation: allocation, Cores: runtime.NumCPU(), Build: "b12562",
+			Allocation: allocation, Cores: runtime.NumCPU(), Build: rpcWorkerBuild,
 		})
 	case "RPC":
 		local, e := net.DialTimeout("tcp4", o.local, time.Second)

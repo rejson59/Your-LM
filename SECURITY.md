@@ -12,6 +12,8 @@ Kontroler sprawdza publiczne wydania GitHub. Nowy `YourLM.exe` pobiera do prywat
 
 Kontroler usuwa ze środowiska procesu potomnego zmienne `LLAMA_*` i `GGML_*`, które mogłyby włączyć inne zachowanie. Jawnie uruchamia `llama-server` w trybie offline, bez Web UI, MCP proxy i wbudowanych narzędzi plikowych/powłoki. Narzędzia agenta Continue działają po stronie Continue i nie wymagają serwerowych narzędzi `llama.cpp`.
 
+Runtime powstaje z dokładnie przypiętego commita `llama.cpp` oraz śledzonej w repozytorium poprawki cache RPC. Skrypt odmawia budowania, jeśli patch nie pasuje do źródła. Cache workera jest prywatny dla aplikacji; RC7 publikuje wpis dopiero po pełnym zapisie, przy odczycie ponownie sprawdza rozmiar i hash, a osierocone pliki tymczasowe usuwa przed następnym startem.
+
 Poza sprawdzaniem/pobraniem aktualizacji z `api.github.com` i adresu assetu GitHub kontroler łączy się tylko z lokalnym serwerem modelu oraz ze sparowanymi prywatnymi adresami IPv4. Kod nie zawiera telemetrii. API modelu może zostać świadomie wystawione jako HTTP w prywatnym LAN; domyślnie słucha tylko na `127.0.0.1`.
 
 ## Granice zaufania
