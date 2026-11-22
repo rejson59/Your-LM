@@ -47,7 +47,8 @@ final class Worker implements Closeable {
   SSLServerSocket server;
   ServerSocket pairing;
   String code, pairAddress, pin;
-  int rpcPort, rpcPid;
+  int rpcPort;
+  volatile int rpcPid;
   volatile boolean closed;
 
   Worker(Context c) {
@@ -124,6 +125,7 @@ final class Worker implements Closeable {
     if (entries == null) return 0;
     String executable = engineFile.getPath();
     byte[] data = new byte[4096];
+    int newest = 0;
     for (File entry : entries) {
       String name = entry.getName();
       if (!name.matches("[0-9]+")) continue;
@@ -134,15 +136,18 @@ final class Worker implements Closeable {
         while (end < count && data[end] != 0) end++;
         String command = new String(data, 0, end, StandardCharsets.UTF_8);
         if (command.equals(executable) || command.endsWith("/libylm_rpc.so")) {
-          return Integer.parseInt(name);
+          newest = Math.max(newest, Integer.parseInt(name));
         }
       } catch (Exception ignored) {}
     }
-    return 0;
+    return newest;
   }
 
   long processResidentBytes() {
-    if (rpc == null || !rpc.isAlive()) return 0;
+    if (rpc == null || !rpc.isAlive()) {
+      rpcPid = 0;
+      return 0;
+    }
     if (rpcPid == 0) rpcPid = findProcessId();
     if (rpcPid == 0) return 0;
     File status = new File("/proc/" + rpcPid + "/status");
@@ -298,9 +303,11 @@ final class Worker implements Closeable {
     builder.environment().put("TMPDIR", ctx.getCacheDir().getPath());
     builder.environment().put("LLAMA_CACHE", rpcCache.getPath());
     try {
+      rpcPid = 0;
       rpc = builder.start();
       rpcPid = findProcessId();
     } catch (IOException e) {
+      rpcPid = 0;
       throw new IOException(failure("Android odmówił uruchomienia silnika", bin), e);
     }
     boolean ready = false;
@@ -320,6 +327,7 @@ final class Worker implements Closeable {
         bin
       );
       rpc.destroyForcibly();
+      rpcPid = 0;
       throw new IOException(message);
     }
     pin = hex(
@@ -374,6 +382,7 @@ final class Worker implements Closeable {
       () -> {
         try {
           rpc.waitFor();
+          rpcPid = 0;
           if (server != null) server.close();
           if (pairing != null) pairing.close();
         } catch (Exception ignored) {}
@@ -554,5 +563,6 @@ final class Worker implements Closeable {
     for (Socket s : active) drop(s);
     clients.shutdownNow();
     if (rpc != null) rpc.destroyForcibly();
+    rpcPid = 0;
   }
 }
