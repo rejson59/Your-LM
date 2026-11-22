@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   actions: read
 
 env:
@@ -188,8 +188,7 @@ jobs:
             gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc7' \
               --notes-file windows/RELEASE-NOTES-0.2.0-rc7.md --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$tag" "${assets[@]}" --prerelease \
-              --target 4b8fe08f1985577316fdbcb7b383c708c6065dc1 \
+            gh release create "$tag" "${assets[@]}" --prerelease --target "$GITHUB_SHA" \
               --title 'YourLM 0.2.0-rc7' --notes-file windows/RELEASE-NOTES-0.2.0-rc7.md \
               --repo "$GITHUB_REPOSITORY"
           fi
