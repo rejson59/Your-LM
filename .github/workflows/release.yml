@@ -20,6 +20,10 @@ jobs:
   android-arm64:
     name: Android ARM64 release gate
     if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[validate fast]') }}
+    # Draft releases containing the split stable-signing backup are visible
+    # only to tokens with push-level contents access.
+    permissions:
+      contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:

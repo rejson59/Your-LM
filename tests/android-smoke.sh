@@ -68,7 +68,9 @@ adb exec-out screencap -p > test-output/android-home.png
 click_text "Telefon jako worker"
 sleep 1
 assert_text "Dodaj moc telefonu do laptopa"
-click_text "Uruchom worker"
+# Match the full button label: the instructional step above also begins with
+# “Uruchom worker” and tapping that text does not start the service.
+click_text "Uruchom worker w tle"
 
 attempt=0
 while ((attempt < 30)); do
