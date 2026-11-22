@@ -17,6 +17,7 @@ import java.security.*;
 import java.security.cert.Certificate;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicLong;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.net.ssl.*;
@@ -47,6 +48,12 @@ final class Worker implements Closeable {
   final String secret = derivedSecret(manualKey.replace("-", ""));
   final String alias = "YourLM-session";
   final File logFile;
+  final File eventFile;
+  final File snapshotFile;
+  final Object eventLock = new Object();
+  final AtomicLong bridgeConnections = new AtomicLong();
+  final AtomicLong bridgeHostToNativeBytes = new AtomicLong();
+  final AtomicLong bridgeNativeToHostBytes = new AtomicLong();
   File engineFile;
   Process rpc;
   SSLServerSocket server;
@@ -55,14 +62,23 @@ final class Worker implements Closeable {
   int rpcPort;
   volatile int rpcPid;
   volatile int rpcExitCode = Integer.MIN_VALUE;
+  volatile long rpcStartedAt;
   volatile long rpcStoppedAt;
+  volatile long lastForwardingErrorAt;
+  volatile long lastSnapshotPersistedAt;
+  volatile String lastForwardingError = "";
   volatile boolean closed;
 
-  private static final long DIAGNOSTIC_GRACE_MS = 60_000;
+  private static final long DIAGNOSTIC_GRACE_MS = 10 * 60_000;
+  private static final String WORKER_BUILD = "b12562-ylm-rpc3";
 
   Worker(Context c) {
     ctx = c;
-    logFile = new File(c.getCacheDir(), "worker.log");
+    File diagnostics = new File(c.getFilesDir(), "diagnostics");
+    diagnostics.mkdirs();
+    logFile = new File(diagnostics, "worker-native.log");
+    eventFile = new File(diagnostics, "worker-events.log");
+    snapshotFile = new File(diagnostics, "worker-latest.json");
   }
 
   static byte[] random(int n) {
@@ -313,10 +329,17 @@ final class Worker implements Closeable {
     builder.environment().put("HOME", ctx.getFilesDir().getPath());
     builder.environment().put("TMPDIR", ctx.getCacheDir().getPath());
     builder.environment().put("LLAMA_CACHE", rpcCache.getPath());
+    // Level 2 records the last RPC command and tensor in the native-log tail.
+    // This is bounded in every report and is essential when the peer vanishes.
+    builder.environment().put("GGML_RPC_DEBUG", "2");
     try {
       rpcPid = 0;
       rpcExitCode = Integer.MIN_VALUE;
+      rpcStartedAt = System.currentTimeMillis();
       rpcStoppedAt = 0;
+      lastForwardingErrorAt = 0;
+      lastForwardingError = "";
+      recordEvent("native_start", "Launching " + bin.getPath());
       rpc = builder.start();
       rpcPid = findProcessId();
     } catch (IOException e) {
@@ -355,6 +378,96 @@ final class Worker implements Closeable {
       pin +
       "|" +
       secret;
+  }
+
+  private static String exceptionDetails(Throwable error) {
+    StringWriter text = new StringWriter();
+    error.printStackTrace(new PrintWriter(text));
+    String value = text.toString().trim();
+    return value.length() <= 8000
+      ? value
+      : value.substring(0, 8000) + "\n…";
+  }
+
+  private void recordEvent(String kind, String detail) {
+    long now = System.currentTimeMillis();
+    String safe = detail == null
+      ? ""
+      : detail.replace('\r', ' ').trim();
+    String line = now + " " + kind + " " + safe + "\n";
+    synchronized (eventLock) {
+      try (FileOutputStream out = new FileOutputStream(eventFile, true)) {
+        out.write(line.getBytes(StandardCharsets.UTF_8));
+      } catch (IOException ignored) {}
+      if (eventFile.length() > 64 * 1024) {
+        String tail = logTail(eventFile, 48 * 1024);
+        try (FileOutputStream out = new FileOutputStream(eventFile, false)) {
+          out.write(tail.getBytes(StandardCharsets.UTF_8));
+          out.write('\n');
+        } catch (IOException ignored) {}
+      }
+    }
+  }
+
+  private String workerEventTail() {
+    synchronized (eventLock) {
+      return logTail(eventFile, 48 * 1024);
+    }
+  }
+
+  private void recordForwardingError(String stage, Throwable error) {
+    if (closed) return;
+    long now = System.currentTimeMillis();
+    String details = stage + ": " + exceptionDetails(error);
+    lastForwardingErrorAt = now;
+    lastForwardingError = details;
+    recordEvent("forwarding_error", details);
+  }
+
+  private static String nativeExitSummary(int code) {
+    if (code == Integer.MIN_VALUE) return "running_or_unknown";
+    if (code < 128 || code > 255) return "exit_" + code;
+    int signal = code - 128;
+    String name;
+    switch (signal) {
+      case 6:
+        name = "SIGABRT";
+        break;
+      case 7:
+        name = "SIGBUS";
+        break;
+      case 9:
+        name = "SIGKILL";
+        break;
+      case 11:
+        name = "SIGSEGV";
+        break;
+      case 15:
+        name = "SIGTERM";
+        break;
+      default:
+        name = "signal_" + signal;
+    }
+    return "exit_" + code + "_" + name;
+  }
+
+  private void persistSnapshot(JSONObject report, boolean force) {
+    long now = System.currentTimeMillis();
+    if (!force && now - lastSnapshotPersistedAt < 15_000) return;
+    lastSnapshotPersistedAt = now;
+    File part = new File(snapshotFile.getParentFile(), snapshotFile.getName() + ".part");
+    try (FileOutputStream out = new FileOutputStream(part, false)) {
+      out.write(report.toString(2).getBytes(StandardCharsets.UTF_8));
+      out.write('\n');
+    } catch (Exception ignored) {
+      part.delete();
+      return;
+    }
+    if (snapshotFile.exists() && !snapshotFile.delete()) {
+      part.delete();
+      return;
+    }
+    if (!part.renameTo(snapshotFile)) part.delete();
   }
 
   private static void removeStaleCacheParts(File directory) {
@@ -451,21 +564,35 @@ final class Worker implements Closeable {
   }
 
   private JSONObject diagnostics() {
+    return diagnostics(false);
+  }
+
+  private synchronized JSONObject diagnostics(boolean forcePersistence) {
     ActivityManager.MemoryInfo memory = mem();
     File rpcCache = new File(ctx.getFilesDir(), "rpc-cache");
     long[] cache = new long[3];
     cacheStats(rpcCache, cache);
+    long resident = processResidentBytes();
+    boolean alive = rpc != null && rpc.isAlive();
     JSONObject out = new JSONObject();
     try {
       out
         .put("device", Build.MANUFACTURER + " " + Build.MODEL)
         .put("android", Build.VERSION.RELEASE)
         .put("sdk", Build.VERSION.SDK_INT)
-        .put("workerBuild", "b12562-ylm-rpc2")
+        .put("workerBuild", WORKER_BUILD)
         .put("capturedAtEpochMs", System.currentTimeMillis())
-        .put("rpcAlive", rpc != null && rpc.isAlive())
+        .put("appProcessPid", android.os.Process.myPid())
+        .put("rpcAlive", alive)
         .put("rpcPid", rpcPid)
-        .put("rpcResidentBytes", processResidentBytes())
+        .put("rpcResidentBytes", resident)
+        .put("rpcStartedAtEpochMs", rpcStartedAt)
+        .put("rpcStoppedAtEpochMs", rpcStoppedAt)
+        .put("rpcExitSummary", nativeExitSummary(rpcExitCode))
+        .put("bridgeConnections", bridgeConnections.get())
+        .put("bridgeActiveSockets", active.size())
+        .put("bridgeHostToNativeBytes", bridgeHostToNativeBytes.get())
+        .put("bridgeNativeToHostBytes", bridgeNativeToHostBytes.get())
         .put("memoryTotalBytes", memory.totalMem)
         .put("memoryAvailableBytes", memory.availMem)
         .put("memoryLow", memory.lowMemory)
@@ -475,7 +602,14 @@ final class Worker implements Closeable {
         .put("cacheFiles", cache[0])
         .put("cacheBytes", cache[1])
         .put("cachePartialFiles", cache[2])
+        .put("nativeLogBytes", logFile.isFile() ? logFile.length() : 0)
         .put("nativeLog", logTail(logFile, 24000))
+        .put("lastForwardingErrorAtEpochMs", lastForwardingErrorAt)
+        .put(
+          "lastForwardingError",
+          lastForwardingError.isEmpty() ? JSONObject.NULL : lastForwardingError
+        )
+        .put("workerEvents", workerEventTail())
         .put("exitHistory", nativeExitHistory());
       if (rpcExitCode == Integer.MIN_VALUE) out.put("rpcExitCode", JSONObject.NULL);
       else out.put("rpcExitCode", rpcExitCode);
@@ -505,9 +639,10 @@ final class Worker implements Closeable {
       }
     } catch (Exception e) {
       try {
-        out.put("diagnosticError", e.toString());
+        out.put("diagnosticError", exceptionDetails(e));
       } catch (Exception ignored) {}
     }
+    persistSnapshot(out, forcePersistence);
     return out;
   }
 
@@ -533,9 +668,10 @@ final class Worker implements Closeable {
   static String logTail(File file, int maxBytes) {
     if (file == null || !file.isFile()) return "";
     try (RandomAccessFile in = new RandomAccessFile(file, "r")) {
-      long start = Math.max(0, in.length() - maxBytes);
+      long length = in.length();
+      long start = Math.max(0, length - maxBytes);
       in.seek(start);
-      byte[] data = new byte[(int) (in.length() - start)];
+      byte[] data = new byte[(int) (length - start)];
       in.readFully(data);
       String value = new String(data, StandardCharsets.UTF_8).trim();
       return start > 0 ? "…\n" + value : value;
@@ -551,10 +687,14 @@ final class Worker implements Closeable {
           rpcExitCode = rpc.waitFor();
           rpcPid = 0;
           rpcStoppedAt = System.currentTimeMillis();
-          // Keep the authenticated control listener alive briefly. The Windows
-          // host uses this grace period to retrieve the native log, exit code,
-          // RAM, storage, cache and Android process-exit history after RPC drops.
-        } catch (Exception ignored) {}
+          recordEvent("native_exit", nativeExitSummary(rpcExitCode));
+          diagnostics(true);
+          // Keep the authenticated control listener alive for ten minutes. The
+          // Windows host keeps polling it and can still retrieve the final exit
+          // code, Java forwarding error, native log and resource state.
+        } catch (Exception e) {
+          recordEvent("native_watch_error", exceptionDetails(e));
+        }
       },
       "YourLM-engine-watch"
     ).start();
@@ -694,7 +834,8 @@ final class Worker implements Closeable {
           .put("used", Math.max(0, m.totalMem - m.availMem))
           .put("allocation", processResidentBytes())
           .put("cores", Runtime.getRuntime().availableProcessors())
-          .put("build", "b12562-ylm-rpc2")
+          .put("build", WORKER_BUILD)
+          .put("alive", rpc != null && rpc.isAlive())
           .toString();
         s.getOutputStream().write((info + "\n").getBytes(StandardCharsets.UTF_8));
         return;
@@ -703,38 +844,59 @@ final class Worker implements Closeable {
         OutputStream output = s.getOutputStream();
         output.write((diagnostics().toString() + "\n").getBytes(StandardCharsets.UTF_8));
         output.flush();
-        if (rpc != null && !rpc.isAlive() && server != null) server.close();
         return;
       }
       if (!auth[0].equals("RPC")) return;
-      try (Socket local = new Socket("127.0.0.1", rpcPort)) {
-        s.setSoTimeout(0);
-        local.setTcpNoDelay(true);
-        local.setReceiveBufferSize(1024 * 1024);
-        local.setSendBufferSize(1024 * 1024);
-        s.setTcpNoDelay(true);
-        s.getOutputStream().write('!');
-        Thread back = new Thread(() -> {
-          try {
-            pump(local.getInputStream(), s.getOutputStream());
-          } catch (IOException ignored) {
-          } finally {
-            drop(s);
-          }
-        });
-        back.start();
-        pump(in, local.getOutputStream());
+      try {
+        forwardRPC(s, in);
+      } catch (Exception e) {
+        recordForwardingError("host_to_native", e);
       }
     } catch (Exception ignored) {
+      // Authentication and one-shot INFO/DIAG failures are not RPC failures.
     } finally {
       drop(s);
     }
   }
 
-  static void pump(InputStream in, OutputStream out) throws IOException {
+  private void forwardRPC(Socket remote, InputStream remoteInput) throws Exception {
+    bridgeConnections.incrementAndGet();
+    try (Socket local = new Socket("127.0.0.1", rpcPort)) {
+      remote.setSoTimeout(0);
+      local.setTcpNoDelay(true);
+      local.setReceiveBufferSize(1024 * 1024);
+      local.setSendBufferSize(1024 * 1024);
+      remote.setTcpNoDelay(true);
+      remote.getOutputStream().write('!');
+      Thread back = new Thread(
+        () -> {
+          try {
+            pump(
+              local.getInputStream(),
+              remote.getOutputStream(),
+              bridgeNativeToHostBytes
+            );
+          } catch (IOException e) {
+            recordForwardingError("native_to_host", e);
+          } finally {
+            drop(remote);
+          }
+        },
+        "YourLM-rpc-return"
+      );
+      back.start();
+      pump(remoteInput, local.getOutputStream(), bridgeHostToNativeBytes);
+    }
+  }
+
+  static void pump(InputStream in, OutputStream out, AtomicLong transferred)
+    throws IOException {
     byte[] buf = new byte[262144];
     int n;
-    while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
+    while ((n = in.read(buf)) != -1) {
+      out.write(buf, 0, n);
+      transferred.addAndGet(n);
+    }
   }
 
   public void close() {

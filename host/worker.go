@@ -25,6 +25,7 @@ type Node struct {
 	Allocation  uint64 `json:"allocation"`
 	Cores       int    `json:"cores"`
 	Build       string `json:"build"`
+	Alive       bool   `json:"alive"`
 	Address     string `json:"address"`
 	pin, secret string
 }
@@ -87,7 +88,7 @@ func (n Node) dial(mode string) (net.Conn, error) {
 
 const (
 	GiB            uint64 = 1 << 30
-	rpcWorkerBuild        = "b12562-ylm-rpc2"
+	rpcWorkerBuild        = "b12562-ylm-rpc3"
 )
 
 func validateWorkerInfo(info Node) error {
@@ -96,6 +97,9 @@ func validateWorkerInfo(info Node) error {
 	}
 	if info.Total == 0 || info.Free > info.Total || info.Cores <= 0 {
 		return errors.New("Niekompatybilny worker")
+	}
+	if !info.Alive {
+		return errors.New("Natywny worker RPC nie działa — uruchom worker ponownie na telefonie")
 	}
 	return nil
 }
@@ -120,8 +124,8 @@ func (n *Node) refresh() error {
 	if info.Allocation > info.Total {
 		info.Allocation = 0
 	}
-	n.Name, n.Free, n.Total, n.Used, n.Allocation, n.Cores, n.Build =
-		info.Name, info.Free, info.Total, info.Used, info.Allocation, info.Cores, info.Build
+	n.Name, n.Free, n.Total, n.Used, n.Allocation, n.Cores, n.Build, n.Alive =
+		info.Name, info.Free, info.Total, info.Used, info.Allocation, info.Cores, info.Build, info.Alive
 	return nil
 }
 
@@ -132,13 +136,13 @@ func (n Node) diagnostics() ([]byte, error) {
 	}
 	defer c.Close()
 	var report map[string]any
-	if err = json.NewDecoder(io.LimitReader(c, 64<<10)).Decode(&report); err != nil {
+	if err = json.NewDecoder(io.LimitReader(c, 256<<10)).Decode(&report); err != nil {
 		return nil, err
 	}
 	return json.MarshalIndent(report, "", "  ")
 }
 
-func workerDiagnosticsReport(nodes []Node) string {
+func workerDiagnosticsReport(nodes []Node, cached map[string]WorkerDiagnosticSnapshot) string {
 	if len(nodes) == 0 {
 		return ""
 	}
@@ -164,10 +168,22 @@ func workerDiagnosticsReport(nodes []Node) string {
 		if err != nil {
 			fmt.Fprintf(
 				&out,
-				"Nie udało się pobrać raportu z telefonu: %v. Mogło zostać zakończone całe YourLM, a nie tylko natywny worker.\n",
+				"Nie udało się pobrać raportu po awarii: %v. Mogło zostać zakończone całe YourLM, a nie tylko natywny worker.\n",
 				err,
 			)
-			continue
+			snapshot := cached[node.Address]
+			report = snapshot.report
+			if len(report) == 0 {
+				out.WriteString("Brak wcześniejszej migawki diagnostycznej.\n")
+				continue
+			}
+			fmt.Fprintf(
+				&out,
+				"Ostatnia udana migawka pobrana przez Windows podczas ładowania: %s\n",
+				snapshot.receivedAt.Format(time.RFC3339),
+			)
+		} else {
+			out.WriteString("Raport pobrany bezpośrednio po awarii:\n")
 		}
 		out.Write(report)
 		out.WriteByte('\n')

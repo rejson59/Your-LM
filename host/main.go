@@ -54,6 +54,11 @@ func ips() []string {
 	return out
 }
 
+type WorkerDiagnosticSnapshot struct {
+	report     []byte
+	receivedAt time.Time
+}
+
 type Session struct {
 	stopping             bool
 	cmd                  *exec.Cmd
@@ -62,6 +67,7 @@ type Session struct {
 	layers               int
 	workers              int
 	nodes                []Node
+	workerReports        map[string]WorkerDiagnosticSnapshot
 	name                 string
 	ready                bool
 	started              time.Time
@@ -187,7 +193,7 @@ func advanceEngineProgress(previous, current EngineProgress) EngineProgress {
 
 func engineFailureMessage(err error, engineLog string) string {
 	if strings.Contains(engineLog, "Remote RPC server crashed or returned malformed response") {
-		return "Połączenie z workerem RPC zostało przerwane podczas przesyłania wag. Raport poniżej zawiera również automatycznie pobraną diagnostykę Redmi: kod wyjścia, RAM, pamięć telefonu, cache, Wi-Fi i log natywny. Skopiuj całość jednym przyciskiem."
+		return "Połączenie z workerem RPC zostało przerwane podczas przesyłania wag. Raport poniżej zawiera raport końcowy Redmi albo ostatnią migawkę automatycznie zapisaną przez Windows podczas ładowania: stan procesu, RAM, pamięć telefonu, cache, Wi-Fi, błędy mostu Java i log natywny. Skopiuj całość jednym przyciskiem."
 	}
 	return "Model nie został uruchomiony: " + err.Error() + ". Otwórz diagnostykę silnika poniżej i skopiuj log."
 }
@@ -233,14 +239,15 @@ func (a *App) start(bind string, port int) error {
 	}
 	probe.Close()
 	s := &Session{
-		url:     "http://" + address,
-		key:     token(),
-		layers:  layers,
-		workers: len(a.nodes),
-		nodes:   append([]Node(nil), a.nodes...),
-		name:    m.Name,
-		logPath: filepath.Join(a.dir, "engine.log"),
-		done:    make(chan struct{}),
+		url:           "http://" + address,
+		key:           token(),
+		layers:        layers,
+		workers:       len(a.nodes),
+		nodes:         append([]Node(nil), a.nodes...),
+		workerReports: make(map[string]WorkerDiagnosticSnapshot),
+		name:          m.Name,
+		logPath:       filepath.Join(a.dir, "engine.log"),
+		done:          make(chan struct{}),
 	}
 	defer func() {
 		if a.s != s {
@@ -249,6 +256,16 @@ func (a *App) start(bind string, port int) error {
 			}
 		}
 	}()
+	// Capture a baseline on Windows before the engine can fail. The monitor
+	// replaces it every three seconds while the model session is active.
+	for _, node := range s.nodes {
+		if report, diagnosticErr := node.diagnostics(); diagnosticErr == nil {
+			s.workerReports[node.Address] = WorkerDiagnosticSnapshot{
+				report:     append([]byte(nil), report...),
+				receivedAt: time.Now(),
+			}
+		}
+	}
 	var addresses []string
 	for _, n := range a.nodes {
 		l, e := n.bridge(&s.rpcSent, &s.rpcReceived)
@@ -292,20 +309,26 @@ func (a *App) start(bind string, port int) error {
 		}
 		a.Lock()
 		stopping := s.stopping
+		sessionNodes := append([]Node(nil), s.nodes...)
+		cachedReports := make(map[string]WorkerDiagnosticSnapshot, len(s.workerReports))
+		for address, snapshot := range s.workerReports {
+			snapshot.report = append([]byte(nil), snapshot.report...)
+			cachedReports[address] = snapshot
+		}
 		a.Unlock()
 		if e != nil && !stopping {
 			elapsedSeconds := max(1, int(time.Since(s.started).Seconds()))
 			sent := s.rpcSent.Load()
 			received := s.rpcReceived.Load()
 			failureReport := fmt.Sprintf(
-				"\n\n===== DIAGNOSTYKA SESJI =====\nBłąd procesu: %v\nCzas do awarii: %d s\nWysłano RPC: %d B (średnio %.2f MiB/s)\nOdebrano RPC: %d B\nRezerwa fit workera: 1024 MiB\n",
+				"\n\n===== DIAGNOSTYKA SESJI =====\nBłąd procesu: %v\nCzas do awarii: %d s\nWysłano przez most RPC hosta: %d B (średnio %.2f MiB/s; to nie jest test samego Wi-Fi)\nOdebrano przez most RPC hosta: %d B\nRezerwa fit workera: 1024 MiB\n",
 				e,
 				elapsedSeconds,
 				sent,
 				float64(sent)/float64(elapsedSeconds)/(1024*1024),
 				received,
 			)
-			failureReport += workerDiagnosticsReport(s.nodes)
+			failureReport += workerDiagnosticsReport(sessionNodes, cachedReports)
 			if reportFile, openErr := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0600); openErr == nil {
 				_, _ = reportFile.WriteString(failureReport)
 				_ = reportFile.Close()
@@ -375,6 +398,47 @@ func (a *App) monitorNodes(session *Session) {
 	if session.workers == 0 {
 		return
 	}
+	sample := func() bool {
+		a.Lock()
+		if a.s != session {
+			a.Unlock()
+			return false
+		}
+		nodes := append([]Node(nil), session.nodes...)
+		a.Unlock()
+		for i := range nodes {
+			refreshErr := nodes[i].refresh()
+			report, diagnosticErr := nodes[i].diagnostics()
+			a.Lock()
+			if a.s == session {
+				if refreshErr == nil {
+					for j := range a.nodes {
+						if a.nodes[j].Address == nodes[i].Address {
+							a.nodes[j] = nodes[i]
+							break
+						}
+					}
+					for j := range session.nodes {
+						if session.nodes[j].Address == nodes[i].Address {
+							session.nodes[j] = nodes[i]
+							break
+						}
+					}
+				}
+				if diagnosticErr == nil {
+					session.workerReports[nodes[i].Address] = WorkerDiagnosticSnapshot{
+						report:     append([]byte(nil), report...),
+						receivedAt: time.Now(),
+					}
+				}
+			}
+			a.Unlock()
+		}
+		return true
+	}
+	if !sample() {
+		return
+	}
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -382,27 +446,8 @@ func (a *App) monitorNodes(session *Session) {
 		case <-session.done:
 			return
 		case <-ticker.C:
-			a.Lock()
-			if a.s != session {
-				a.Unlock()
+			if !sample() {
 				return
-			}
-			nodes := append([]Node(nil), a.nodes...)
-			a.Unlock()
-			for i := range nodes {
-				if err := nodes[i].refresh(); err != nil {
-					continue
-				}
-				a.Lock()
-				if a.s == session {
-					for j := range a.nodes {
-						if a.nodes[j].Address == nodes[i].Address {
-							a.nodes[j] = nodes[i]
-							break
-						}
-					}
-				}
-				a.Unlock()
 			}
 		}
 	}
@@ -501,6 +546,10 @@ func (a *App) state() map[string]any {
 			)
 		}
 	}
+	fitReserveMiB := 0
+	if len(a.nodes) > 0 {
+		fitReserveMiB = 1024
+	}
 	memoryState := map[string]any{
 		"host": hostMemory, "hostProcess": hostProcess,
 		"physical": physical, "osUsed": osUsed, "available": available,
@@ -516,7 +565,7 @@ func (a *App) state() map[string]any {
 		"offerKey": offerKey, "host": hostname, "os": runtime.GOOS,
 		"cores": runtime.NumCPU(), "total": hostMemory.Total,
 		"free": hostMemory.Available, "available": available,
-		"physical": physical, "fitReserveMiB": 0, "memory": memoryState,
+		"physical": physical, "fitReserveMiB": fitReserveMiB, "memory": memoryState,
 		"nodes": a.nodes, "ips": ips(), "model": a.model, "models": models,
 		"library": a.library, "runtime": a.hasRuntime(), "session": session,
 		"engine": engine, "usb": a.usb, "update": a.update, "last": a.last,

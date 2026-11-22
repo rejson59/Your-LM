@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 : "${KS_PASS:?Set keystore password}"
 : "${ANDROID_HOME:?Set ANDROID_HOME}"
 export KS_PASS
-version=0.2.0-rc8
+version=0.2.0-rc9
 abi=${ANDROID_ABI:-arm64-v8a}
 case "$abi" in
   arm64-v8a)
@@ -67,7 +67,7 @@ YourLM: $version
 Source commit: $source_commit
 llama.cpp: b12562 / c0b97be0b297177a88df08e96c01420976bb18d0
 YourLM native patch: bounded streaming RPC cache v1
-RPC compatibility: b12562-ylm-rpc2
+RPC compatibility: b12562-ylm-rpc3
 Android ABI: $abi
 Minimum Android API: 28
 Native toolchain: Android NDK 27.2.12479018

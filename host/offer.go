@@ -187,9 +187,10 @@ func (o *Offer) serve(c net.Conn) {
 		if o.cmd != nil && o.cmd.Process != nil {
 			allocation = memoryForProcess(o.cmd.Process.Pid).Resident
 		}
+		alive := o.cmd == nil || o.cmd.ProcessState == nil || !o.cmd.ProcessState.Exited()
 		json.NewEncoder(c).Encode(Node{
 			Name: n, Total: stats.Total, Free: stats.Available, Used: stats.Used,
-			Allocation: allocation, Cores: runtime.NumCPU(), Build: rpcWorkerBuild,
+			Allocation: allocation, Cores: runtime.NumCPU(), Build: rpcWorkerBuild, Alive: alive,
 		})
 	case "DIAG":
 		n, _ := os.Hostname()

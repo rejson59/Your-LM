@@ -206,13 +206,18 @@ func TestChildEnvironment(t *testing.T) {
 }
 
 func TestWorkerRequiresPatchedRuntime(t *testing.T) {
-	valid := Node{Build: rpcWorkerBuild, Total: 8 * GiB, Free: 4 * GiB, Cores: 8}
+	valid := Node{Build: rpcWorkerBuild, Total: 8 * GiB, Free: 4 * GiB, Cores: 8, Alive: true}
 	if err := validateWorkerInfo(valid); err != nil {
 		t.Fatal(err)
 	}
 	valid.Build = "b12562"
 	if err := validateWorkerInfo(valid); err == nil || !strings.Contains(err.Error(), "zaktualizuj") {
 		t.Fatalf("old worker was not rejected with update guidance: %v", err)
+	}
+	valid.Build = rpcWorkerBuild
+	valid.Alive = false
+	if err := validateWorkerInfo(valid); err == nil || !strings.Contains(err.Error(), "uruchom worker ponownie") {
+		t.Fatalf("stopped native worker was accepted: %v", err)
 	}
 }
 
@@ -374,6 +379,73 @@ func TestManualPairing(t *testing.T) {
 	}
 }
 
+func TestWorkerDiagnosticsUsesCachedSnapshot(t *testing.T) {
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := listener.Addr().String()
+	listener.Close()
+	received := time.Date(2026, time.November, 20, 12, 0, 0, 0, time.UTC)
+	cached := []byte(`{"workerBuild":"cached-test","rpcAlive":true}`)
+	report := workerDiagnosticsReport(
+		[]Node{{Name: "Redmi", Address: address}},
+		map[string]WorkerDiagnosticSnapshot{
+			address: {report: cached, receivedAt: received},
+		},
+	)
+	for _, expected := range []string{
+		"Nie udało się pobrać raportu po awarii",
+		"Ostatnia udana migawka pobrana przez Windows podczas ładowania: 2026-11-20T12:00:00Z",
+		`"workerBuild":"cached-test"`,
+	} {
+		if !strings.Contains(report, expected) {
+			t.Fatalf("cached worker report is missing %q: %s", expected, report)
+		}
+	}
+}
+
+func TestMonitorNodesCachesDiagnostics(t *testing.T) {
+	node := testNode(t, "127.0.0.1:1")
+	session := &Session{
+		workers:       1,
+		nodes:         []Node{node},
+		workerReports: make(map[string]WorkerDiagnosticSnapshot),
+		done:          make(chan struct{}),
+	}
+	a := &App{nodes: []Node{node}, s: session}
+	finished := make(chan struct{})
+	go func() {
+		a.monitorNodes(session)
+		close(finished)
+	}()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		a.Lock()
+		snapshot, ok := session.workerReports[node.Address]
+		a.Unlock()
+		if ok {
+			if len(snapshot.report) == 0 || snapshot.receivedAt.IsZero() {
+				t.Fatalf("invalid cached worker snapshot: %+v", snapshot)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("monitor did not cache an authenticated worker diagnostic snapshot")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	a.Lock()
+	a.s = nil
+	a.Unlock()
+	close(session.done)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("worker monitor did not stop")
+	}
+}
+
 func TestPairAndBridge(t *testing.T) {
 	l, e := net.Listen("tcp4", "127.0.0.1:0")
 	if e != nil {
@@ -395,7 +467,7 @@ func TestPairAndBridge(t *testing.T) {
 	if e != nil || !bytes.Contains(diagnostic, []byte(`"workerBuild"`)) || !bytes.Contains(diagnostic, []byte(rpcWorkerBuild)) {
 		t.Fatalf("worker diagnostics unavailable: %s, %v", diagnostic, e)
 	}
-	combined := workerDiagnosticsReport([]Node{n})
+	combined := workerDiagnosticsReport([]Node{n}, nil)
 	if !strings.Contains(combined, "DIAGNOSTYKA WORKERÓW") || !strings.Contains(combined, rpcWorkerBuild) {
 		t.Fatalf("combined diagnostics missing worker data: %s", combined)
 	}
