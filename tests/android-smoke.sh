@@ -12,16 +12,54 @@ adb shell am force-stop pl.yourlm.node
 adb shell am start -W -n pl.yourlm.node/.NodeActivity >/dev/null
 
 pull_ui() {
+  local wait_point attempt
+
+  # A cold, software-rendered CI emulator can briefly report an ANR in Android's
+  # own System UI. Choose “Wait” and re-dump the app; never dismiss an ANR from
+  # YourLM itself, which must remain a test failure.
+  for attempt in 1 2 3; do
+    adb shell uiautomator dump /sdcard/yourlm-window.xml >/dev/null
+    adb pull /sdcard/yourlm-window.xml "$xml" >/dev/null
+    wait_point=$(python3 - "$xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+nodes = list(ET.parse(sys.argv[1]).iter("node"))
+if any("System UI isn't responding" in node.attrib.get("text", "") for node in nodes):
+    for node in nodes:
+        if (node.attrib.get("resource-id", "").endswith("aerr_wait") or
+                node.attrib.get("text", "") in ("Wait", "Poczekaj")):
+            values = list(map(int, re.findall(r"\d+", node.attrib.get("bounds", ""))))
+            if len(values) == 4:
+                x1, y1, x2, y2 = values
+                print((x1 + x2) // 2, (y1 + y2) // 2)
+                break
+PY
+)
+    [[ -z "$wait_point" ]] && return
+    echo "Emulator System UI stalled; selecting Wait (attempt $attempt)" >&2
+    adb shell input tap $wait_point
+    sleep 3
+  done
   adb shell uiautomator dump /sdcard/yourlm-window.xml >/dev/null
   adb pull /sdcard/yourlm-window.xml "$xml" >/dev/null
 }
 assert_text() {
-  pull_ui
-  python3 - "$xml" "$1" <<'PY'
+  local expected=$1 attempt
+  for attempt in 1 2 3 4 5; do
+    pull_ui
+    if python3 - "$xml" "$expected" <<'PY'
 import sys, xml.etree.ElementTree as ET
-texts=[n.attrib.get("text","") for n in ET.parse(sys.argv[1]).iter("node")]
-if not any(sys.argv[2] in value for value in texts):
-    raise SystemExit(f"missing UI text {sys.argv[2]!r}; visible={texts}")
+texts = [node.attrib.get("text", "") for node in ET.parse(sys.argv[1]).iter("node")]
+raise SystemExit(0 if any(sys.argv[2] in value for value in texts) else 1)
+PY
+    then
+      return
+    fi
+    sleep 1
+  done
+  python3 - "$xml" "$expected" <<'PY'
+import sys, xml.etree.ElementTree as ET
+texts = [node.attrib.get("text", "") for node in ET.parse(sys.argv[1]).iter("node")]
+raise SystemExit(f"missing UI text {sys.argv[2]!r}; visible={texts}")
 PY
 }
 click_text() {
