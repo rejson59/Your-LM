@@ -641,6 +641,7 @@ type input struct {
 	Code, Path, Address, Bind, PairAddress, PairKey, Serial string
 	Query, Repo, File                                       string
 	Port                                                    int
+	MaxTokens                                               int   `json:"maxTokens"`
 	PIDs                                                    []int `json:"pids"`
 	Messages                                                []struct {
 		Role    string `json:"role"`
@@ -777,6 +778,16 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 	}
 	respond(w, a.state())
 }
+func chatTokenLimit(requested int) (int, error) {
+	if requested == 0 {
+		return 64, nil
+	}
+	if requested < 1 || requested > 512 {
+		return 0, errors.New("Limit odpowiedzi musi wynosić od 1 do 512 tokenów")
+	}
+	return requested, nil
+}
+
 func (a *App) chat(w http.ResponseWriter, r *http.Request, in input) {
 	a.Lock()
 	s := a.s
@@ -790,9 +801,21 @@ func (a *App) chat(w http.ResponseWriter, r *http.Request, in input) {
 		http.Error(w, "Za długa lub pusta rozmowa", 400)
 		return
 	}
-	b, _ := json.Marshal(map[string]any{"model": "yourlm", "messages": in.Messages, "max_tokens": 512})
+	maxTokens, err := chatTokenLimit(in.MaxTokens)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	b, _ := json.Marshal(map[string]any{
+		"model":          "yourlm",
+		"messages":       in.Messages,
+		"max_tokens":     maxTokens,
+		"stream":         true,
+		"stream_options": map[string]bool{"include_usage": true},
+	})
 	req, _ := http.NewRequestWithContext(r.Context(), "POST", s.url+"/v1/chat/completions", bytes.NewReader(b))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+s.key)
 	res, e := localClient(30 * time.Minute).Do(req)
 	if e != nil {
@@ -800,9 +823,32 @@ func (a *App) chat(w http.ResponseWriter, r *http.Request, in input) {
 		return
 	}
 	defer res.Body.Close()
-	w.Header().Set("Content-Type", "application/json")
+	contentType := res.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "text/event-stream"
+	}
+	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(res.StatusCode)
-	io.Copy(w, io.LimitReader(res.Body, 8<<20))
+	flusher, _ := w.(http.Flusher)
+	if flusher != nil {
+		flusher.Flush()
+	}
+	limited := io.LimitReader(res.Body, 8<<20)
+	buffer := make([]byte, 32<<10)
+	for {
+		read, readErr := limited.Read(buffer)
+		if read > 0 {
+			if _, writeErr := w.Write(buffer[:read]); writeErr != nil {
+				return
+			}
+			if flusher != nil {
+				flusher.Flush()
+			}
+		}
+		if readErr != nil {
+			return
+		}
+	}
 }
 func guard(host, secret string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

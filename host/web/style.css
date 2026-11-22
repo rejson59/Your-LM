@@ -469,10 +469,16 @@ pre { margin: 5px 0 11px; padding: 11px; overflow-wrap: anywhere; white-space: p
 .bubble.user { margin-left: auto; border-radius: 14px 14px 4px 14px; color: #fff; background: var(--green); }
 .bubble b { display: block; margin-bottom: 5px; color: #5b826d; font: 750 10px ui-monospace, monospace; letter-spacing: .7px; }
 .bubble.user b { color: #c9ead7; }
+.stoppedReply { display: block; margin-top: 8px; color: var(--muted); font-style: italic; }
 #speed { display: block; min-height: 20px; padding: 0 24px; color: var(--muted); }
 #send { display: flex; gap: 10px; padding: 16px; border-top: 1px solid var(--line); background: #fafbfa; }
+.composerMain { flex: 1; min-width: 0; }
 #send textarea { min-height: 66px; margin: 0; }
+.composerMeta { display: flex; align-items: end; justify-content: space-between; gap: 12px; margin-top: 7px; color: var(--muted); font-size: 11px; }
+.composerMeta label { display: flex; align-items: center; gap: 7px; }
+.composerMeta select { width: auto; min-width: 180px; margin: 0; padding: 7px 30px 7px 9px; font-size: 11px; }
 #send button { align-self: flex-end; min-width: 100px; }
+#send button.stopping { border-color: #b65353; color: #fff; background: #b65353; }
 
 #notice { margin-bottom: 16px; padding: 13px 15px; border: 1px solid #e9c992; border-radius: 11px; color: #794717; background: #fff4df; }
 .updateBar {
@@ -742,6 +748,8 @@ html[data-theme="dark"] .mobileHeader { background: rgba(15, 23, 19, .95); }
   .emptyChat { min-height: 290px; }
   .bubble { max-width: 92%; }
   #send { align-items: stretch; padding: 10px; }
+  .composerMeta { align-items: flex-start; flex-direction: column; gap: 5px; }
+  .composerMeta select { min-width: 0; max-width: 100%; }
   #send button { min-width: 75px; padding: 8px; }
   footer { font-size: 8px; }
   dialog { padding: 21px; }

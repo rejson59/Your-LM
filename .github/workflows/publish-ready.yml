@@ -1,4 +1,4 @@
-name: Fast RC13 validation and publication
+name: Fast RC14 validation and publication
 
 on:
   push:
@@ -14,9 +14,9 @@ env:
 
 jobs:
   validate:
-    # RC13 changes the Java/Go control planes and deliberately reuses the exact
+    # RC14 changes the Java/Go control planes and deliberately reuses the exact
     # patched native binaries built and audited by release run 45040206040.
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[validate fast]') || contains(github.event.head_commit.message, '[publish rc13 fast]') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[validate fast]') || contains(github.event.head_commit.message, '[publish rc14 fast]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -63,7 +63,7 @@ jobs:
           set -euo pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-34" "build-tools;34.0.0"
-      - name: Compile, stable-sign and audit the RC13 Android application
+      - name: Compile, stable-sign and audit the RC14 Android application
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -91,8 +91,8 @@ jobs:
           fi
           apk=packages/YourLM-Android-arm64.apk
           badging=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")
-          grep -Fq "versionCode='16'" <<<"$badging"
-          grep -Fq "versionName='0.2.0-rc13'" <<<"$badging"
+          grep -Fq "versionCode='17'" <<<"$badging"
+          grep -Fq "versionName='0.2.0-rc14'" <<<"$badging"
           cert=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           [[ "$cert" == "$ANDROID_CERT_SHA256" ]]
           unzip -p "$apk" assets/BUILDINFO.txt | grep -Fq 'RPC compatibility: b12562-ylm-rpc5'
@@ -131,14 +131,14 @@ jobs:
           server=$(sha256sum "$server_file" | cut -d' ' -f1)
           rpc=$(sha256sum "$rpc_file" | cut -d' ' -f1)
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -buildvcs=false \
-            -ldflags="-H=windowsgui -X main.serverHash=$server -X main.rpcHash=$rpc -X main.buildVersion=0.2.0-rc13 -X main.buildCommit=$GITHUB_SHA" \
+            -ldflags="-H=windowsgui -X main.serverHash=$server -X main.rpcHash=$rpc -X main.buildVersion=0.2.0-rc14 -X main.buildCommit=$GITHUB_SHA" \
             -o release/YourLM.exe ./host
           cp packages/YourLM-Android-arm64.apk release/
           (cd release && sha256sum YourLM.exe YourLM-Android-arm64.apk > SHA256SUMS && sha256sum -c SHA256SUMS)
-      - name: Upload validated RC13 package
+      - name: Upload validated RC14 package
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: rc13-fast-package
+          name: rc14-fast-package
           path: |
             release/YourLM.exe
             release/YourLM-Android-arm64.apk
@@ -162,8 +162,8 @@ jobs:
           cache: false
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: rc13-fast-package
-          path: ${{ runner.temp }}/rc13
+          name: rc14-fast-package
+          path: ${{ runner.temp }}/rc14
       - name: Compile and test Windows cleanup safeguards
         shell: pwsh
         run: |
@@ -185,35 +185,35 @@ jobs:
           } finally { Remove-Item -Recurse -Force 'host\embedded' }
       - name: Verify Menu Start, Installed Apps, downgrade protection, and uninstall
         shell: pwsh
-        run: tests/windows-install-smoke.ps1 "$env:RUNNER_TEMP\rc13"
+        run: tests/windows-install-smoke.ps1 "$env:RUNNER_TEMP\rc14"
 
   publish:
-    name: Publish v0.2.0-rc13
+    name: Publish v0.2.0-rc14
     needs: [validate, windows-install]
-    if: ${{ contains(github.event.head_commit.message, '[publish rc13 fast]') }}
+    if: ${{ contains(github.event.head_commit.message, '[publish rc14 fast]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: rc13-fast-package
+          name: rc14-fast-package
           path: .
-      - name: Publish RC13 after Windows installation passes
+      - name: Publish RC14 after Windows installation passes
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
           (cd release && sha256sum -c SHA256SUMS)
-          tag=v0.2.0-rc13
+          tag=v0.2.0-rc14
           assets=(release/YourLM.exe release/YourLM-Android-arm64.apk release/SHA256SUMS)
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc13' \
-              --notes-file windows/RELEASE-NOTES-0.2.0-rc13.md --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc14' \
+              --notes-file windows/RELEASE-NOTES-0.2.0-rc14.md --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$tag" "${assets[@]}" --prerelease --target "$GITHUB_SHA" \
-              --title 'YourLM 0.2.0-rc13' --notes-file windows/RELEASE-NOTES-0.2.0-rc13.md \
+              --title 'YourLM 0.2.0-rc14' --notes-file windows/RELEASE-NOTES-0.2.0-rc14.md \
               --repo "$GITHUB_REPOSITORY"
           fi

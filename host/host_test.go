@@ -21,6 +21,77 @@ import (
 	"time"
 )
 
+func TestChatTokenLimit(t *testing.T) {
+	if got, err := chatTokenLimit(0); err != nil || got != 64 {
+		t.Fatalf("default chat limit=%d, %v", got, err)
+	}
+	if got, err := chatTokenLimit(128); err != nil || got != 128 {
+		t.Fatalf("explicit chat limit=%d, %v", got, err)
+	}
+	for _, invalid := range []int{-1, 513} {
+		if _, err := chatTokenLimit(invalid); err == nil {
+			t.Fatalf("accepted invalid chat limit %d", invalid)
+		}
+	}
+}
+
+func TestChatStreamsEngineResponse(t *testing.T) {
+	requestSeen := make(chan error, 1)
+	engine := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer engine-key" || r.Header.Get("Accept") != "text/event-stream" {
+			requestSeen <- fmt.Errorf("unexpected engine headers: %#v", r.Header)
+			return
+		}
+		var payload struct {
+			MaxTokens     int `json:"max_tokens"`
+			Stream        bool
+			StreamOptions struct {
+				IncludeUsage bool `json:"include_usage"`
+			} `json:"stream_options"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			requestSeen <- err
+			return
+		}
+		if payload.MaxTokens != 64 || !payload.Stream || !payload.StreamOptions.IncludeUsage {
+			requestSeen <- fmt.Errorf("unexpected engine payload: %+v", payload)
+			return
+		}
+		requestSeen <- nil
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "data: {\"choices\":[{\"delta\":{\"content\":\"Działa\"}}]}\n\n")
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer engine.Close()
+
+	app := &App{s: &Session{ready: true, url: engine.URL, key: "engine-key"}}
+	var in input
+	if err := json.Unmarshal([]byte(`{"maxTokens":64,"messages":[{"role":"user","content":"test"}]}`), &in); err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/api/chat", nil)
+	response := httptest.NewRecorder()
+	app.chat(response, request, in)
+	select {
+	case err := <-requestSeen:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("chat proxy did not reach the engine")
+	}
+	if response.Code != http.StatusOK || !strings.Contains(response.Header().Get("Content-Type"), "text/event-stream") || !response.Flushed {
+		t.Fatalf("unexpected chat response: status=%d flushed=%v headers=%v", response.Code, response.Flushed, response.Header())
+	}
+	body := response.Body.String()
+	if !strings.Contains(body, `"content":"Działa"`) || !strings.Contains(body, "data: [DONE]") {
+		t.Fatalf("streamed response was not proxied: %q", body)
+	}
+}
+
 func TestMetadata(t *testing.T) {
 	var b bytes.Buffer
 	put := func(x any) {
@@ -81,6 +152,7 @@ func TestVersionOrdering(t *testing.T) {
 		{"0.2.0-rc11", "0.2.0-rc10", true},
 		{"0.2.0-rc12", "0.2.0-rc11", true},
 		{"0.2.0-rc13", "0.2.0-rc12", true},
+		{"0.2.0-rc14", "0.2.0-rc13", true},
 		{"0.2.0-rc1", "0.2.0", false},
 		{"0.1.9", "0.2.0", false},
 		{"0.2.0", "0.2.0", false},

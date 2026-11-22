@@ -1,10 +1,12 @@
-YourLM 0.2.0-rc13 — Windows x64 (automatyczny wybór USB/ADB lub Wi-Fi + bezpieczne odzyskiwanie pamięci)
+YourLM 0.2.0-rc14 — Windows x64 (odpowiedź czatu na żywo + automatyczny wybór USB/ADB lub Wi-Fi)
 
 Uruchom pobrany pojedynczy YourLM.exe jako zwykły użytkownik. Przy pierwszym starcie program instaluje się bez administratora w %LocalAppData%\Programs\YourLM, dodaje skrót do Menu Start i wpis w Ustawienia → Aplikacje → Zainstalowane aplikacje, a następnie otwiera panel bezpośrednio w natywnym oknie WebView2. Zwykła przeglądarka jest używana tylko awaryjnie, gdy WebView2 jest niedostępny. Runtime llama.cpp, minimalny ADB i aktualne APK są wbudowane w EXE oraz przygotowywane w prywatnym %AppData%\YourLM. Parametr --portable pomija instalację.
 
 W zakładce Telefon USB podłącz odblokowany telefon z włączonym debugowaniem USB i użyj przycisku Zainstaluj lub zaktualizuj. `adb install -r` zachowuje prywatne dane aplikacji. Po każdej aktualizacji EXE wykonaj ten krok ponownie — aplikacja Windows nie podmienia samoczynnie APK już zainstalowanego na telefonie.
 
 Jeśli po sparowaniu workera kabel z autoryzowanym debugowaniem pozostaje podłączony, YourLM tworzy lokalny `adb forward` do szyfrowanego mostu TLS telefonu. Przed startem modelu przesyła próbkę 4 MiB w obie strony przez USB i Wi-Fi, pokazuje oba wyniki i automatycznie wybiera lepszy wynik ważony pod duży transfer host → worker; przy różnicy do 5% rozstrzyga niższy ping. Drugie łącze pozostaje awaryjne. Surowy RPC nie jest wystawiany przez ADB, a odłączenie kabla podczas trwającej komendy nadal może przerwać sesję. USB 2.0 nie musi być szybsze od dobrego Wi-Fi 5 GHz i nie zwiększa mocy CPU telefonu.
+
+Wbudowany czat przesyła odpowiedź na żywo zamiast czekać na wygenerowanie całego tekstu. Domyślny limit szybkiej próby to 64 tokeny; można wybrać 128, 256 lub 512 oraz zatrzymać bieżącą odpowiedź bez wyłączania modelu. Duży model 24–26B na CPU nadal może działać poniżej 1 tokena/s. Jeśli log zawiera `removing it from EOG list`, konkretny GGUF ma podejrzane metadane końca odpowiedzi i może dochodzić do limitu za każdym razem.
 
 W Urządzenia → Odzyskaj pamięć przed modelem Windows pokazuje zwykłe aplikacje bieżącego użytkownika z widocznymi oknami i ich przybliżony RAM. Największe bezpieczne pozycje są zaznaczone wstępnie; odznacz każdą aplikację, której nie chcesz zamykać. Po zapisaniu pracy wyślij wybranym pozycjom standardowe WM_CLOSE; YourLM nigdy nie wymusza zakończenia procesu. System, antywirus, instalatory, terminale, sesje administratora oraz sam YourLM są chronione. Wynik pokazuje aplikacje zamknięte, pozostałe i przybliżony wzrost dostępnego RAM-u. Nie da się bezpiecznie odzyskać 100% pamięci systemu.
 

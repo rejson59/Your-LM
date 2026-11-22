@@ -44,7 +44,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc13 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc14 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -268,11 +268,17 @@
                 <div class="emptyChat"><span>Y</span><h2>Gotowy, gdy model będzie działać</h2><p>Historia pozostaje tylko w pamięci tej karty.</p></div>
               </div>
               <small id="speed"></small>
-              <form id="send"><textarea id="prompt" placeholder="Napisz wiadomość…" rows="3" required></textarea><button aria-label="Wyślij">Wyślij ↑</button></form>
+              <form id="send">
+                <div class="composerMain">
+                  <textarea id="prompt" placeholder="Napisz wiadomość…" rows="3" required></textarea>
+                  <div class="composerMeta"><label>Limit odpowiedzi<select id="maxTokens"><option value="64" selected>64 tokeny · szybka próba</option><option value="128">128 tokenów · standard</option><option value="256">256 tokenów · długo</option><option value="512">512 tokenów · bardzo długo</option></select></label><span>Ctrl+Enter wysyła</span></div>
+                </div>
+                <button aria-label="Wyślij">Wyślij ↑</button>
+              </form>
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc13</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc14</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>

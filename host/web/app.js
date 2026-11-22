@@ -10,8 +10,10 @@ if (location.hash) {
 let state;
 let messages = [];
 let pending = false;
+let generationController = null;
 let stream = null;
 let scanId = 0;
+let stopTokenWarning = false;
 let offered = "";
 let lastSession = "";
 let loadSample = null;
@@ -159,6 +161,67 @@ async function api(op, params) {
   });
   if (!response.ok) throw Error((await response.text()).trim());
   return response.json();
+}
+
+async function streamChat(params, signal, onText) {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: {
+      "X-YourLM": key,
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(params),
+    signal,
+  });
+  if (!response.ok) throw Error((await response.text()).trim());
+  if (!response.body) throw Error("Przeglądarka nie udostępniła strumienia odpowiedzi");
+
+  if (!response.headers.get("Content-Type")?.includes("text/event-stream")) {
+    const result = await response.json();
+    const text = result.choices?.[0]?.message?.content;
+    if (typeof text !== "string") throw Error("Silnik nie zwrócił tekstu odpowiedzi");
+    onText(text);
+    return result;
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffered = "";
+  let timings;
+  const consume = (line) => {
+    if (!line.startsWith("data:")) return false;
+    const data = line.slice(5).trim();
+    if (!data || data === "[DONE]") return data === "[DONE]";
+    let event;
+    try {
+      event = JSON.parse(data);
+    } catch {
+      throw Error("Silnik zwrócił uszkodzony fragment odpowiedzi");
+    }
+    if (event.error) throw Error(event.error.message || String(event.error));
+    const text = event.choices?.[0]?.delta?.content;
+    if (typeof text === "string" && text) onText(text);
+    if (event.timings) timings = event.timings;
+    return false;
+  };
+
+  let done = false;
+  while (!done) {
+    const part = await reader.read();
+    buffered += decoder.decode(part.value || new Uint8Array(), { stream: !part.done });
+    const lines = buffered.split(/\r?\n/);
+    buffered = lines.pop() || "";
+    for (const line of lines) {
+      if (consume(line)) {
+        done = true;
+        break;
+      }
+    }
+    if (part.done) break;
+  }
+  if (buffered) consume(buffered);
+  return { timings };
 }
 
 function el(name, text) {
@@ -635,34 +698,51 @@ function render(nextState) {
       ? `${engineState.mode || "Tryb lokalny"} · czas ${elapsed(engineState.elapsed)}`
       : "Ostatnia diagnostyka jest dostępna poniżej.";
     const loading = Boolean(session && !session.ready);
-    const advisory = /control-looking token|tensor overrides to cpu.*mmap/i.test(
-      engineState.log || "",
-    );
+    const stopTokenIssue = /removing it from EOG list/i.test(engineState.log || "");
+    const mmapAdvisory = /tensor overrides to cpu.*mmap/i.test(engineState.log || "");
     $("loadHint").hidden = !loading;
     $("loadHint").textContent = loading
       ? (workers.length
           ? "Pierwszy start rozdziela i przesyła wagi wybranym łączem. Przed startem YourLM porównuje Wi-Fi i dostępny tunel USB/ADB; pokazywana szybkość RPC obejmuje też TLS, zapis cache i pracę telefonu. Kolejne uruchomienia mogą użyć pamięci podręcznej RPC zapisywanej porcjami do 16 MiB. Windows zapisuje migawkę Redmi co 3 sekundy i dołączy ostatnią udaną nawet po utracie listenera telefonu."
           : "Windows odczytuje i mapuje pełny plik GGUF. Czas zależy od jego pełnego rozmiaru, szybkości dysku oraz dostępnego RAM-u i pliku stronicowania.") +
-        (advisory ? " Widoczne ostrzeżenia o tokenach lub mmap są informacyjne — silnik nadal ładuje model." : "")
+        (stopTokenIssue ? " Ten GGUF ma podejrzane metadane tokenu końca — odpowiedź może nie zatrzymać się sama i dojść do ustawionego limitu." : mmapAdvisory ? " Ostrzeżenie mmap jest informacyjne — silnik nadal ładuje model." : "")
       : "";
     $("engineLogPath").textContent = engineState.path ? `Plik: ${engineState.path}` : "";
     $("engineLog").textContent = engineState.log || "Oczekiwanie na pierwszy komunikat llama.cpp…";
   }
   if (session) $("endpoint").textContent = session.url;
 
-  $("chatstatus").textContent = session?.ready
-    ? `${session.name} działa lokalnie.`
-    : session
-      ? "Model jest ładowany. To może potrwać kilka minut."
-      : "Najpierw wybierz i uruchom model w zakładce Model i API.";
-  $("send").querySelector("button").disabled = !session?.ready || pending;
-  $("prompt").disabled = !session?.ready || pending;
-  if (lastSession && lastSession !== session?.key) {
+  const sessionKey = session?.key || "";
+  if (lastSession !== sessionKey) {
+    generationController?.abort();
     messages = [];
+    stopTokenWarning = false;
     $("speed").textContent = "";
     drawChat();
   }
-  lastSession = session?.key || "";
+  lastSession = sessionKey;
+  if (/removing it from EOG list/i.test(engineState.log || "")) {
+    stopTokenWarning = true;
+  }
+  const largeChatModel = Number(state.model?.size || 0) >= 12 * 1073741824;
+  $("chatstatus").textContent = pending
+    ? "Odpowiedź napływa na żywo. Przycisk „Zatrzymaj” natychmiast kończy generowanie."
+    : session?.ready
+      ? stopTokenWarning
+        ? "Ten GGUF ma podejrzany token końca odpowiedzi i może zawsze dochodzić do limitu. Zacznij od 64 tokenów albo wybierz inny model."
+        : largeChatModel
+          ? `${session.name} działa, ale to bardzo duży model CPU. USB skraca transfer wag, nie czas obliczania tokenów; zacznij od limitu 64.`
+          : `${session.name} działa lokalnie. Odpowiedź będzie pokazywana na żywo.`
+      : session
+        ? "Model jest ładowany. To może potrwać kilka minut."
+        : "Najpierw wybierz i uruchom model w zakładce Model i API.";
+  const sendButton = $("send").querySelector("button");
+  sendButton.disabled = !session?.ready;
+  sendButton.textContent = pending ? "Zatrzymaj ■" : "Wyślij ↑";
+  sendButton.setAttribute("aria-label", pending ? "Zatrzymaj generowanie" : "Wyślij");
+  sendButton.classList.toggle("stopping", pending);
+  $("prompt").disabled = !session?.ready || pending;
+  $("maxTokens").disabled = !session?.ready || pending;
   if (state.last && state.last !== render.last) note(state.last);
   render.last = state.last;
 }
@@ -920,6 +1000,11 @@ function drawChat() {
         el("b", message.role === "user" ? "TY" : "YOUR LM"),
         document.createTextNode(message.content),
       );
+      if (message.stopped) {
+        const stopped = el("small", "Generowanie zatrzymane — zachowano odebrany fragment.");
+        stopped.className = "stoppedReply";
+        bubble.append(stopped);
+      }
       return bubble;
     }),
   );
@@ -942,30 +1027,78 @@ $("prompt").onkeydown = (event) => {
 
 $("send").onsubmit = async (event) => {
   event.preventDefault();
+  if (pending) {
+    generationController?.abort();
+    return;
+  }
   const prompt = $("prompt").value.trim();
-  if (!prompt || pending) return;
+  if (!prompt) return;
+
   pending = true;
+  generationController = new AbortController();
   const session = state.session?.key;
-  messages.push({ role: "user", content: prompt });
+  const userMessage = { role: "user", content: prompt };
+  const requestMessages = [...messages, userMessage].map(({ role, content }) => ({ role, content }));
+  const assistantMessage = { role: "assistant", content: "", stopped: false };
+  messages.push(userMessage, assistantMessage);
   $("prompt").value = "";
+  $("speed").textContent = "Oczekiwanie na pierwszy token…";
   drawChat();
   render(state);
+
+  const started = performance.now();
+  let fragments = 0;
+  let lastProgress = 0;
   try {
-    const response = await api("chat", { messages });
-    if (session === state.session?.key) {
-      const answer = response.choices?.[0]?.message?.content;
-      if (typeof answer !== "string") throw Error("Silnik nie zwrócił tekstu odpowiedzi");
-      messages.push({ role: "assistant", content: answer });
-      const rate = response.timings?.predicted_per_second;
-      if (Number.isFinite(rate)) $("speed").textContent = `Ostatnia odpowiedź: ${rate.toFixed(1)} tokenów/s`;
+    const response = await streamChat(
+      {
+        messages: requestMessages,
+        maxTokens: Number($("maxTokens").value || 64),
+      },
+      generationController.signal,
+      (text) => {
+        if (session !== state.session?.key) return;
+        assistantMessage.content += text;
+        fragments++;
+        const now = performance.now();
+        if (now - lastProgress >= 500) {
+          const seconds = Math.max(0.1, (now - started) / 1000);
+          $("speed").textContent = `Odpowiedź na żywo · odebrano ${fragments} fragmentów · około ${(fragments / seconds).toFixed(1)}/s`;
+          lastProgress = now;
+        }
+        drawChat();
+      },
+    );
+    if (session === state.session?.key && !assistantMessage.content) {
+      throw Error("Silnik zakończył generowanie bez tekstu odpowiedzi");
+    }
+    const rate = response.timings?.predicted_per_second;
+    if (Number.isFinite(rate)) {
+      $("speed").textContent = `Ostatnia odpowiedź: ${rate.toFixed(2)} tokenów/s`;
+    } else {
+      const seconds = Math.max(0.1, (performance.now() - started) / 1000);
+      $("speed").textContent = `Odpowiedź zakończona po ${elapsed(Math.round(seconds))}.`;
     }
   } catch (error) {
-    note(error.message);
-    if (session === state.session?.key) {
-      messages.pop();
-      $("prompt").value = prompt;
+    if (error.name === "AbortError" || generationController?.signal.aborted) {
+      assistantMessage.stopped = true;
+      if (!assistantMessage.content) {
+        const index = messages.indexOf(assistantMessage);
+        if (index >= 0) messages.splice(index, 1);
+      }
+      if (session === state.session?.key) {
+        $("speed").textContent = "Generowanie zatrzymane przez użytkownika.";
+      }
+    } else {
+      note(error.message);
+      for (const message of [assistantMessage, userMessage]) {
+        const index = messages.indexOf(message);
+        if (index >= 0) messages.splice(index, 1);
+      }
+      if (session === state.session?.key) $("prompt").value = prompt;
     }
   } finally {
+    generationController = null;
     pending = false;
     drawChat();
     render(state);
