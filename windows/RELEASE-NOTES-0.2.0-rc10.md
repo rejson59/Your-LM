@@ -10,6 +10,10 @@ RC9 zrobił to, po co powstał: zachował na Windows ostatnią uwierzytelnioną 
 - Telemetria workera pobiera PID bezpośrednio z uruchomionego procesu (z dotychczasowym skanem `/proc` jako fallback), raportuje RSS, PSS, szczyt RSS, pamięć anonimową/plikową/współdzieloną i swap natywnego RPC oraz osobno pamięć aplikacji Java. Pole łącznego obciążenia używa PSS, gdy Android udostępnia `smaps_rollup`, zamiast przedstawiać samo chwilowe `rpcResidentBytes` jako cały nacisk pamięci.
 - Rutynowe `Socket closed` z nici odpowiedzi krótkiego połączenia nie jest już zapisywane jako awaria przekazywania RPC. `Broken pipe` i `Connection reset` pozostają widoczne, bo mogą wskazywać rzeczywistą utratę workera.
 
+## Test na Redmi
+
+Uruchom nowe `YourLM.exe`, a następnie w zakładce **Telefon USB** wybierz **Zainstaluj lub zaktualizuj**, aby telefon otrzymał APK RC10 (`versionCode 13`). Zatrzymaj stary worker, uruchom zaktualizowany i wykonaj próbę z tym samym plikiem GGUF. Nie trzeba usuwać cache. Jeśli próba mimo wszystko się przerwie, użyj **Kopiuj diagnostykę** w Windows — raport nadal zawiera ostatnią migawkę telefonu.
+
 ## Bez zmian
 
 Pozostają automatyczne migawki diagnostyczne, jeden kopiowalny raport hosta i telefonu, trwały cache RPC, rzeczywiste etapy ładowania z czasem, wskazówki, zatrzymanie, tryb ciemny, instalacja per-user, ochrona przed downgrade i skrót w Menu Start. RC10 nie wymusza globalnie `--load-mode none` i nie pokazuje wymyślonego procentu postępu.
