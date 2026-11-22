@@ -40,11 +40,11 @@ if ($again.ExitCode -ne 0) { throw "Idempotent registration exited with $($again
 $stream = [System.IO.File]::Open($installed, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
 try { $stream.WriteByte(0x52) } finally { $stream.Dispose() }
 $newerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installed).Hash
-Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value '0.2.0-rc8'
+Set-ItemProperty -LiteralPath $uninstallKey -Name DisplayVersion -Value '0.2.0-rc9'
 $older = Start-Process -FilePath $source.FullName -ArgumentList '--install-only' -Wait -PassThru
 if ($older.ExitCode -ne 0) { throw "Older installer check exited with $($older.ExitCode)" }
 if ((Get-FileHash -Algorithm SHA256 -LiteralPath $installed).Hash -ne $newerHash) { throw 'Older release replaced the newer installed EXE' }
-if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc8') { throw 'Older release downgraded Installed Apps metadata' }
+if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc9') { throw 'Older release downgraded Installed Apps metadata' }
 
 $remove = Start-Process -FilePath $installed -ArgumentList '--uninstall' -Wait -PassThru
 if ($remove.ExitCode -ne 0) { throw "Uninstaller exited with $($remove.ExitCode)" }
