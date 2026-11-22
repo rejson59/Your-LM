@@ -625,6 +625,10 @@ func TestPairAndBridge(t *testing.T) {
 	if e != nil || v != "tensor bytes\n" {
 		t.Fatal(v, e)
 	}
+	countDeadline := time.Now().Add(time.Second)
+	for (sent.Load() == 0 || received.Load() == 0) && time.Now().Before(countDeadline) {
+		time.Sleep(time.Millisecond)
+	}
 	if sent.Load() == 0 || received.Load() == 0 {
 		t.Fatalf("bridge did not count bidirectional traffic: sent=%d received=%d", sent.Load(), received.Load())
 	}
