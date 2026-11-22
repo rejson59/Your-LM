@@ -281,6 +281,17 @@ function render(nextState) {
     $("loadMeta").textContent = session
       ? `${engineState.mode || "Tryb lokalny"} · czas ${elapsed(engineState.elapsed)}`
       : "Ostatnia diagnostyka jest dostępna poniżej.";
+    const loading = Boolean(session && !session.ready);
+    const advisory = /control-looking token|tensor overrides to cpu.*mmap/i.test(
+      engineState.log || "",
+    );
+    $("loadHint").hidden = !loading;
+    $("loadHint").textContent = loading
+      ? (workers.length
+          ? "Pierwszy start rozdziela i przesyła wagi przez sieć. Czas zależy od pełnego rozmiaru GGUF i szybkości Wi-Fi; kolejne uruchomienia mogą użyć pamięci podręcznej RPC."
+          : "Windows odczytuje i mapuje pełny plik GGUF. Czas zależy od jego pełnego rozmiaru, szybkości dysku oraz dostępnego RAM-u i pliku stronicowania.") +
+        (advisory ? " Widoczne ostrzeżenia o tokenach lub mmap są informacyjne — silnik nadal ładuje model." : "")
+      : "";
     $("engineLogPath").textContent = engineState.path ? `Plik: ${engineState.path}` : "";
     $("engineLog").textContent = engineState.log || "Oczekiwanie na pierwszy komunikat llama.cpp…";
   }

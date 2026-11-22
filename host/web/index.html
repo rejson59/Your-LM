@@ -3,8 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
     <meta name="theme-color" content="#f5f7f4" />
     <title>YourLM · Prywatna AI</title>
+    <script src="/theme.js"></script>
     <link href="/style.css" rel="stylesheet" />
   </head>
   <body>
@@ -28,6 +30,12 @@
             <span class="navIcon">⌁</span><span>Telefon USB</span>
           </button>
         </nav>
+        <button class="themeToggle" type="button" aria-pressed="false">
+          <span class="themeIcon" aria-hidden="true">
+            <svg viewBox="0 0 20 20"><path class="themeMoon" d="M17.2 13.2A7.2 7.2 0 0 1 6.8 2.8 7.2 7.2 0 1 0 17.2 13.2Z"/><g class="themeSun"><circle cx="10" cy="10" r="3.2"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16"/></g></svg>
+          </span>
+          <span class="themeLabel">Tryb ciemny</span>
+        </button>
         <button class="updateShortcut" type="button">
           <span class="navIcon">↻</span>
           <span><b>Aktualizacje</b><small class="updateShortcutText">Sprawdź nową wersję</small></span>
@@ -44,7 +52,12 @@
           <div class="brand">
             <span class="brandMark">Y</span><span><b>YourLM</b></span>
           </div>
-          <button class="updateShortcut mobileUpdate" type="button" aria-label="Sprawdź aktualizacje">↻ <span class="updateShortcutText">Aktualizacje</span></button>
+          <div class="mobileActions">
+            <button class="themeToggle mobileTheme" type="button" aria-pressed="false">
+              <span class="themeIcon" aria-hidden="true"><svg viewBox="0 0 20 20"><path class="themeMoon" d="M17.2 13.2A7.2 7.2 0 0 1 6.8 2.8 7.2 7.2 0 1 0 17.2 13.2Z"/><g class="themeSun"><circle cx="10" cy="10" r="3.2"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16"/></g></svg></span><span class="themeLabel">Tryb ciemny</span>
+            </button>
+            <button class="updateShortcut mobileUpdate" type="button" aria-label="Sprawdź aktualizacje">↻ <span class="updateShortcutText">Aktualizacje</span></button>
+          </div>
         </header>
         <main>
           <div id="notice" role="status" hidden></div>
@@ -197,7 +210,7 @@
                 <button id="run" class="primary">Uruchom model bez limitu</button>
               </div>
               <div id="sessionInfo" class="sessionBox" hidden>
-                <div class="engineHeadline"><span class="liveDot"></span><div><b id="runstate"></b><small id="loadMeta"></small></div></div>
+                <div class="engineHeadline"><span class="liveDot"></span><div><b id="runstate"></b><small id="loadMeta"></small><p id="loadHint" class="loadHint" hidden></p></div></div>
                 <div id="apiDetails">
                   <label>Adres API</label><pre id="endpoint"></pre>
                   <div class="actions"><button id="copyKey">Kopiuj klucz API</button><button class="secondary" id="copyCfg">Kopiuj konfigurację Continue</button></div>
