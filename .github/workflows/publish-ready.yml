@@ -75,7 +75,20 @@ jobs:
           export EXPECTED_ANDROID_CERT_SHA256="$ANDROID_CERT_SHA256"
           export RPC_BIN="$RUNNER_TEMP/android/build/android-native/bin/ggml-rpc-server"
           export SERVER_BIN="$RUNNER_TEMP/android/build/android-native/bin/llama-server"
-          scripts/package-android.sh
+          set +e
+          scripts/package-android.sh 2>&1 | tee "$RUNNER_TEMP/android-package.log"
+          package_status=${PIPESTATUS[0]}
+          set -e
+          if (( package_status != 0 )); then
+            python3 - "$RUNNER_TEMP/android-package.log" <<'PY'
+          from pathlib import Path
+          from sys import argv
+          detail = "\n".join(Path(argv[1]).read_text(errors="replace").splitlines()[-60:])
+          detail = detail.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+          print(f"::error title=Android package failed::{detail}")
+          PY
+            exit "$package_status"
+          fi
           apk=packages/YourLM-Android-arm64.apk
           badging=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")
           grep -Fq "versionCode='14'" <<<"$badging"
