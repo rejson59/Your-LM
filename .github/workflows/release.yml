@@ -209,6 +209,7 @@ jobs:
           export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
           export JOBS=2
           scripts/regenerate-windows-resource.sh
+          git diff --exit-code -- host/resource_windows_amd64.syso
           scripts/build-windows.sh
           mkdir -p release-scan
           cp build/windows-native/llama/bin/llama-server.exe release-scan/

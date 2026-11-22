@@ -75,6 +75,7 @@ jobs:
           test -s "$rpc_file"
           test -s packages/YourLM-Android-arm64.apk
           scripts/regenerate-windows-resource.sh
+          git diff --exit-code -- host/resource_windows_amd64.syso
           rm -rf host/embedded release
           mkdir -p host/embedded release
           python3 - "$server_file" "$rpc_file" host/embedded/runtime.zip <<'PY'
