@@ -18,16 +18,20 @@ import (
 )
 
 type Node struct {
-	Name        string `json:"name"`
-	Total       uint64 `json:"total"`
-	Free        uint64 `json:"free"`
-	Used        uint64 `json:"used"`
-	Allocation  uint64 `json:"allocation"`
-	Cores       int    `json:"cores"`
-	Build       string `json:"build"`
-	Alive       bool   `json:"alive"`
-	Address     string `json:"address"`
-	pin, secret string
+	Name            string `json:"name"`
+	Total           uint64 `json:"total"`
+	Free            uint64 `json:"free"`
+	Used            uint64 `json:"used"`
+	Allocation      uint64 `json:"allocation"`
+	Cores           int    `json:"cores"`
+	Build           string `json:"build"`
+	Alive           bool   `json:"alive"`
+	Recovering      bool   `json:"recovering,omitempty"`
+	RestartAttempts int    `json:"restartAttempts,omitempty"`
+	RestartCount    int    `json:"restartCount,omitempty"`
+	RecoveryError   string `json:"recoveryError,omitempty"`
+	Address         string `json:"address"`
+	pin, secret     string
 }
 
 func parseCode(s string) (Node, error) {
@@ -88,20 +92,37 @@ func (n Node) dial(mode string) (net.Conn, error) {
 
 const (
 	GiB            uint64 = 1 << 30
-	rpcWorkerBuild        = "b12562-ylm-rpc3"
+	rpcWorkerBuild        = "b12562-ylm-rpc4"
 )
 
-func validateWorkerInfo(info Node) error {
+func validateWorkerMetadata(info Node) error {
 	if info.Build != rpcWorkerBuild {
 		return fmt.Errorf("Niekompatybilny worker %q — zaktualizuj YourLM na urządzeniu do tej samej wersji", info.Build)
 	}
 	if info.Total == 0 || info.Free > info.Total || info.Cores <= 0 {
 		return errors.New("Niekompatybilny worker")
 	}
-	if !info.Alive {
-		return errors.New("Natywny worker RPC nie działa — uruchom worker ponownie na telefonie")
-	}
 	return nil
+}
+
+func workerRuntimeError(info Node) error {
+	if info.Alive {
+		return nil
+	}
+	if info.Recovering {
+		return fmt.Errorf("worker odtwarza proces natywny (próba %d)", info.RestartAttempts)
+	}
+	if info.RecoveryError != "" {
+		return fmt.Errorf("odzyskanie procesu natywnego nie powiodło się: %s", info.RecoveryError)
+	}
+	return errors.New("natywny worker RPC nie działa — uruchom worker ponownie na telefonie")
+}
+
+func validateWorkerInfo(info Node) error {
+	if err := validateWorkerMetadata(info); err != nil {
+		return err
+	}
+	return workerRuntimeError(info)
 }
 
 func (n *Node) refresh() error {
@@ -115,7 +136,7 @@ func (n *Node) refresh() error {
 	if e != nil {
 		return e
 	}
-	if e = validateWorkerInfo(info); e != nil {
+	if e = validateWorkerMetadata(info); e != nil {
 		return e
 	}
 	if info.Used == 0 || info.Used > info.Total {
@@ -126,7 +147,9 @@ func (n *Node) refresh() error {
 	}
 	n.Name, n.Free, n.Total, n.Used, n.Allocation, n.Cores, n.Build, n.Alive =
 		info.Name, info.Free, info.Total, info.Used, info.Allocation, info.Cores, info.Build, info.Alive
-	return nil
+	n.Recovering, n.RestartAttempts, n.RestartCount, n.RecoveryError =
+		info.Recovering, info.RestartAttempts, info.RestartCount, info.RecoveryError
+	return workerRuntimeError(info)
 }
 
 func (n Node) diagnostics() ([]byte, error) {
@@ -146,6 +169,9 @@ func workerMemoryAssessment(report []byte) string {
 	var snapshot struct {
 		MemoryAvailableBytes uint64 `json:"memoryAvailableBytes"`
 		MemoryLow            bool   `json:"memoryLow"`
+		RestartAttempts      int    `json:"restartAttempts"`
+		RestartCount         int    `json:"restartCount"`
+		RecoveryError        string `json:"recoveryError"`
 		ExitHistory          []struct {
 			Reason string `json:"reason"`
 		} `json:"exitHistory"`
@@ -159,18 +185,31 @@ func workerMemoryAssessment(report []byte) string {
 			lowMemoryExits++
 		}
 	}
-	if snapshot.MemoryAvailableBytes == 0 && !snapshot.MemoryLow && lowMemoryExits == 0 {
-		return ""
+	var assessment strings.Builder
+	if snapshot.RestartAttempts > 0 {
+		fmt.Fprintf(
+			&assessment,
+			"Odzyskiwanie workera: %d prób, %d udanych ponownych uruchomień procesu natywnego.\n",
+			snapshot.RestartAttempts,
+			snapshot.RestartCount,
+		)
 	}
-	if snapshot.MemoryAvailableBytes >= GiB && !snapshot.MemoryLow && lowMemoryExits == 0 {
-		return ""
+	if snapshot.RecoveryError != "" {
+		fmt.Fprintf(&assessment, "Ostatni błąd odzyskiwania: %s\n", snapshot.RecoveryError)
 	}
-	return fmt.Sprintf(
+	memoryLooksSafe := !snapshot.MemoryLow && lowMemoryExits == 0 &&
+		(snapshot.MemoryAvailableBytes == 0 || snapshot.MemoryAvailableBytes >= GiB)
+	if memoryLooksSafe {
+		return assessment.String()
+	}
+	fmt.Fprintf(
+		&assessment,
 		"Ocena pamięci: ostatnia migawka miała %.2f GiB dostępnego RAM; memoryLow=%v; historia Androida zawiera %d zakończeń LOW_MEMORY. To wskazuje na presję pamięci telefonu, a nie sam limit przepustowości Wi-Fi.\n",
 		float64(snapshot.MemoryAvailableBytes)/float64(GiB),
 		snapshot.MemoryLow,
 		lowMemoryExits,
 	)
+	return assessment.String()
 }
 
 func workerDiagnosticsReport(nodes []Node, cached map[string]WorkerDiagnosticSnapshot) string {

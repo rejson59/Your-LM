@@ -78,6 +78,7 @@ func TestVersionOrdering(t *testing.T) {
 		{"0.2.0", "0.2.0-rc1", true},
 		{"0.2.0-rc2", "0.2.0-rc1", true},
 		{"0.2.0-rc10", "0.2.0-rc2", true},
+		{"0.2.0-rc11", "0.2.0-rc10", true},
 		{"0.2.0-rc1", "0.2.0", false},
 		{"0.1.9", "0.2.0", false},
 		{"0.2.0", "0.2.0", false},
@@ -249,6 +250,11 @@ func TestWorkerRequiresPatchedRuntime(t *testing.T) {
 	valid.Alive = false
 	if err := validateWorkerInfo(valid); err == nil || !strings.Contains(err.Error(), "uruchom worker ponownie") {
 		t.Fatalf("stopped native worker was accepted: %v", err)
+	}
+	valid.Recovering = true
+	valid.RestartAttempts = 2
+	if err := validateWorkerInfo(valid); err == nil || !strings.Contains(err.Error(), "próba 2") {
+		t.Fatalf("worker recovery was not signaled: %v", err)
 	}
 }
 

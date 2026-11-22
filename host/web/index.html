@@ -44,7 +44,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc10 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc11 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -189,8 +189,14 @@
                 <h2>Wybierz model GGUF</h2>
                 <p id="selected">Nie wybrano pliku.</p>
                 <p id="advice" class="advice"></p>
-                <div class="actions"><button id="pick">Wybierz plik…</button><button id="manual" class="secondary">Podaj ścieżkę</button></div>
+                <div class="actions"><button id="hfBrowse">Wyszukaj na Hugging Face</button><button id="pick" class="secondary">Wybierz plik…</button><button id="manual" class="secondary">Podaj ścieżkę</button></div>
                 <select id="library" aria-label="Modele z biblioteki" hidden></select>
+                <div id="hfDownload" class="hfDownload" hidden>
+                  <div><b id="hfDownloadName"></b><span id="hfDownloadPercent"></span></div>
+                  <div class="hfProgress" role="progressbar" aria-label="Pobieranie modelu" aria-valuemin="0" aria-valuemax="100"><i id="hfProgressFill"></i></div>
+                  <small id="hfDownloadMeta"></small>
+                  <div class="actions"><button id="hfCancel" class="secondary">Zatrzymaj — zachowaj części</button><button id="hfRetry">Wznów pobieranie</button></div>
+                </div>
                 <small id="libdir" class="pathHint"></small>
               </article>
 
@@ -250,7 +256,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc10</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc11</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>
@@ -270,6 +276,19 @@
       <button id="scan" class="secondary full">Zeskanuj QR</button>
       <video id="video" autoplay playsinline muted hidden></video>
       <details class="advancedPair"><summary>Mam pełny kod sesji</summary><textarea id="code" placeholder="YLM1|…" aria-label="Pełny kod sesji"></textarea><button id="pairBtn" class="secondary full">Połącz pełnym kodem</button></details>
+      <p class="error" role="alert"></p>
+    </dialog>
+
+    <dialog id="hfDlg" class="hfDialog">
+      <button class="close iconButton" aria-label="Zamknij">×</button>
+      <span class="eyebrow">HUGGING FACE · PUBLICZNE GGUF</span>
+      <h2>Znajdź i pobierz model</h2>
+      <p class="dialogLead">Wyszukaj model typu instruct/chat. YourLM pokaże jednoplikowe warianty GGUF, poleci Q4_K_M i pobierze wybrany plik równolegle z możliwością wznowienia.</p>
+      <div class="hfSearchBar"><input id="hfQuery" placeholder="np. Gemma 4B instruct, Qwen 7B" autocomplete="off"/><button id="hfSearch">Szukaj</button></div>
+      <small class="hfPrivacy">Internet jest używany tylko do wyszukania i pobrania wybranego pliku. Inferencja pozostaje lokalna. Sprawdź licencję modelu na Hugging Face.</small>
+      <div id="hfStatus" class="hfStatus"></div>
+      <div id="hfResults" class="hfResults"></div>
+      <div id="hfFiles" class="hfFiles"></div>
       <p class="error" role="alert"></p>
     </dialog>
 

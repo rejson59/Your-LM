@@ -205,12 +205,17 @@ public final class NodeActivity extends Activity {
       "Pomóż laptopowi",
       workerState.phase == WorkerService.RUNNING
         ? "Worker działa w tle"
-        : "Telefon jako worker",
+        : workerState.phase == WorkerService.RECOVERING
+          ? "Worker odtwarza silnik"
+          : "Telefon jako worker",
       workerState.phase == WorkerService.RUNNING
         ? "Telefon nadal oblicza warstwy dla laptopa. Możesz wyłączyć ekran lub zamknąć ten widok."
-        : "Laptop przechowuje model GGUF, a telefon oblicza część warstw przez prywatne Wi-Fi.",
-      workerState.phase == WorkerService.RUNNING
-        ? "Dotknij, aby zobaczyć adres, kod lub zatrzymać"
+        : workerState.phase == WorkerService.RECOVERING
+          ? "Po wyjściu procesu natywnego zachowaliśmy diagnostykę i wykonujemy ograniczoną próbę odtworzenia."
+          : "Laptop przechowuje model GGUF, a telefon oblicza część warstw przez prywatne Wi-Fi.",
+      workerState.phase == WorkerService.RUNNING ||
+        workerState.phase == WorkerService.RECOVERING
+        ? "Dotknij, aby zobaczyć adres, stan lub zatrzymać"
         : "Najlepszy wybór dla Lenovo + Redmi",
       true
     );
@@ -363,8 +368,12 @@ public final class NodeActivity extends Activity {
 
     WorkerService.Snapshot snapshot = WorkerService.snapshot();
     workerRevision = snapshot.revision;
-    if (snapshot.phase == WorkerService.RUNNING && snapshot.worker != null) {
-      drawWorkerRunning(snapshot.worker);
+    if (
+      (snapshot.phase == WorkerService.RUNNING ||
+        snapshot.phase == WorkerService.RECOVERING) &&
+      snapshot.worker != null
+    ) {
+      drawWorkerRunning(snapshot);
     } else {
       drawWorkerStopped(snapshot);
     }
@@ -403,7 +412,16 @@ public final class NodeActivity extends Activity {
     );
     if (failed && !snapshot.error.isEmpty()) {
       Button copyLog = button("Kopiuj diagnostykę", false);
-      copyLog.setOnClickListener(v -> copy("Diagnostyka YourLM", snapshot.error));
+      copyLog.setOnClickListener(
+        v ->
+          copy(
+            "Diagnostyka YourLM",
+            snapshot.error +
+            (snapshot.worker == null
+              ? ""
+              : "\n\n" + snapshot.worker.diagnosticReport())
+          )
+      );
       status.addView(copyLog, lp(-1, dp(50), 14, 0));
     }
     page.addView(status, lp(-1, -2, 0, 14));
@@ -442,17 +460,41 @@ public final class NodeActivity extends Activity {
     parent.addView(row, lp(-1, -2, 14, 0));
   }
 
-  void drawWorkerRunning(Worker w) {
-    LinearLayout ready = card(GREEN_DARK, 0);
-    TextView online = text("●  WORKER GOTOWY", 12, 0xffb9f3d2, true);
+  void drawWorkerRunning(WorkerService.Snapshot snapshot) {
+    Worker w = snapshot.worker;
+    boolean recovering = snapshot.phase == WorkerService.RECOVERING;
+    LinearLayout ready = card(recovering ? 0xff72520d : GREEN_DARK, 0);
+    TextView online = text(
+      recovering ? "●  ODTWARZANIE SILNIKA" : "●  WORKER GOTOWY",
+      12,
+      recovering ? 0xffffe09b : 0xffb9f3d2,
+      true
+    );
     online.setLetterSpacing(.08f);
     ready.addView(online);
     ready.addView(
-      text("Działa w tle — ekran może być wyłączony", 23, Color.WHITE, true),
+      text(
+        recovering
+          ? "Połączenie diagnostyczne działa — trwa ograniczony restart"
+          : "Działa w tle — ekran może być wyłączony",
+        23,
+        Color.WHITE,
+        true
+      ),
       lp(-1, -2, 8, 3)
     );
     ready.addView(
-      text(memoryLine(), 13, 0xffc8ded3, false)
+      text(
+        recovering && !snapshot.error.isEmpty()
+          ? snapshot.error
+          : memoryLine() +
+            (w.restartCount > 0
+              ? " · odzyskania silnika: " + w.restartCount
+              : ""),
+        13,
+        recovering ? 0xffffe6ac : 0xffc8ded3,
+        false
+      )
     );
     page.addView(ready, lp(-1, -2, 0, 14));
 
@@ -464,7 +506,7 @@ public final class NodeActivity extends Activity {
     );
     manual.addView(
       text(
-        "Nie potrzebujesz kamery. Kod nie opuszcza Twojej sieci i zmieni się po każdym restarcie workera.",
+        "Nie potrzebujesz kamery. Kod nie opuszcza Twojej sieci i pozostaje ważny po odtworzeniu usługi, dopóki nie wyczyścisz danych aplikacji.",
         14,
         MUTED,
         false

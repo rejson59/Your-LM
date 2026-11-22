@@ -108,6 +108,8 @@ type App struct {
 	s                             *Session
 	usb                           USBState
 	update                        UpdateState
+	hf                            HFState
+	hfCancel                      func()
 }
 
 func (a *App) binary() string {
@@ -441,7 +443,7 @@ func (a *App) monitorNodes(session *Session) {
 			report, diagnosticErr := nodes[i].diagnostics()
 			a.Lock()
 			if a.s == session {
-				if refreshErr == nil {
+				if refreshErr == nil || nodes[i].Recovering || nodes[i].RecoveryError != "" {
 					for j := range a.nodes {
 						if a.nodes[j].Address == nodes[i].Address {
 							a.nodes[j] = nodes[i]
@@ -600,12 +602,14 @@ func (a *App) state() map[string]any {
 		"physical": physical, "fitReserveMiB": fitReserveMiB, "memory": memoryState,
 		"nodes": a.nodes, "ips": ips(), "model": a.model, "models": models,
 		"library": a.library, "runtime": a.hasRuntime(), "session": session,
-		"engine": engine, "usb": a.usb, "update": a.update, "last": a.last,
+		"engine": engine, "usb": a.usb, "update": a.update,
+		"huggingFace": a.hf, "last": a.last,
 	}
 }
 
 type input struct {
 	Code, Path, Address, Bind, PairAddress, PairKey, Serial string
+	Query, Repo, File                                       string
 	Port                                                    int
 	Messages                                                []struct {
 		Role    string `json:"role"`
@@ -645,6 +649,10 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 	}
 	if op == "update-check" || op == "update-download" || op == "update-apply" {
 		a.updateAPI(w, op)
+		return
+	}
+	if op == "hf-search" || op == "hf-files" || op == "hf-download" || op == "hf-cancel" {
+		a.huggingFaceAPI(w, r, op, in)
 		return
 	}
 	a.Lock()

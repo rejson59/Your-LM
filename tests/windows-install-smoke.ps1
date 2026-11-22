@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
 $package = $args[0]
-if (-not $package) { throw 'Pass the downloaded RC10 artifact directory' }
+if (-not $package) { throw 'Pass the downloaded RC11 artifact directory' }
 $source = Get-ChildItem -Path $package -Recurse -Filter 'YourLM.exe' | Select-Object -First 1
 if (-not $source) { throw 'Validated artifact does not contain YourLM.exe' }
 
@@ -22,7 +22,7 @@ if (-not (Test-Path -LiteralPath $uninstallKey)) { throw 'Installed Apps registr
 
 $entry = Get-ItemProperty -LiteralPath $uninstallKey
 if ($entry.DisplayName -ne 'YourLM') { throw 'Unexpected Installed Apps display name' }
-if ($entry.DisplayVersion -ne '0.2.0-rc10') { throw "Unexpected installed version: $($entry.DisplayVersion)" }
+if ($entry.DisplayVersion -ne '0.2.0-rc11') { throw "Unexpected installed version: $($entry.DisplayVersion)" }
 if ($entry.InstallLocation -ne (Split-Path -Parent $installed)) { throw 'Installed Apps path does not match the per-user EXE' }
 if ($entry.UninstallString -notlike '*YourLM.exe*--uninstall*') { throw 'Uninstall command is missing' }
 

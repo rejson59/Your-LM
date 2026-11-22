@@ -3,6 +3,7 @@ package pl.yourlm.node;
 import android.app.ActivityManager;
 import android.app.ApplicationExitInfo;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.net.ConnectivityManager;
 import android.net.NetworkCapabilities;
 import android.net.wifi.WifiInfo;
@@ -31,6 +32,10 @@ import org.json.JSONObject;
  */
 final class Worker implements Closeable {
 
+  interface StateListener {
+    void onWorkerStateChanged(Worker worker);
+  }
+
   private static final String MANUAL_ALPHABET =
     "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   final Context ctx;
@@ -44,9 +49,11 @@ final class Worker implements Closeable {
     TimeUnit.SECONDS,
     new SynchronousQueue<Runnable>()
   );
-  final String manualKey = createManualKey();
-  final String secret = derivedSecret(manualKey.replace("-", ""));
+  final String manualKey;
+  final String secret;
   final String alias = "YourLM-session";
+  final SharedPreferences preferences;
+  final StateListener stateListener;
   final File logFile;
   final File eventFile;
   final File snapshotFile;
@@ -62,23 +69,51 @@ final class Worker implements Closeable {
   int rpcPort;
   volatile int rpcPid;
   volatile int rpcExitCode = Integer.MIN_VALUE;
+  volatile int recoveryTriggerExitCode = Integer.MIN_VALUE;
   volatile long rpcStartedAt;
   volatile long rpcStoppedAt;
+  volatile long recoveryTriggerStoppedAt;
+  volatile String recoveryTriggerNativeLog = "";
   volatile long lastForwardingErrorAt;
   volatile long lastSnapshotPersistedAt;
   volatile String lastForwardingError = "";
+  volatile String recoveryError = "";
+  volatile boolean recovering;
+  volatile int restartAttempts;
+  volatile int restartCount;
   volatile boolean closed;
 
-  private static final long DIAGNOSTIC_GRACE_MS = 10 * 60_000;
-  private static final String WORKER_BUILD = "b12562-ylm-rpc3";
+  private static final String WORKER_BUILD = "b12562-ylm-rpc4";
 
   Worker(Context c) {
+    this(c, null);
+  }
+
+  Worker(Context c, StateListener listener) {
     ctx = c;
+    stateListener = listener;
+    preferences = c.getSharedPreferences("yourlm-worker", Context.MODE_PRIVATE);
+    String storedKey = preferences.getString("manual_key", "");
+    if (!storedKey.matches("[ABCDEFGHJKLMNPQRSTUVWXYZ2-9]{5}(?:-[ABCDEFGHJKLMNPQRSTUVWXYZ2-9]{5}){3}")) {
+      storedKey = createManualKey();
+      preferences.edit().putString("manual_key", storedKey).apply();
+    }
+    manualKey = storedKey;
+    secret = derivedSecret(manualKey.replace("-", ""));
     File diagnostics = new File(c.getFilesDir(), "diagnostics");
     diagnostics.mkdirs();
     logFile = new File(diagnostics, "worker-native.log");
     eventFile = new File(diagnostics, "worker-events.log");
     snapshotFile = new File(diagnostics, "worker-latest.json");
+  }
+
+  private void notifyStateChanged() {
+    if (stateListener != null) stateListener.onWorkerStateChanged(this);
+  }
+
+  boolean nativeAlive() {
+    Process process = rpc;
+    return process != null && process.isAlive();
   }
 
   static byte[] random(int n) {
@@ -263,6 +298,84 @@ final class Worker implements Closeable {
     );
   }
 
+  private ProcessBuilder nativeProcessBuilder() {
+    ProcessBuilder builder = new ProcessBuilder(
+      engineFile.getPath(),
+      "-H",
+      "127.0.0.1",
+      "-p",
+      "" + rpcPort,
+      "-t",
+      "" + Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
+      "-c"
+    )
+      .redirectErrorStream(true)
+      .redirectOutput(ProcessBuilder.Redirect.appendTo(logFile));
+    File rpcCache = new File(ctx.getFilesDir(), "rpc-cache");
+    rpcCache.mkdirs();
+    builder.environment().put("HOME", ctx.getFilesDir().getPath());
+    builder.environment().put("TMPDIR", ctx.getCacheDir().getPath());
+    builder.environment().put("LLAMA_CACHE", rpcCache.getPath());
+    builder.environment().put("GGML_RPC_DEBUG", "2");
+    return builder;
+  }
+
+  private synchronized void launchNative(boolean restart) throws Exception {
+    if (closed) throw new IOException("Worker został zatrzymany");
+    if (restart) {
+      try (FileOutputStream out = new FileOutputStream(logFile, true)) {
+        out.write(
+          ("\n\n===== AUTOMATYCZNE ODTWORZENIE SILNIKA " +
+            restartAttempts +
+            " =====\n").getBytes(StandardCharsets.UTF_8)
+        );
+      }
+    }
+    rpcPid = 0;
+    rpcExitCode = Integer.MIN_VALUE;
+    rpcStartedAt = System.currentTimeMillis();
+    rpcStoppedAt = 0;
+    lastForwardingErrorAt = 0;
+    lastForwardingError = "";
+    recordEvent(
+      restart ? "native_restart" : "native_start",
+      "Launching " + engineFile.getPath()
+    );
+    try {
+      rpc = nativeProcessBuilder().start();
+      rpcPid = processId(rpc);
+      if (rpcPid == 0) rpcPid = findProcessId();
+    } catch (IOException error) {
+      rpcPid = 0;
+      throw new IOException(failure("Android odmówił uruchomienia silnika", engineFile), error);
+    }
+    InetAddress loop = InetAddress.getByName("127.0.0.1");
+    boolean ready = false;
+    for (int attempt = 0; attempt < 200 && !closed && rpc.isAlive(); attempt++) {
+      try (Socket socket = new Socket(loop, rpcPort)) {
+        ready = true;
+        break;
+      } catch (IOException error) {
+        Thread.sleep(50);
+      }
+    }
+    if (!ready) {
+      String message = failure(
+        rpc.isAlive()
+          ? "Silnik nie otworzył portu w ciągu 10 sekund"
+          : "Silnik natywny zakończył pracę podczas startu",
+        engineFile
+      );
+      rpc.destroyForcibly();
+      rpcPid = 0;
+      throw new IOException(message);
+    }
+    if (restart) restartCount++;
+    recovering = false;
+    recoveryError = "";
+    if (restart) notifyStateChanged();
+  }
+
   void start() throws Exception {
     InetAddress ip = lan();
     File bin = new File(
@@ -274,28 +387,30 @@ final class Worker implements Closeable {
 
     KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
     ks.load(null);
-    if (ks.containsAlias(alias)) ks.deleteEntry(alias);
-    KeyPairGenerator gen = KeyPairGenerator.getInstance(
-      "EC",
-      "AndroidKeyStore"
-    );
-    gen.initialize(
-      new KeyGenParameterSpec.Builder(
-        alias,
-        KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY
-      )
-        .setDigests(
-          KeyProperties.DIGEST_NONE,
-          KeyProperties.DIGEST_SHA256,
-          KeyProperties.DIGEST_SHA384,
-          KeyProperties.DIGEST_SHA512
+    if (!ks.containsAlias(alias) || ks.getCertificate(alias) == null) {
+      if (ks.containsAlias(alias)) ks.deleteEntry(alias);
+      KeyPairGenerator gen = KeyPairGenerator.getInstance(
+        "EC",
+        "AndroidKeyStore"
+      );
+      gen.initialize(
+        new KeyGenParameterSpec.Builder(
+          alias,
+          KeyProperties.PURPOSE_SIGN | KeyProperties.PURPOSE_VERIFY
         )
-        .setCertificateSubject(new X500Principal("CN=YourLM"))
-        .setCertificateSerialNumber(BigInteger.ONE)
-        .build()
-    );
-    gen.generateKeyPair();
-    Certificate cert = ks.getCertificate(alias);
+          .setDigests(
+            KeyProperties.DIGEST_NONE,
+            KeyProperties.DIGEST_SHA256,
+            KeyProperties.DIGEST_SHA384,
+            KeyProperties.DIGEST_SHA512
+          )
+          .setCertificateSubject(new X500Principal("CN=YourLM"))
+          .setCertificateSerialNumber(BigInteger.ONE)
+          .build()
+      );
+      gen.generateKeyPair();
+    }
+    final Certificate cert = ks.getCertificate(alias);
     X509ExtendedKeyManager km = new X509ExtendedKeyManager() {
       public String[] getClientAliases(String k, java.security.Principal[] i) {
         return null;
@@ -339,9 +454,21 @@ final class Worker implements Closeable {
     };
     SSLContext tls = SSLContext.getInstance("TLS");
     tls.init(new KeyManager[] { km }, null, new SecureRandom());
-    server = (SSLServerSocket) tls
-      .getServerSocketFactory()
-      .createServerSocket(0, 8, ip);
+    SSLServerSocketFactory serverFactory = tls.getServerSocketFactory();
+    int preferredPort = preferences.getInt("bridge_port", 0);
+    try {
+      server = (SSLServerSocket) serverFactory.createServerSocket(
+        preferredPort >= 1024 && preferredPort <= 65535 ? preferredPort : 0,
+        8,
+        ip
+      );
+    } catch (IOException unavailablePreferredPort) {
+      server = (SSLServerSocket) serverFactory.createServerSocket(0, 8, ip);
+    }
+    preferences
+      .edit()
+      .putInt("bridge_port", server.getLocalPort())
+      .apply();
     server.setEnabledProtocols(new String[] { "TLSv1.2" });
     server.setSoTimeout(1000);
     pairing = new ServerSocket(0, 8, ip);
@@ -351,63 +478,23 @@ final class Worker implements Closeable {
     try (ServerSocket reserve = new ServerSocket(0, 1, loop)) {
       rpcPort = reserve.getLocalPort();
     }
-    if (logFile.exists()) logFile.delete();
-    ProcessBuilder builder = new ProcessBuilder(
-      bin.getPath(),
-      "-H",
-      "127.0.0.1",
-      "-p",
-      "" + rpcPort,
-      "-t",
-      "" + Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
-      "-c"
-    )
-      .redirectErrorStream(true)
-      .redirectOutput(logFile);
+    if (logFile.length() > 8L * 1024 * 1024) {
+      String preserved = logTail(logFile, 1024 * 1024);
+      try (FileOutputStream out = new FileOutputStream(logFile, false)) {
+        out.write(preserved.getBytes(StandardCharsets.UTF_8));
+      }
+    }
+    try (FileOutputStream out = new FileOutputStream(logFile, true)) {
+      out.write(
+        ("\n\n===== NOWA USŁUGA WORKERA " +
+          System.currentTimeMillis() +
+          " =====\n").getBytes(StandardCharsets.UTF_8)
+      );
+    }
     File rpcCache = new File(ctx.getFilesDir(), "rpc-cache");
     rpcCache.mkdirs();
     removeStaleCacheParts(rpcCache);
-    builder.environment().put("HOME", ctx.getFilesDir().getPath());
-    builder.environment().put("TMPDIR", ctx.getCacheDir().getPath());
-    builder.environment().put("LLAMA_CACHE", rpcCache.getPath());
-    // Level 2 records the last RPC command and tensor in the native-log tail.
-    // This is bounded in every report and is essential when the peer vanishes.
-    builder.environment().put("GGML_RPC_DEBUG", "2");
-    try {
-      rpcPid = 0;
-      rpcExitCode = Integer.MIN_VALUE;
-      rpcStartedAt = System.currentTimeMillis();
-      rpcStoppedAt = 0;
-      lastForwardingErrorAt = 0;
-      lastForwardingError = "";
-      recordEvent("native_start", "Launching " + bin.getPath());
-      rpc = builder.start();
-      rpcPid = processId(rpc);
-      if (rpcPid == 0) rpcPid = findProcessId();
-    } catch (IOException e) {
-      rpcPid = 0;
-      throw new IOException(failure("Android odmówił uruchomienia silnika", bin), e);
-    }
-    boolean ready = false;
-    for (int i = 0; i < 200 && rpc.isAlive(); i++) {
-      try (Socket s = new Socket(loop, rpcPort)) {
-        ready = true;
-        break;
-      } catch (IOException e) {
-        Thread.sleep(50);
-      }
-    }
-    if (!ready) {
-      String message = failure(
-        rpc.isAlive()
-          ? "Silnik nie otworzył portu w ciągu 10 sekund"
-          : "Silnik natywny zakończył pracę podczas startu",
-        bin
-      );
-      rpc.destroyForcibly();
-      rpcPid = 0;
-      throw new IOException(message);
-    }
+    launchNative(false);
     pin = hex(
       MessageDigest.getInstance("SHA-256").digest(cert.getEncoded())
     );
@@ -624,6 +711,10 @@ final class Worker implements Closeable {
     return diagnostics(false);
   }
 
+  String diagnosticReport() {
+    return diagnostics(true).toString();
+  }
+
   private synchronized JSONObject diagnostics(boolean forcePersistence) {
     ActivityManager.MemoryInfo memory = mem();
     File rpcCache = new File(ctx.getFilesDir(), "rpc-cache");
@@ -658,6 +749,24 @@ final class Worker implements Closeable {
         .put("rpcStartedAtEpochMs", rpcStartedAt)
         .put("rpcStoppedAtEpochMs", rpcStoppedAt)
         .put("rpcExitSummary", nativeExitSummary(rpcExitCode))
+        .put("recovering", recovering)
+        .put("restartAttempts", restartAttempts)
+        .put("restartCount", restartCount)
+        .put(
+          "recoveryError",
+          recoveryError.isEmpty() ? JSONObject.NULL : recoveryError
+        )
+        .put("recoveryTriggerStoppedAtEpochMs", recoveryTriggerStoppedAt)
+        .put(
+          "recoveryTriggerExitSummary",
+          nativeExitSummary(recoveryTriggerExitCode)
+        )
+        .put(
+          "recoveryTriggerNativeLog",
+          recoveryTriggerNativeLog.isEmpty()
+            ? JSONObject.NULL
+            : recoveryTriggerNativeLog
+        )
         .put("bridgeConnections", bridgeConnections.get())
         .put("bridgeActiveSockets", active.size())
         .put("bridgeHostToNativeBytes", bridgeHostToNativeBytes.get())
@@ -749,24 +858,55 @@ final class Worker implements Closeable {
     }
   }
 
-  void listen() throws IOException {
+  private void startEngineWatch(final Process watched) {
     new Thread(
       () -> {
         try {
-          rpcExitCode = rpc.waitFor();
+          int exitCode = watched.waitFor();
+          if (closed || watched != rpc) return;
+          rpcExitCode = exitCode;
           rpcPid = 0;
           rpcStoppedAt = System.currentTimeMillis();
           recordEvent("native_exit", nativeExitSummary(rpcExitCode));
           diagnostics(true);
-          // Keep the authenticated control listener alive for ten minutes. The
-          // Windows host keeps polling it and can still retrieve the final exit
-          // code, Java forwarding error, native log and resource state.
-        } catch (Exception e) {
-          recordEvent("native_watch_error", exceptionDetails(e));
+          notifyStateChanged();
+        } catch (Exception error) {
+          recordEvent("native_watch_error", exceptionDetails(error));
         }
       },
       "YourLM-engine-watch"
     ).start();
+  }
+
+  synchronized boolean restartNative() throws Exception {
+    if (closed) throw new IOException("Worker został zatrzymany przez użytkownika");
+    if (recoveryTriggerStoppedAt == 0) {
+      recoveryTriggerExitCode = rpcExitCode;
+      recoveryTriggerStoppedAt = rpcStoppedAt;
+      recoveryTriggerNativeLog = logTail(logFile, 24000);
+    }
+    recovering = true;
+    restartAttempts++;
+    notifyStateChanged();
+    launchNative(true);
+    publishSnapshot("native_recovered");
+    return true;
+  }
+
+  void watchNative() {
+    startEngineWatch(rpc);
+  }
+
+  void markRecoveryFailure(Throwable error) {
+    recovering = false;
+    recoveryError = exceptionDetails(error);
+    recordEvent("native_recovery_failed", recoveryError);
+    diagnostics(true);
+    notifyStateChanged();
+  }
+
+  void listen() throws IOException {
+    startEngineWatch(rpc);
     new Thread(
       () -> {
         while (!closed) {
@@ -791,13 +931,8 @@ final class Worker implements Closeable {
       try {
         s = server.accept();
       } catch (SocketTimeoutException e) {
-        if (
-          rpcStoppedAt > 0 &&
-          System.currentTimeMillis() - rpcStoppedAt >= DIAGNOSTIC_GRACE_MS
-        ) throw new IOException(
-          failure("Silnik workera nieoczekiwanie się zatrzymał", engineFile),
-          e
-        );
+        // A native exit is supervised by WorkerService. Keep INFO/DIAG alive so
+        // the host can retrieve the original exit evidence while recovery runs.
         continue;
       } catch (IOException e) {
         if (closed) return;
@@ -904,7 +1039,14 @@ final class Worker implements Closeable {
           .put("allocation", combinedProcessFootprintBytes())
           .put("cores", Runtime.getRuntime().availableProcessors())
           .put("build", WORKER_BUILD)
-          .put("alive", rpc != null && rpc.isAlive())
+          .put("alive", nativeAlive())
+          .put("recovering", recovering)
+          .put("restartAttempts", restartAttempts)
+          .put("restartCount", restartCount)
+          .put(
+            "recoveryError",
+            recoveryError.isEmpty() ? JSONObject.NULL : recoveryError
+          )
           .toString();
         s.getOutputStream().write((info + "\n").getBytes(StandardCharsets.UTF_8));
         return;

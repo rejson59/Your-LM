@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Update YourLM's COFF version resource without platform-specific tools.
 
-The committed .syso layout is deterministic. RC9 -> RC10 grows two UTF-16
-version strings by one code unit, so this parser rebuilds the version tree and
-shifts the following manifest resource while preserving the COFF metadata.
+The committed .syso layout is deterministic. This parser rebuilds the UTF-16
+version tree and shifts the following manifest resource when needed while
+preserving the COFF metadata.
 """
 from __future__ import annotations
 

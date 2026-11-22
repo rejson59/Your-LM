@@ -21,6 +21,13 @@ const gib = (n) =>
     maximumFractionDigits: 1,
   });
 
+function humanBytes(value) {
+  const bytes = Number(value || 0);
+  if (bytes >= 1073741824) return `${(bytes / 1073741824).toLocaleString("pl-PL", { maximumFractionDigits: 2 })} GiB`;
+  if (bytes >= 1048576) return `${(bytes / 1048576).toLocaleString("pl-PL", { maximumFractionDigits: 1 })} MiB`;
+  return `${Math.max(0, Math.round(bytes / 1024)).toLocaleString("pl-PL")} KiB`;
+}
+
 function elapsed(seconds) {
   const value = Number(seconds || 0);
   const total = Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -192,6 +199,105 @@ function usbRow(item) {
   return row;
 }
 
+function hfBadge(value, warning = false) {
+  const badge = el("span", value);
+  badge.className = `hfBadge${warning ? " warn" : ""}`;
+  return badge;
+}
+
+function hfModelRow(model) {
+  const row = el("div", "");
+  row.className = "hfResult";
+  const details = el("div", "");
+  details.append(
+    el("b", model.id),
+    el("small", `${Number(model.downloads || 0).toLocaleString("pl-PL")} pobrań · ${Number(model.likes || 0).toLocaleString("pl-PL")} polubień`),
+  );
+  if (model.gated) details.append(hfBadge("WYMAGA ZGODY / KONTA", true));
+  else details.append(hfBadge("PUBLICZNY GGUF"));
+  const choose = el("button", model.gated ? "Model ograniczony" : "Pokaż warianty");
+  choose.className = model.gated ? "secondary" : "";
+  choose.disabled = Boolean(model.gated);
+  choose.onclick = () => act("hf-files", { repo: model.id }, $("hfDlg"), false);
+  row.append(details, choose);
+  return row;
+}
+
+function hfFileRow(file) {
+  const row = el("div", "");
+  row.className = `hfFile${file.recommended ? " recommended" : ""}`;
+  const details = el("div", "");
+  details.append(el("b", file.name));
+  const meta = [humanBytes(file.size), file.quantization || "kwantyzacja z nazwy nierozpoznana"];
+  details.append(el("small", meta.join(" · ")));
+  if (file.recommended) details.append(hfBadge("POLECANY START"));
+  if (file.quantization) details.append(hfBadge(file.quantization));
+  if (file.recommendation) details.append(el("small", file.recommendation));
+  const download = el("button", "Pobierz i wybierz");
+  download.onclick = async () => {
+    if (Number(file.size || 0) > 12 * 1073741824 && !confirm(`Ten plik ma ${humanBytes(file.size)}. Pobrać go do prywatnej biblioteki YourLM?`)) return;
+    if (await act("hf-download", { repo: file.repo, file: file.path }, $("hfDlg"), false)) $("hfDlg").close();
+  };
+  row.append(details, download);
+  return row;
+}
+
+function renderHuggingFace(hf = {}) {
+  const download = hf.download || {};
+  const showDownload = Boolean(download.active || download.complete || download.canceled || download.error);
+  $("hfDownload").hidden = !showDownload;
+  if (showDownload) {
+    const total = Number(download.total || 0);
+    const received = Number(download.received || 0);
+    const percent = total > 0 ? Math.min(100, Math.max(0, received / total * 100)) : 0;
+    $("hfDownloadName").textContent = (download.file || "model GGUF").split("/").pop();
+    $("hfDownloadPercent").textContent = download.verifying
+      ? "weryfikacja"
+      : total > 0
+        ? `${percent.toFixed(1)}%`
+        : "przygotowanie";
+    $("hfProgressFill").style.width = `${percent}%`;
+    $("hfDownload").querySelector(".hfProgress").setAttribute("aria-valuenow", String(percent));
+    const speed = Number(download.bytesPerSecond || 0);
+    const pieces = [download.message || ""];
+    if (total > 0) pieces.push(`${humanBytes(received)} / ${humanBytes(total)}`);
+    if (speed > 0) pieces.push(`${humanBytes(speed)}/s`);
+    if (Number(download.etaSeconds || 0) > 0) pieces.push(`pozostało ok. ${elapsed(download.etaSeconds)}`);
+    if (download.error) pieces.push(download.error);
+    $("hfDownloadMeta").textContent = pieces.filter(Boolean).join(" · ");
+    $("hfCancel").hidden = !download.active;
+    $("hfCancel").disabled = !download.active;
+    $("hfRetry").hidden = download.active || download.complete || !(download.canceled || download.error);
+    $("hfRetry").disabled = download.active;
+    $("hfRetry").dataset.repo = download.repo || "";
+    $("hfRetry").dataset.file = download.file || "";
+  }
+
+  const results = hf.results || [];
+  const files = hf.files || [];
+  $("hfStatus").textContent = hf.searching
+    ? "Wyszukiwanie publicznych repozytoriów GGUF…"
+    : hf.repo
+      ? `${hf.repo} · ${files.length} jednoplikowych wariantów GGUF`
+      : results.length
+        ? `${results.length} wyników, najpopularniejsze najpierw`
+        : hf.query
+          ? "Brak wyników. Spróbuj krótszej nazwy modelu."
+          : "Wpisz nazwę albo wyszukaj najpopularniejsze GGUF.";
+  $("hfDlg").querySelector(".error").textContent = hf.error || "";
+  if (document.activeElement !== $("hfQuery") && hf.query !== undefined) $("hfQuery").value = hf.query || "";
+  if (hf.repo) {
+    const back = el("button", "← Wróć do wyników");
+    back.className = "secondary hfBack";
+    back.onclick = () => act("hf-search", { query: hf.query || "" }, $("hfDlg"), false);
+    $("hfResults").replaceChildren(back);
+    $("hfFiles").replaceChildren(...files.map(hfFileRow));
+  } else {
+    $("hfResults").replaceChildren(...results.map(hfModelRow));
+    $("hfFiles").replaceChildren();
+  }
+}
+
 function render(nextState) {
   state = nextState;
   $("build").textContent = `v${state.version} · b12562`;
@@ -310,8 +416,8 @@ function render(nextState) {
     ...workers.map((worker) =>
       device(
         worker.name,
-        "WORKER",
-        `${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB fizyczne · ${gib(worker.used || Math.max(0, worker.total - worker.free))} GiB system i aplikacje · ${gib(worker.free)} GiB dostępne teraz · ${gib(worker.allocation || 0)} GiB silnik · pamięć RPC włączona`,
+        worker.recovering ? "ODTWARZANIE" : worker.recoveryError ? "BŁĄD" : "WORKER",
+        `${worker.recovering ? `ODTWARZANIE SILNIKA (próba ${worker.restartAttempts || 1}) · ` : worker.recoveryError ? "ODZYSKANIE NIEUDANE · " : ""}${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB fizyczne · ${gib(worker.used || Math.max(0, worker.total - worker.free))} GiB system i aplikacje · ${gib(worker.free)} GiB dostępne teraz · ${gib(worker.allocation || 0)} GiB silnik · pamięć RPC włączona`,
         worker.address,
       ),
     ),
@@ -354,7 +460,8 @@ function render(nextState) {
   $("advice").textContent = state.advice || "Po wybraniu pliku pokażemy ilość dostępnej pamięci. Ostateczny podział dobierze llama.cpp przy starcie.";
   $("advice").classList.toggle("warn", Boolean(state.modelWarning));
   $("pick").hidden = state.os !== "windows";
-  $("pick").disabled = $("manual").disabled = Boolean(session);
+  $("pick").disabled = $("manual").disabled = $("hfBrowse").disabled = Boolean(session);
+  renderHuggingFace(state.huggingFace || {});
   options("library", state.models || [], "Wybierz z prywatnej biblioteki…");
   $("library").hidden = !state.models.length;
   $("library").disabled = Boolean(session);
@@ -438,7 +545,7 @@ function render(nextState) {
   render.last = state.last;
 }
 
-async function act(op, data = {}, dialog) {
+async function act(op, data = {}, dialog, closeDialog = true) {
   try {
     note("");
     if (dialog) dialog.querySelector(".error").textContent = "";
@@ -448,7 +555,7 @@ async function act(op, data = {}, dialog) {
       return true;
     }
     render(updated);
-    if (dialog) dialog.close();
+    if (dialog && closeDialog) dialog.close();
     return true;
   } catch (error) {
     if (dialog) dialog.querySelector(".error").textContent = error.message;
@@ -489,6 +596,30 @@ function openPairing() {
 $("add").onclick = openPairing;
 $("addTop").onclick = openPairing;
 $("manual").onclick = () => $("pathDlg").showModal();
+$("hfBrowse").onclick = () => {
+  $("hfDlg").showModal();
+  $("hfDlg").querySelector(".error").textContent = "";
+  setTimeout(() => $("hfQuery").focus(), 50);
+};
+$("hfSearch").onclick = async () => {
+  $("hfSearch").disabled = true;
+  $("hfSearch").textContent = "Szukam…";
+  await act("hf-search", { query: $("hfQuery").value.trim() }, $("hfDlg"), false);
+  $("hfSearch").disabled = false;
+  $("hfSearch").textContent = "Szukaj";
+};
+$("hfQuery").onkeydown = (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    $("hfSearch").click();
+  }
+};
+$("hfCancel").onclick = () => act("hf-cancel");
+$("hfRetry").onclick = () =>
+  act("hf-download", {
+    repo: $("hfRetry").dataset.repo,
+    file: $("hfRetry").dataset.file,
+  });
 document.querySelectorAll(".close").forEach((button) => {
   button.onclick = () => button.closest("dialog").close();
 });
@@ -680,7 +811,7 @@ async function refresh() {
   } catch (error) {
     note(error.message);
   } finally {
-    setTimeout(refresh, state?.session && !state.session.ready ? 1000 : 2500);
+    setTimeout(refresh, state?.huggingFace?.download?.active ? 500 : state?.session && !state.session.ready ? 1000 : 2500);
   }
 }
 
