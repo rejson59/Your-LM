@@ -44,7 +44,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc12 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc13 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -132,7 +132,7 @@
                 <button id="addTop" class="textButton">＋ Dodaj telefon</button>
               </div>
               <div id="nodes"></div>
-              <div class="infoStrip">Telefon zwiększa dostępną pamięć, ale Wi-Fi może ograniczać szybkość. Najpierw porównaj ten sam mały model bez workera i z workerem.</div>
+              <div class="infoStrip">Gdy autoryzowany kabel USB z debugowaniem pozostaje podłączony, YourLM mierzy szyfrowane Wi-Fi i tunel ADB, po czym wybiera szybszy. Pomiar nie przyspiesza CPU telefonu — porównaj też ten sam mały model bez workera i z workerem.</div>
             </article>
 
             <details id="offer" class="sectionCard workerOffer">
@@ -184,7 +184,7 @@
               <article class="sectionCard usbDevicesCard">
                 <span class="eyebrow">WYKRYTE URZĄDZENIA</span><h2>Telefony ADB</h2>
                 <div id="usbDevices" class="usbDevices"></div>
-                <div class="infoStrip">Aktualizacja przez ADB używa opcji <b>-r</b>, więc zachowuje ustawienia i modele aplikacji. Usunięcie aplikacji z telefonu usuwa jej prywatne kopie modeli.</div>
+                <div class="infoStrip">Aktualizacja przez ADB używa opcji <b>-r</b>, więc zachowuje ustawienia i modele aplikacji. Po uruchomieniu workera możesz pozostawić kabel: YourLM porówna jego szyfrowany tunel z Wi-Fi. Usunięcie aplikacji z telefonu usuwa jej prywatne kopie modeli.</div>
               </article>
             </div>
 
@@ -272,7 +272,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc12</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc13</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>
@@ -281,7 +281,7 @@
       <button class="close iconButton" aria-label="Zamknij">×</button>
       <span class="eyebrow">DODAJ WORKER</span>
       <h2>Połącz telefon z hostem</h2>
-      <p class="dialogLead">Na telefonie wybierz <b>Pomóż laptopowi</b> i uruchom worker. Telefon niczego nie skanuje — to tutaj wpisujesz pokazane dane.</p>
+      <p class="dialogLead">Na telefonie wybierz <b>Pomóż laptopowi</b> i uruchom worker. Telefon niczego nie skanuje — to tutaj wpisujesz pokazane dane. Autoryzowany kabel ADB może pozostać podłączony; po sparowaniu porównamy go z Wi-Fi.</p>
       <div class="pairSteps"><span><i>1</i>Ten sam Wi-Fi</span><span><i>2</i>Worker włączony</span><span><i>3</i>Adres i kod</span></div>
       <div class="manualPair">
         <label>Adres parowania z telefonu<input id="pairAddress" inputmode="decimal" autocomplete="off" placeholder="192.168.1.42:45123" /></label>

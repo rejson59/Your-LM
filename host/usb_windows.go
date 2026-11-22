@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -122,4 +123,63 @@ func installUSB(adb, apk, serial string) (string, error) {
 	}
 	_, _ = runADB(20*time.Second, adb, "-s", serial, "shell", "am", "start", "-n", "pl.yourlm.node/.NodeActivity")
 	return "YourLM został zainstalowany lub zaktualizowany i uruchomiony na telefonie.", nil
+}
+
+func parseADBForwardPort(output string) (int, error) {
+	lines := strings.Fields(strings.ReplaceAll(output, "\r", ""))
+	for i := len(lines) - 1; i >= 0; i-- {
+		port, err := strconv.Atoi(lines[i])
+		if err == nil && port >= 1024 && port <= 65535 {
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("ADB nie zwrócił lokalnego portu tunelu: %q", strings.TrimSpace(output))
+}
+
+func createADBForward(adb, serial string, remotePort int) (string, int, error) {
+	if serial == "" || remotePort < 1 || remotePort > 65535 {
+		return "", 0, errors.New("niepoprawne parametry tunelu ADB")
+	}
+	output, err := runADB(
+		10*time.Second,
+		adb,
+		"-s", serial,
+		"forward", "tcp:0", fmt.Sprintf("tcp:%d", remotePort),
+	)
+	if err != nil {
+		return "", 0, err
+	}
+	port, err := parseADBForwardPort(output)
+	if err != nil {
+		return "", 0, err
+	}
+	return fmt.Sprintf("127.0.0.1:%d", port), port, nil
+}
+
+func adbForwardListed(output, serial string, localPort, remotePort int) bool {
+	local := fmt.Sprintf("tcp:%d", localPort)
+	remote := fmt.Sprintf("tcp:%d", remotePort)
+	for _, line := range strings.Split(strings.ReplaceAll(output, "\r", ""), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 3 && fields[0] == serial && fields[1] == local && fields[2] == remote {
+			return true
+		}
+	}
+	return false
+}
+
+func removeADBForward(adb, serial string, localPort, remotePort int) {
+	if adb == "" || serial == "" || localPort < 1 || localPort > 65535 || remotePort < 1 || remotePort > 65535 {
+		return
+	}
+	listed, err := runADB(2*time.Second, adb, "forward", "--list")
+	if err != nil || !adbForwardListed(listed, serial, localPort, remotePort) {
+		return
+	}
+	_, _ = runADB(
+		2*time.Second,
+		adb,
+		"-s", serial,
+		"forward", "--remove", fmt.Sprintf("tcp:%d", localPort),
+	)
 }

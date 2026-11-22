@@ -65,8 +65,15 @@ func (a *App) installPhone(serial string) error {
 func (a *App) usbAPI(w http.ResponseWriter, op string, in input) {
 	switch op {
 	case "usb-refresh":
-		a.refreshUSB()
+		state := a.refreshUSB()
 		a.Lock()
+		if a.s == nil {
+			for i := range a.nodes {
+				if a.nodes[i].Platform == "android" {
+					optimizeNodeTransport(a.adbPath, state.Devices, &a.nodes[i])
+				}
+			}
+		}
 		defer a.Unlock()
 		respond(w, a.state())
 	case "usb-install":

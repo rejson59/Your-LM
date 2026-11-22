@@ -244,6 +244,23 @@ func (a *App) start(bind string, port int) error {
 		return e
 	}
 	a.model = m
+	hasAndroidWorker := false
+	for _, node := range a.nodes {
+		if node.Platform == "android" {
+			hasAndroidWorker = true
+			break
+		}
+	}
+	if hasAndroidWorker {
+		usb := inspectUSB(a.adbPath, a.apkPath)
+		usb.Installing = a.usb.Installing
+		a.usb = usb
+		for i := range a.nodes {
+			if a.nodes[i].Platform == "android" {
+				optimizeNodeTransport(a.adbPath, usb.Devices, &a.nodes[i])
+			}
+		}
+	}
 	for i := range a.nodes {
 		if e := a.nodes[i].refresh(); e != nil {
 			return fmt.Errorf("Worker %s niedostępny: %w", a.nodes[i].Address, e)
@@ -317,6 +334,17 @@ func (a *App) start(bind string, port int) error {
 	logfile, e := os.OpenFile(s.logPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if e != nil {
 		return e
+	}
+	for _, node := range s.nodes {
+		fmt.Fprintf(
+			logfile,
+			"[YourLM] worker %s transport=%s reason=%s wifi=%+v usb=%+v\n",
+			node.Address,
+			node.Transport,
+			node.TransportReason,
+			node.WiFiBenchmark,
+			node.USBBenchmark,
+		)
 	}
 	s.cmd.Stdout = logfile
 	s.cmd.Stderr = logfile
@@ -709,12 +737,19 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 			if e == nil {
 				e = n.refresh()
 			}
+			if e == nil && n.Platform == "android" {
+				usb := inspectUSB(a.adbPath, a.apkPath)
+				usb.Installing = a.usb.Installing
+				a.usb = usb
+				optimizeNodeTransport(a.adbPath, usb.Devices, &n)
+			}
 			if e == nil {
 				a.nodes = append(a.nodes, n)
 			}
 		case "remove":
-			for i, n := range a.nodes {
-				if n.Address == in.Address {
+			for i := range a.nodes {
+				if a.nodes[i].Address == in.Address {
+					releaseNodeADB(a.adbPath, &a.nodes[i])
 					a.nodes = append(a.nodes[:i], a.nodes[i+1:]...)
 					break
 				}
@@ -864,6 +899,9 @@ func main() {
 	shutdown := func() {
 		stopOnce.Do(func() {
 			a.Lock()
+			for i := range a.nodes {
+				releaseNodeADB(a.adbPath, &a.nodes[i])
+			}
 			if a.off != nil {
 				a.off.close()
 			}

@@ -80,6 +80,7 @@ func TestVersionOrdering(t *testing.T) {
 		{"0.2.0-rc10", "0.2.0-rc2", true},
 		{"0.2.0-rc11", "0.2.0-rc10", true},
 		{"0.2.0-rc12", "0.2.0-rc11", true},
+		{"0.2.0-rc13", "0.2.0-rc12", true},
 		{"0.2.0-rc1", "0.2.0", false},
 		{"0.1.9", "0.2.0", false},
 		{"0.2.0", "0.2.0", false},
@@ -509,6 +510,21 @@ func TestPairAndBridge(t *testing.T) {
 	combined := workerDiagnosticsReport([]Node{n}, nil)
 	if !strings.Contains(combined, "DIAGNOSTYKA WORKERÓW") || !strings.Contains(combined, rpcWorkerBuild) {
 		t.Fatalf("combined diagnostics missing worker data: %s", combined)
+	}
+	benchmark, e := n.benchmarkAt(n.Address)
+	if e != nil || benchmark.UploadBps == 0 || benchmark.DownloadBps == 0 || benchmark.ScoreBps == 0 || benchmark.LatencyMicros == 0 {
+		t.Fatalf("authenticated transport benchmark failed: %+v, %v", benchmark, e)
+	}
+	unauthenticated := n
+	unauthenticated.secret = "wrong"
+	if _, e = unauthenticated.benchmarkAt(unauthenticated.Address); e == nil {
+		t.Fatal("transport benchmark accepted an incorrect session secret")
+	}
+	fallback := n
+	fallback.Transport = "usb"
+	fallback.usbAddress = "127.0.0.1:1"
+	if e = fallback.refresh(); e != nil || fallback.Transport != "wifi" || !strings.Contains(fallback.TransportReason, "awaryjnego") {
+		t.Fatalf("USB failure did not fall back to authenticated Wi-Fi: %+v, %v", fallback, e)
 	}
 	bad := n
 	bad.pin = strings.Repeat("00", 32)

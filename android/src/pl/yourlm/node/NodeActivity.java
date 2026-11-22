@@ -359,7 +359,7 @@ public final class NodeActivity extends Activity {
     page.addView(h, lp(-1, -2, 7, 7));
     page.addView(
       text(
-        "Plik GGUF zostaje na laptopie. Telefon może zachować prywatną pamięć podręczną przydzielonych wag, aby kolejne uruchomienie było znacznie szybsze.",
+        "Plik GGUF zostaje na laptopie. Telefon może zachować prywatną pamięć podręczną przydzielonych wag. Jeśli kabel z autoryzowanym debugowaniem ADB pozostanie podłączony, Windows porówna szyfrowane USB z Wi-Fi i wybierze szybsze.",
         15,
         MUTED,
         false
@@ -431,7 +431,7 @@ public final class NodeActivity extends Activity {
     LinearLayout steps = card(SURFACE, LINE);
     steps.addView(label("TRZY KROKI"));
     addStep(steps, "1", "Połącz laptop i telefon z tym samym prywatnym Wi-Fi.");
-    addStep(steps, "2", "Uruchom worker. Potem możesz wyłączyć ekran lub zamknąć aplikację.");
+    addStep(steps, "2", "Uruchom worker. Opcjonalnie pozostaw kabel ADB — host sam zmierzy USB i Wi-Fi.");
     addStep(steps, "3", "Na laptopie wybierz „Dodaj telefon” i przepisz adres oraz kod.");
     page.addView(steps, lp(-1, -2, 0, 14));
 

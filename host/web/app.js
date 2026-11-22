@@ -30,6 +30,22 @@ function humanBytes(value) {
   return `${Math.max(0, Math.round(bytes / 1024)).toLocaleString("pl-PL")} KiB`;
 }
 
+function linkRate(value) {
+  return `${humanBytes(value)}/s`;
+}
+
+function workerTransport(worker) {
+  const selected = worker.transport === "usb" ? "USB/ADB" : "Wi-Fi/LAN";
+  const tests = [];
+  if (worker.usbBenchmark) {
+    tests.push(`USB wysyłanie ${linkRate(worker.usbBenchmark.uploadBps)} · odbiór ${linkRate(worker.usbBenchmark.downloadBps)} · ping ${(Number(worker.usbBenchmark.latencyMicros || 0) / 1000).toLocaleString("pl-PL", { maximumFractionDigits: 1 })} ms`);
+  }
+  if (worker.wifiBenchmark) {
+    tests.push(`Wi-Fi wysyłanie ${linkRate(worker.wifiBenchmark.uploadBps)} · odbiór ${linkRate(worker.wifiBenchmark.downloadBps)} · ping ${(Number(worker.wifiBenchmark.latencyMicros || 0) / 1000).toLocaleString("pl-PL", { maximumFractionDigits: 1 })} ms`);
+  }
+  return `TRANSPORT: ${selected}${tests.length ? ` · ${tests.join(" · ")}` : ""}`;
+}
+
 function elapsed(seconds) {
   const value = Number(seconds || 0);
   const total = Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -466,6 +482,9 @@ function render(nextState) {
   $("usbInstall").textContent = usb.installing ? "Instalowanie…" : "Zainstaluj lub zaktualizuj YourLM";
   $("usbInstall").disabled = !usb.ready || !usb.apkReady || usb.installing;
   $("usbRefresh").disabled = Boolean(usb.installing);
+  $("usbRefresh").textContent = (state.nodes || []).some((node) => node.platform === "android")
+    ? "Odśwież USB i powtórz test"
+    : "Odśwież urządzenia";
 
   const workers = state.nodes || [];
   const session = state.session;
@@ -502,7 +521,9 @@ function render(nextState) {
     $("topdesc").textContent = "Oczekuje na bezpieczne połączenie z innym hostem YourLM.";
   } else if (workers.length) {
     $("mode").textContent = workers.length === 1 ? "Laptop + telefon" : `Host + ${workers.length} workery`;
-    $("topdesc").textContent = "Urządzenia są połączone szyfrowanym tunelem w prywatnej sieci.";
+    $("topdesc").textContent = workers.some((worker) => worker.platform === "android")
+      ? "YourLM porównuje szyfrowane Wi-Fi z tunelem USB/ADB i wybiera szybszą dostępną drogę."
+      : "Urządzenia są połączone szyfrowanym tunelem w prywatnej sieci.";
   } else {
     $("mode").textContent = "Tylko ten komputer";
     $("topdesc").textContent = "Możesz od razu wybrać model albo dodać telefon jako worker.";
@@ -518,7 +539,7 @@ function render(nextState) {
       device(
         worker.name,
         worker.recovering ? "ODTWARZANIE" : worker.recoveryError ? "BŁĄD" : "WORKER",
-        `${worker.recovering ? `ODTWARZANIE SILNIKA (próba ${worker.restartAttempts || 1}) · ` : worker.recoveryError ? "ODZYSKANIE NIEUDANE · " : ""}${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB fizyczne · ${gib(worker.used || Math.max(0, worker.total - worker.free))} GiB system i aplikacje · ${gib(worker.free)} GiB dostępne teraz · ${gib(worker.allocation || 0)} GiB silnik · pamięć RPC włączona`,
+        `${worker.recovering ? `ODTWARZANIE SILNIKA (próba ${worker.restartAttempts || 1}) · ` : worker.recoveryError ? "ODZYSKANIE NIEUDANE · " : ""}${workerTransport(worker)} · ${worker.transportReason || "Szyfrowany kanał z przypiętym certyfikatem."} · ${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB fizyczne · ${gib(worker.used || Math.max(0, worker.total - worker.free))} GiB system i aplikacje · ${gib(worker.free)} GiB dostępne teraz · ${gib(worker.allocation || 0)} GiB silnik · pamięć RPC włączona`,
         worker.address,
       ),
     ),
@@ -620,7 +641,7 @@ function render(nextState) {
     $("loadHint").hidden = !loading;
     $("loadHint").textContent = loading
       ? (workers.length
-          ? "Pierwszy start rozdziela i przesyła wagi przez sieć. Pokazywana szybkość jest łącznym ruchem RPC hosta, nie testem samego Wi-Fi; wpływają na nią też TLS, zapis cache i praca telefonu. Kolejne uruchomienia mogą użyć pamięci podręcznej RPC zapisywanej porcjami do 16 MiB. Windows zapisuje migawkę Redmi co 3 sekundy i dołączy ostatnią udaną nawet po utracie listenera telefonu."
+          ? "Pierwszy start rozdziela i przesyła wagi wybranym łączem. Przed startem YourLM porównuje Wi-Fi i dostępny tunel USB/ADB; pokazywana szybkość RPC obejmuje też TLS, zapis cache i pracę telefonu. Kolejne uruchomienia mogą użyć pamięci podręcznej RPC zapisywanej porcjami do 16 MiB. Windows zapisuje migawkę Redmi co 3 sekundy i dołączy ostatnią udaną nawet po utracie listenera telefonu."
           : "Windows odczytuje i mapuje pełny plik GGUF. Czas zależy od jego pełnego rozmiaru, szybkości dysku oraz dostępnego RAM-u i pliku stronicowania.") +
         (advisory ? " Widoczne ostrzeżenia o tokenach lub mmap są informacyjne — silnik nadal ładuje model." : "")
       : "";
@@ -677,7 +698,12 @@ document.querySelectorAll("nav button").forEach((button) => {
 });
 
 $("next").onclick = () => openTab(state?.session?.ready ? "chat" : "model");
-$("usbRefresh").onclick = () => act("usb-refresh");
+$("usbRefresh").onclick = async () => {
+  $("usbRefresh").disabled = true;
+  $("usbRefresh").textContent = "Mierzę USB i Wi-Fi…";
+  await act("usb-refresh");
+  if (state) render(state);
+};
 $("usbInstall").onclick = () => act("usb-install", { serial: $("usbDevice").value });
 $("checkUpdate").onclick = () => act("update-check");
 function updateOperation() {
@@ -725,13 +751,26 @@ document.querySelectorAll(".close").forEach((button) => {
   button.onclick = () => button.closest("dialog").close();
 });
 
-$("pairManualBtn").onclick = () =>
-  act(
+$("pairManualBtn").onclick = async () => {
+  const button = $("pairManualBtn");
+  button.disabled = true;
+  button.textContent = "Paruję i mierzę łącza…";
+  await act(
     "pair-manual",
     { pairAddress: $("pairAddress").value.trim(), pairKey: $("pairKey").value.trim() },
     $("pair"),
   );
-$("pairBtn").onclick = () => act("pair", { code: $("code").value }, $("pair"));
+  button.disabled = false;
+  button.textContent = "Połącz telefon";
+};
+$("pairBtn").onclick = async () => {
+  const button = $("pairBtn");
+  button.disabled = true;
+  button.textContent = "Paruję i mierzę łącza…";
+  await act("pair", { code: $("code").value }, $("pair"));
+  button.disabled = false;
+  button.textContent = "Połącz pełnym kodem";
+};
 $("pairKey").oninput = (event) => {
   event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, "");
 };
@@ -740,16 +779,22 @@ $("library").onchange = (event) => event.target.value && act("model", { path: ev
 $("pick").onclick = () => act("pick");
 $("offerBtn").onclick = () => act(state.offer ? "unoffer" : "offer", { bind: $("workerIP").value });
 $("cancelLoad").onclick = () => act("stop");
-$("run").onclick = () => {
+$("run").onclick = async () => {
   if (
     !state.session &&
     $("bind").value !== "127.0.0.1" &&
     !confirm("Udostępnić API przez zwykły HTTP w tej zaufanej sieci prywatnej?")
   ) return;
-  act(state.session ? "stop" : "start", {
+  const starting = !state.session;
+  if (starting && (state.nodes || []).some((node) => node.platform === "android")) {
+    $("run").disabled = true;
+    $("run").textContent = "Mierzę USB i Wi-Fi…";
+  }
+  const ok = await act(state.session ? "stop" : "start", {
     bind: $("bind").value,
     port: Number($("port").value),
   });
+  if (!ok) render(state);
 };
 
 function stopScan() {

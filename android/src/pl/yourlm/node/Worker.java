@@ -26,9 +26,10 @@ import javax.security.auth.x500.X500Principal;
 import org.json.JSONObject;
 
 /**
- * The experimental llama.cpp RPC protocol stays on loopback. Wi-Fi only sees
- * the authenticated TLS bridge. Manual pairing proves a 100-bit key with HMAC
- * and pins the TLS certificate; the key itself is never sent over the LAN.
+ * The experimental llama.cpp RPC protocol stays on loopback. Wi-Fi and an
+ * optional ADB forward only see the authenticated TLS bridge. Manual pairing
+ * proves a 100-bit key with HMAC and pins the TLS certificate; the key itself
+ * is never sent over the LAN or exposed as a raw ADB RPC socket.
  */
 final class Worker implements Closeable {
 
@@ -64,6 +65,7 @@ final class Worker implements Closeable {
   File engineFile;
   Process rpc;
   SSLServerSocket server;
+  SSLServerSocket usbServer;
   ServerSocket pairing;
   String code, pairAddress, pin;
   int rpcPort;
@@ -83,7 +85,8 @@ final class Worker implements Closeable {
   volatile int restartCount;
   volatile boolean closed;
 
-  private static final String WORKER_BUILD = "b12562-ylm-rpc4";
+  private static final String WORKER_BUILD = "b12562-ylm-rpc5";
+  private static final int TRANSPORT_BENCHMARK_BYTES = 4 * 1024 * 1024;
 
   Worker(Context c) {
     this(c, null);
@@ -470,10 +473,24 @@ final class Worker implements Closeable {
       .commit();
     server.setEnabledProtocols(new String[] { "TLSv1.2" });
     server.setSoTimeout(1000);
+    InetAddress loop = InetAddress.getByName("127.0.0.1");
+    try {
+      // ADB forward terminates on the device loopback interface. Keep the LAN
+      // listener bound only to Wi-Fi and expose the same authenticated TLS
+      // bridge separately on loopback, never as a raw RPC socket.
+      usbServer = (SSLServerSocket) serverFactory.createServerSocket(
+        server.getLocalPort(),
+        8,
+        loop
+      );
+      usbServer.setEnabledProtocols(new String[] { "TLSv1.2" });
+      usbServer.setSoTimeout(1000);
+    } catch (IOException unavailableLoopbackPort) {
+      usbServer = null;
+    }
     pairing = new ServerSocket(0, 8, ip);
     pairAddress = ip.getHostAddress() + ":" + pairing.getLocalPort();
 
-    InetAddress loop = InetAddress.getByName("127.0.0.1");
     try (ServerSocket reserve = new ServerSocket(0, 1, loop)) {
       rpcPort = reserve.getLocalPort();
     }
@@ -767,6 +784,11 @@ final class Worker implements Closeable {
             : recoveryTriggerNativeLog
         )
         .put("bridgeConnections", bridgeConnections.get())
+        .put(
+          "adbTlsBridgeAvailable",
+          usbServer != null && !usbServer.isClosed()
+        )
+        .put("tlsBridgePort", server == null ? 0 : server.getLocalPort())
         .put("bridgeActiveSockets", active.size())
         .put("bridgeHostToNativeBytes", bridgeHostToNativeBytes.get())
         .put("bridgeNativeToHostBytes", bridgeNativeToHostBytes.get())
@@ -926,16 +948,31 @@ final class Worker implements Closeable {
       },
       "YourLM-pairing"
     ).start();
+    if (usbServer != null) {
+      new Thread(
+        () -> {
+          try {
+            listenBridge(usbServer, false);
+          } catch (IOException ignored) {}
+        },
+        "YourLM-adb-bridge"
+      ).start();
+    }
+    listenBridge(server, true);
+  }
+
+  private void listenBridge(SSLServerSocket listener, boolean required)
+    throws IOException {
     while (!closed) {
       Socket s;
       try {
-        s = server.accept();
+        s = listener.accept();
       } catch (SocketTimeoutException e) {
-        // A native exit is supervised by WorkerService. Keep INFO/DIAG alive so
-        // the host can retrieve the original exit evidence while recovery runs.
+        // A native exit is supervised by WorkerService. Keep INFO/DIAG and the
+        // link benchmark alive while recovery prepares the next model start.
         continue;
       } catch (IOException e) {
-        if (closed) return;
+        if (closed || !required) return;
         throw new IOException(
           failure("Silnik workera nieoczekiwanie się zatrzymał", engineFile),
           e
@@ -1036,6 +1073,7 @@ final class Worker implements Closeable {
           : recoveryError.substring(0, 1000) + "…";
         String info = new JSONObject()
           .put("name", Build.MANUFACTURER + " " + Build.MODEL)
+          .put("platform", "android")
           .put("total", m.totalMem)
           .put("free", m.availMem)
           .put("used", Math.max(0, m.totalMem - m.availMem))
@@ -1052,6 +1090,18 @@ final class Worker implements Closeable {
           )
           .toString();
         s.getOutputStream().write((info + "\n").getBytes(StandardCharsets.UTF_8));
+        return;
+      }
+      if (auth[0].equals("BENCH-PING")) {
+        serveTransportPing(s, in);
+        return;
+      }
+      if (auth[0].equals("BENCH-UP")) {
+        serveTransportBenchmark(s, in, true);
+        return;
+      }
+      if (auth[0].equals("BENCH-DOWN")) {
+        serveTransportBenchmark(s, in, false);
         return;
       }
       if (auth[0].equals("DIAG")) {
@@ -1071,6 +1121,45 @@ final class Worker implements Closeable {
     } finally {
       drop(s);
     }
+  }
+
+  private void serveTransportPing(Socket socket, InputStream input)
+    throws IOException {
+    socket.setSoTimeout(12000);
+    OutputStream output = socket.getOutputStream();
+    for (int i = 0; i < 5; i++) {
+      int value = input.read();
+      if (value < 0) throw new EOFException("Niepełny test opóźnienia");
+      output.write(value);
+      output.flush();
+    }
+  }
+
+  private void serveTransportBenchmark(
+    Socket socket,
+    InputStream input,
+    boolean upload
+  ) throws IOException {
+    socket.setSoTimeout(12000);
+    byte[] buffer = new byte[256 * 1024];
+    int remaining = TRANSPORT_BENCHMARK_BYTES;
+    if (upload) {
+      while (remaining > 0) {
+        int read = input.read(buffer, 0, Math.min(buffer.length, remaining));
+        if (read < 0) throw new EOFException("Niepełny test wysyłania");
+        remaining -= read;
+      }
+      socket.getOutputStream().write('!');
+      socket.getOutputStream().flush();
+      return;
+    }
+    OutputStream output = socket.getOutputStream();
+    while (remaining > 0) {
+      int count = Math.min(buffer.length, remaining);
+      output.write(buffer, 0, count);
+      remaining -= count;
+    }
+    output.flush();
   }
 
   private void forwardRPC(Socket remote, InputStream remoteInput) throws Exception {
@@ -1117,6 +1206,9 @@ final class Worker implements Closeable {
     closed = true;
     try {
       if (server != null) server.close();
+    } catch (IOException ignored) {}
+    try {
+      if (usbServer != null) usbServer.close();
     } catch (IOException ignored) {}
     try {
       if (pairing != null) pairing.close();

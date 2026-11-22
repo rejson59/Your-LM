@@ -189,9 +189,15 @@ func (o *Offer) serve(c net.Conn) {
 		}
 		alive := o.cmd == nil || o.cmd.ProcessState == nil || !o.cmd.ProcessState.Exited()
 		json.NewEncoder(c).Encode(Node{
-			Name: n, Total: stats.Total, Free: stats.Available, Used: stats.Used,
+			Name: n, Platform: runtime.GOOS, Total: stats.Total, Free: stats.Available, Used: stats.Used,
 			Allocation: allocation, Cores: runtime.NumCPU(), Build: rpcWorkerBuild, Alive: alive,
 		})
+	case "BENCH-PING":
+		serveTransportPing(c, r)
+	case "BENCH-UP":
+		serveTransportBenchmark(c, r, true)
+	case "BENCH-DOWN":
+		serveTransportBenchmark(c, r, false)
 	case "DIAG":
 		n, _ := os.Hostname()
 		stats := systemMemory()

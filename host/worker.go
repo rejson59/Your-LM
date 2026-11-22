@@ -11,27 +11,47 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 )
 
+const transportBenchmarkBytes = 4 << 20
+
+type LinkBenchmark struct {
+	UploadBps     uint64 `json:"uploadBps"`
+	DownloadBps   uint64 `json:"downloadBps"`
+	ScoreBps      uint64 `json:"scoreBps"`
+	LatencyMicros uint64 `json:"latencyMicros"`
+}
+
 type Node struct {
-	Name            string `json:"name"`
-	Total           uint64 `json:"total"`
-	Free            uint64 `json:"free"`
-	Used            uint64 `json:"used"`
-	Allocation      uint64 `json:"allocation"`
-	Cores           int    `json:"cores"`
-	Build           string `json:"build"`
-	Alive           bool   `json:"alive"`
-	Recovering      bool   `json:"recovering,omitempty"`
-	RestartAttempts int    `json:"restartAttempts,omitempty"`
-	RestartCount    int    `json:"restartCount,omitempty"`
-	RecoveryError   string `json:"recoveryError,omitempty"`
-	Address         string `json:"address"`
-	pin, secret     string
+	Name               string         `json:"name"`
+	Platform           string         `json:"platform,omitempty"`
+	Total              uint64         `json:"total"`
+	Free               uint64         `json:"free"`
+	Used               uint64         `json:"used"`
+	Allocation         uint64         `json:"allocation"`
+	Cores              int            `json:"cores"`
+	Build              string         `json:"build"`
+	Alive              bool           `json:"alive"`
+	Recovering         bool           `json:"recovering,omitempty"`
+	RestartAttempts    int            `json:"restartAttempts,omitempty"`
+	RestartCount       int            `json:"restartCount,omitempty"`
+	RecoveryError      string         `json:"recoveryError,omitempty"`
+	Address            string         `json:"address"`
+	Transport          string         `json:"transport,omitempty"`
+	TransportReason    string         `json:"transportReason,omitempty"`
+	TransportCheckedAt int64          `json:"transportCheckedAt,omitempty"`
+	USBSerial          string         `json:"-"`
+	WiFiBenchmark      *LinkBenchmark `json:"wifiBenchmark,omitempty"`
+	USBBenchmark       *LinkBenchmark `json:"usbBenchmark,omitempty"`
+	pin, secret        string
+	usbAddress         string
+	usbForwardPort     int
+	usbRemotePort      int
 }
 
 func parseCode(s string) (Node, error) {
@@ -65,9 +85,9 @@ func tuneTCP(conn net.Conn) {
 	}
 }
 
-func (n Node) dial(mode string) (net.Conn, error) {
+func (n Node) dialAt(address, mode string, timeout time.Duration) (net.Conn, error) {
 	pin, _ := hex.DecodeString(n.pin)
-	c, e := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp4", n.Address, &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true, // Trust the certificate fingerprint transferred out of band, not a public CA.
+	c, e := tls.DialWithDialer(&net.Dialer{Timeout: min(timeout, 5*time.Second)}, "tcp4", address, &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true, // Trust the certificate fingerprint transferred out of band, not a public CA.
 		VerifyConnection: func(s tls.ConnectionState) error {
 			if len(s.PeerCertificates) > 0 {
 				v := sha256.Sum256(s.PeerCertificates[0].Raw)
@@ -81,18 +101,130 @@ func (n Node) dial(mode string) (net.Conn, error) {
 		return nil, e
 	}
 	tuneTCP(c)
-	c.SetDeadline(time.Now().Add(6 * time.Second))
-	_, e = fmt.Fprintf(c, "%s %s\n", mode, n.secret)
-	if e != nil {
+	_ = c.SetDeadline(time.Now().Add(timeout))
+	if _, e = fmt.Fprintf(c, "%s %s\n", mode, n.secret); e != nil {
 		c.Close()
 		return nil, e
 	}
 	return c, nil
 }
 
+func (n Node) dialEndpoint(mode string) (net.Conn, string, error) {
+	addresses := []string{n.Address}
+	if n.usbAddress != "" {
+		if n.Transport == "usb" {
+			addresses = []string{n.usbAddress, n.Address}
+		} else {
+			addresses = append(addresses, n.usbAddress)
+		}
+	}
+	var last error
+	for _, address := range addresses {
+		c, err := n.dialAt(address, mode, 6*time.Second)
+		if err == nil {
+			return c, address, nil
+		}
+		last = err
+	}
+	return nil, "", last
+}
+
+func (n Node) dial(mode string) (net.Conn, error) {
+	c, _, err := n.dialEndpoint(mode)
+	return c, err
+}
+
+func benchmarkRate(bytes int64, elapsed time.Duration) uint64 {
+	if bytes <= 0 || elapsed <= 0 {
+		return 0
+	}
+	return uint64(float64(bytes) / elapsed.Seconds())
+}
+
+func benchmarkScore(upload, download uint64) uint64 {
+	// Initial tensor placement is overwhelmingly host-to-worker, while token
+	// generation still needs both directions. Weight upload accordingly.
+	return (upload*3 + download) / 4
+}
+
+func (n Node) benchmarkAt(address string) (LinkBenchmark, error) {
+	var result LinkBenchmark
+	c, err := n.dialAt(address, "BENCH-PING", 12*time.Second)
+	if err != nil {
+		return result, err
+	}
+	latencies := make([]time.Duration, 0, 5)
+	var ping [1]byte
+	for i := byte(1); i <= 5; i++ {
+		ping[0] = i
+		started := time.Now()
+		if _, err = c.Write(ping[:]); err != nil {
+			c.Close()
+			return result, err
+		}
+		if _, err = io.ReadFull(c, ping[:]); err != nil || ping[0] != i {
+			c.Close()
+			if err == nil {
+				err = errors.New("worker nie potwierdził testu opóźnienia")
+			}
+			return result, err
+		}
+		latencies = append(latencies, time.Since(started))
+	}
+	c.Close()
+	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	result.LatencyMicros = max(uint64(1), uint64(latencies[len(latencies)/2].Microseconds()))
+
+	payload := make([]byte, 256<<10)
+	c, err = n.dialAt(address, "BENCH-UP", 12*time.Second)
+	if err != nil {
+		return result, err
+	}
+	started := time.Now()
+	remaining := int64(transportBenchmarkBytes)
+	for remaining > 0 {
+		chunk := int64(len(payload))
+		if chunk > remaining {
+			chunk = remaining
+		}
+		if _, err = c.Write(payload[:chunk]); err != nil {
+			c.Close()
+			return result, err
+		}
+		remaining -= chunk
+	}
+	var ack [1]byte
+	if _, err = io.ReadFull(c, ack[:]); err != nil || ack[0] != '!' {
+		c.Close()
+		if err == nil {
+			err = errors.New("worker nie potwierdził testu wysyłania")
+		}
+		return result, err
+	}
+	result.UploadBps = benchmarkRate(transportBenchmarkBytes, time.Since(started))
+	c.Close()
+
+	c, err = n.dialAt(address, "BENCH-DOWN", 12*time.Second)
+	if err != nil {
+		return result, err
+	}
+	started = time.Now()
+	if _, err = io.CopyN(io.Discard, c, transportBenchmarkBytes); err != nil {
+		c.Close()
+		return result, err
+	}
+	result.DownloadBps = benchmarkRate(transportBenchmarkBytes, time.Since(started))
+	result.ScoreBps = benchmarkScore(result.UploadBps, result.DownloadBps)
+	c.Close()
+	if result.UploadBps == 0 || result.DownloadBps == 0 {
+		return result, errors.New("test połączenia nie zwrócił przepustowości")
+	}
+	return result, nil
+}
+
 const (
 	GiB            uint64 = 1 << 30
-	rpcWorkerBuild        = "b12562-ylm-rpc4"
+	rpcWorkerBuild        = "b12562-ylm-rpc5"
 )
 
 func validateWorkerMetadata(info Node) error {
@@ -125,19 +257,34 @@ func validateWorkerInfo(info Node) error {
 	return workerRuntimeError(info)
 }
 
-func (n *Node) refresh() error {
-	c, e := n.dial("INFO")
-	if e != nil {
-		return e
+func (n Node) infoAt(address string) (Node, error) {
+	c, err := n.dialAt(address, "INFO", 6*time.Second)
+	if err != nil {
+		return Node{}, err
 	}
 	defer c.Close()
 	var info Node
-	e = json.NewDecoder(io.LimitReader(c, 4096)).Decode(&info)
-	if e != nil {
-		return e
+	if err = json.NewDecoder(io.LimitReader(c, 4096)).Decode(&info); err != nil {
+		return Node{}, err
 	}
-	if e = validateWorkerMetadata(info); e != nil {
-		return e
+	if err = validateWorkerMetadata(info); err != nil {
+		return Node{}, err
+	}
+	return info, nil
+}
+
+func (n *Node) refresh() error {
+	c, endpoint, err := n.dialEndpoint("INFO")
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	var info Node
+	if err = json.NewDecoder(io.LimitReader(c, 4096)).Decode(&info); err != nil {
+		return err
+	}
+	if err = validateWorkerMetadata(info); err != nil {
+		return err
 	}
 	if info.Used == 0 || info.Used > info.Total {
 		info.Used = info.Total - info.Free
@@ -145,10 +292,24 @@ func (n *Node) refresh() error {
 	if info.Allocation > info.Total {
 		info.Allocation = 0
 	}
-	n.Name, n.Free, n.Total, n.Used, n.Allocation, n.Cores, n.Build, n.Alive =
-		info.Name, info.Free, info.Total, info.Used, info.Allocation, info.Cores, info.Build, info.Alive
+	n.Name, n.Platform, n.Free, n.Total, n.Used, n.Allocation, n.Cores, n.Build, n.Alive =
+		info.Name, info.Platform, info.Free, info.Total, info.Used, info.Allocation, info.Cores, info.Build, info.Alive
 	n.Recovering, n.RestartAttempts, n.RestartCount, n.RecoveryError =
 		info.Recovering, info.RestartAttempts, info.RestartCount, info.RecoveryError
+	previousTransport := n.Transport
+	if endpoint == n.usbAddress && n.usbAddress != "" {
+		n.Transport = "usb"
+		if previousTransport == "wifi" {
+			n.TransportReason = "Wybrane Wi-Fi było niedostępne; użyto awaryjnego szyfrowanego tunelu USB/ADB."
+		}
+	} else if endpoint == n.Address {
+		n.Transport = "wifi"
+		if previousTransport == "usb" {
+			n.TransportReason = "Tunel USB/ADB był niedostępny; użyto awaryjnego szyfrowanego Wi-Fi."
+		} else if n.TransportReason == "" {
+			n.TransportReason = "Połączenie bezpośrednie przez szyfrowany tunel Wi-Fi/LAN."
+		}
+	}
 	return workerRuntimeError(info)
 }
 
@@ -212,6 +373,18 @@ func workerMemoryAssessment(report []byte) string {
 	return assessment.String()
 }
 
+func linkBenchmarkText(value *LinkBenchmark) string {
+	if value == nil {
+		return "brak pomiaru"
+	}
+	return fmt.Sprintf(
+		"wysyłanie %.1f MiB/s, odbiór %.1f MiB/s, ping %.1f ms",
+		float64(value.UploadBps)/float64(1<<20),
+		float64(value.DownloadBps)/float64(1<<20),
+		float64(value.LatencyMicros)/1000,
+	)
+}
+
 func workerDiagnosticsReport(nodes []Node, cached map[string]WorkerDiagnosticSnapshot) string {
 	if len(nodes) == 0 {
 		return ""
@@ -225,10 +398,14 @@ func workerDiagnosticsReport(nodes []Node, cached map[string]WorkerDiagnosticSna
 		}
 		fmt.Fprintf(
 			&out,
-			"\n[%d] %s (%s)\nOstatni pomiar: RAM %.2f/%.2f GiB dostępne, proces %.2f GiB, build %s\n",
+			"\n[%d] %s (%s)\nTransport: %s — %s\nPomiar Wi-Fi: %s; USB/ADB: %s\nOstatni pomiar: RAM %.2f/%.2f GiB dostępne, proces %.2f GiB, build %s\n",
 			i+1,
 			name,
 			node.Address,
+			node.Transport,
+			node.TransportReason,
+			linkBenchmarkText(node.WiFiBenchmark),
+			linkBenchmarkText(node.USBBenchmark),
 			float64(node.Free)/float64(GiB),
 			float64(node.Total)/float64(GiB),
 			float64(node.Allocation)/float64(GiB),
@@ -277,6 +454,38 @@ func (w rpcCountingWriter) Write(data []byte) (int, error) {
 
 func copyRPC(dst io.Writer, src io.Reader, transferred *atomic.Uint64) {
 	_, _ = io.CopyBuffer(rpcCountingWriter{Writer: dst, transferred: transferred}, src, make([]byte, 256<<10))
+}
+
+func serveTransportPing(conn net.Conn, input io.Reader) {
+	_ = conn.SetDeadline(time.Now().Add(12 * time.Second))
+	var value [1]byte
+	for i := 0; i < 5; i++ {
+		if _, err := io.ReadFull(input, value[:]); err != nil {
+			return
+		}
+		if _, err := conn.Write(value[:]); err != nil {
+			return
+		}
+	}
+}
+
+func serveTransportBenchmark(conn net.Conn, input io.Reader, upload bool) {
+	_ = conn.SetDeadline(time.Now().Add(12 * time.Second))
+	if upload {
+		if _, err := io.CopyN(io.Discard, input, transportBenchmarkBytes); err == nil {
+			_, _ = conn.Write([]byte{'!'})
+		}
+		return
+	}
+	payload := make([]byte, 256<<10)
+	remaining := transportBenchmarkBytes
+	for remaining > 0 {
+		chunk := min(len(payload), remaining)
+		if _, err := conn.Write(payload[:chunk]); err != nil {
+			return
+		}
+		remaining -= chunk
+	}
 }
 
 func (n Node) bridge(sent, received *atomic.Uint64) (net.Listener, error) {
