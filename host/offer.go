@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math/big"
 	"net"
 	"os"
@@ -91,9 +90,15 @@ func (a *App) offer(ip string) error {
 	addr := local.Addr().String()
 	_, port, _ := net.SplitHostPort(addr)
 	local.Close()
-	cmd := exec.Command(path, "-H", "127.0.0.1", "-p", port, "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)))
+	cache := filepath.Join(a.dir, "rpc-cache")
+	if e := os.MkdirAll(cache, 0700); e != nil {
+		l.Close()
+		pairListener.Close()
+		return e
+	}
+	cmd := exec.Command(path, "-H", "127.0.0.1", "-p", port, "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "-c")
 	cmd.Dir = filepath.Dir(path)
-	cmd.Env = childEnv()
+	cmd.Env = append(childEnv(), "LLAMA_CACHE="+cache)
 	prepareChild(cmd)
 	if e = cmd.Start(); e != nil {
 		l.Close()
@@ -153,6 +158,7 @@ func (a *App) offer(ip string) error {
 }
 func (o *Offer) serve(c net.Conn) {
 	defer func() { c.Close(); <-o.slots }()
+	tuneTCP(c)
 	c.SetDeadline(time.Now().Add(6 * time.Second))
 	r := bufio.NewReaderSize(c, 128)
 	line, e := r.ReadSlice('\n')
@@ -166,17 +172,25 @@ func (o *Offer) serve(c net.Conn) {
 	switch mode {
 	case "INFO":
 		n, _ := os.Hostname()
-		total, free := memory()
-		json.NewEncoder(c).Encode(Node{Name: n, Total: total, Free: free, Cores: runtime.NumCPU(), Build: "b12562"})
+		stats := systemMemory()
+		allocation := uint64(0)
+		if o.cmd != nil && o.cmd.Process != nil {
+			allocation = memoryForProcess(o.cmd.Process.Pid).Resident
+		}
+		json.NewEncoder(c).Encode(Node{
+			Name: n, Total: stats.Total, Free: stats.Available, Used: stats.Used,
+			Allocation: allocation, Cores: runtime.NumCPU(), Build: "b12562",
+		})
 	case "RPC":
 		local, e := net.DialTimeout("tcp4", o.local, time.Second)
 		if e != nil {
 			return
 		}
 		defer local.Close()
+		tuneTCP(local)
 		c.Write([]byte{'!'})
 		c.SetDeadline(time.Time{})
-		go func() { io.Copy(c, local); c.Close() }()
-		io.Copy(local, r)
+		go func() { copyRPC(c, local); c.Close() }()
+		copyRPC(local, r)
 	}
 }

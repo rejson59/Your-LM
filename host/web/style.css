@@ -263,6 +263,21 @@ h3 { margin: 0 0 5px; font-size: 17px; }
 .metrics small { display: block; color: var(--muted); font: 700 10px ui-monospace, monospace; letter-spacing: .7px; }
 .metrics strong { display: block; margin: 2px 0 -3px; font-size: 25px; letter-spacing: -1px; }
 .metrics p { margin: 0; color: #849087; font-size: 11px; }
+.memoryCommit {
+  display: grid;
+  grid-template-columns: minmax(220px, .8fr) minmax(260px, 1fr);
+  gap: 3px 18px;
+  align-items: center;
+  margin: -5px 0 18px;
+  padding: 14px 17px;
+  border: 1px solid #cfe1d5;
+  border-radius: 13px;
+  color: #355847;
+  background: #edf6f0;
+}
+.memoryCommit b { font-size: 13px; }
+.memoryCommit span { justify-self: end; color: var(--green-dark); font-weight: 800; }
+.memoryCommit small { grid-column: 1 / -1; color: var(--muted); }
 
 .sectionCard {
   padding: 24px;
@@ -488,6 +503,8 @@ dialog > label { margin: 13px 0; }
   .metrics { grid-template-columns: 1fr; gap: 8px; }
   .metrics article { padding: 12px 15px; }
   .metrics strong { font-size: 22px; }
+  .memoryCommit { grid-template-columns: 1fr; margin-top: 0; }
+  .memoryCommit span { justify-self: start; }
   .sectionCard { padding: 18px; border-radius: 15px; }
   .sectionTitle { align-items: flex-start; }
   .textButton { font-size: 12px; }

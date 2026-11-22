@@ -32,13 +32,26 @@ public final class NodeActivity extends Activity {
 
   static final int HOME = 0, WORKER = 1, PHONE = 2;
   final int importRequest = 17;
+  final int notificationRequest = 18;
   LinearLayout page;
-  Worker worker;
   boolean busy, dead;
   int screen = HOME;
-  String lastError = "";
+  int workerRevision = -1;
   TextView phoneStatus;
   AppUpdater updater;
+  final Handler ui = new Handler(Looper.getMainLooper());
+  final Runnable workerUpdates = new Runnable() {
+    public void run() {
+      if (dead) return;
+      WorkerService.Snapshot snapshot = WorkerService.snapshot();
+      if (snapshot.revision != workerRevision) {
+        workerRevision = snapshot.revision;
+        if (screen == WORKER) showWorker();
+        else if (screen == HOME) showHome();
+      }
+      ui.postDelayed(this, 500);
+    }
+  };
 
   int dp(int n) {
     return (int) (getResources().getDisplayMetrics().density * n + .5f);
@@ -126,6 +139,7 @@ public final class NodeActivity extends Activity {
     });
     showHome();
     updater.check();
+    ui.post(workerUpdates);
   }
 
   void topBar(boolean back, String section) {
@@ -185,12 +199,19 @@ public final class NodeActivity extends Activity {
       lp(-1, -2, 0, 22)
     );
 
+    WorkerService.Snapshot workerState = WorkerService.snapshot();
     LinearLayout workerCard = roleCard(
       "01",
       "Pomóż laptopowi",
-      "Telefon jako worker",
-      "Laptop przechowuje model GGUF, a telefon oblicza część warstw przez prywatne Wi-Fi.",
-      "Najlepszy wybór dla Lenovo + Redmi",
+      workerState.phase == WorkerService.RUNNING
+        ? "Worker działa w tle"
+        : "Telefon jako worker",
+      workerState.phase == WorkerService.RUNNING
+        ? "Telefon nadal oblicza warstwy dla laptopa. Możesz wyłączyć ekran lub zamknąć ten widok."
+        : "Laptop przechowuje model GGUF, a telefon oblicza część warstw przez prywatne Wi-Fi.",
+      workerState.phase == WorkerService.RUNNING
+        ? "Dotknij, aby zobaczyć adres, kod lub zatrzymać"
+        : "Najlepszy wybór dla Lenovo + Redmi",
       true
     );
     workerCard.setOnClickListener(v -> showWorker());
@@ -315,8 +336,9 @@ public final class NodeActivity extends Activity {
     ((ActivityManager) getSystemService(ACTIVITY_SERVICE)).getMemoryInfo(m);
     return String.format(
       Locale.getDefault(),
-      "%.1f GiB RAM • %.1f GiB teraz dostępne",
+      "%.1f GiB fizyczne • %.1f GiB system i aplikacje • %.1f GiB dostępne teraz",
       m.totalMem / 1073741824.0,
+      (m.totalMem - m.availMem) / 1073741824.0,
       m.availMem / 1073741824.0
     );
   }
@@ -331,7 +353,7 @@ public final class NodeActivity extends Activity {
     page.addView(h, lp(-1, -2, 7, 7));
     page.addView(
       text(
-        "Model zostaje na laptopie. Telefon nie potrzebuje pliku GGUF i nie skanuje żadnego kodu.",
+        "Plik GGUF zostaje na laptopie. Telefon może zachować prywatną pamięć podręczną przydzielonych wag, aby kolejne uruchomienie było znacznie szybsze.",
         15,
         MUTED,
         false
@@ -339,34 +361,49 @@ public final class NodeActivity extends Activity {
       lp(-1, -2, 0, 18)
     );
 
-    if (worker == null) drawWorkerStopped();
-    else drawWorkerRunning();
+    WorkerService.Snapshot snapshot = WorkerService.snapshot();
+    workerRevision = snapshot.revision;
+    if (snapshot.phase == WorkerService.RUNNING && snapshot.worker != null) {
+      drawWorkerRunning(snapshot.worker);
+    } else {
+      drawWorkerStopped(snapshot);
+    }
   }
 
-  void drawWorkerStopped() {
-    LinearLayout status = card(lastError.isEmpty() ? SURFACE : RED_BG, lastError.isEmpty() ? LINE : 0xffffb7ae);
-    status.addView(
-      text(
-        lastError.isEmpty() ? (busy ? "Uruchamianie silnika…" : "Worker jest wyłączony") : "Nie udało się uruchomić workera",
-        20,
-        lastError.isEmpty() ? INK : RED,
-        true
-      )
+  void drawWorkerStopped(WorkerService.Snapshot snapshot) {
+    boolean failed = snapshot.phase == WorkerService.FAILED;
+    boolean starting = snapshot.phase == WorkerService.STARTING;
+    boolean stopping = snapshot.phase == WorkerService.STOPPING;
+    LinearLayout status = card(
+      failed ? RED_BG : SURFACE,
+      failed ? 0xffffb7ae : LINE
     );
+    String heading = failed
+      ? "Nie udało się uruchomić workera"
+      : starting
+        ? "Uruchamianie workera w tle…"
+        : stopping
+          ? "Zatrzymywanie workera…"
+          : "Worker jest wyłączony";
+    status.addView(text(heading, 20, failed ? RED : INK, true));
     status.addView(
       text(
-        lastError.isEmpty()
-          ? (busy ? "Sprawdzamy silnik Android ARM64 i prywatny adres Wi-Fi." : memoryLine())
-          : lastError,
+        failed
+          ? snapshot.error
+          : starting
+            ? "Przygotowujemy silnik, blokadę CPU i szybkie połączenie Wi-Fi."
+            : stopping
+              ? "Kończymy aktywne połączenia i zwalniamy zasoby telefonu."
+              : memoryLine(),
         14,
-        lastError.isEmpty() ? MUTED : 0xff74281f,
+        failed ? 0xff74281f : MUTED,
         false
       ),
       lp(-1, -2, 7, 0)
     );
-    if (!lastError.isEmpty()) {
+    if (failed && !snapshot.error.isEmpty()) {
       Button copyLog = button("Kopiuj diagnostykę", false);
-      copyLog.setOnClickListener(v -> copy("Diagnostyka YourLM", lastError));
+      copyLog.setOnClickListener(v -> copy("Diagnostyka YourLM", snapshot.error));
       status.addView(copyLog, lp(-1, dp(50), 14, 0));
     }
     page.addView(status, lp(-1, -2, 0, 14));
@@ -374,17 +411,17 @@ public final class NodeActivity extends Activity {
     LinearLayout steps = card(SURFACE, LINE);
     steps.addView(label("TRZY KROKI"));
     addStep(steps, "1", "Połącz laptop i telefon z tym samym prywatnym Wi-Fi.");
-    addStep(steps, "2", "Uruchom worker poniżej i pozostaw ten ekran otwarty.");
+    addStep(steps, "2", "Uruchom worker. Potem możesz wyłączyć ekran lub zamknąć aplikację.");
     addStep(steps, "3", "Na laptopie wybierz „Dodaj telefon” i przepisz adres oraz kod.");
     page.addView(steps, lp(-1, -2, 0, 14));
 
-    Button start = button(busy ? "Uruchamianie…" : "Uruchom worker", true);
-    start.setEnabled(!busy);
+    Button start = button(starting ? "Uruchamianie…" : "Uruchom worker w tle", true);
+    start.setEnabled(!starting && !stopping);
     start.setOnClickListener(v -> startWorker());
     page.addView(start, lp(-1, dp(56), 0, 10));
     page.addView(
       text(
-        "Po uruchomieniu ekran pozostanie aktywny. Zatrzymaj worker, jeśli telefon robi się gorący.",
+        "Stałe powiadomienie pozwala zatrzymać worker. Android utrzyma CPU i Wi-Fi podczas obliczeń przy wyłączonym ekranie.",
         12,
         MUTED,
         false
@@ -405,14 +442,13 @@ public final class NodeActivity extends Activity {
     parent.addView(row, lp(-1, -2, 14, 0));
   }
 
-  void drawWorkerRunning() {
-    Worker w = worker;
+  void drawWorkerRunning(Worker w) {
     LinearLayout ready = card(GREEN_DARK, 0);
     TextView online = text("●  WORKER GOTOWY", 12, 0xffb9f3d2, true);
     online.setLetterSpacing(.08f);
     ready.addView(online);
     ready.addView(
-      text("Pozostaw ten ekran otwarty", 23, Color.WHITE, true),
+      text("Działa w tle — ekran może być wyłączony", 23, Color.WHITE, true),
       lp(-1, -2, 8, 3)
     );
     ready.addView(
@@ -501,57 +537,38 @@ public final class NodeActivity extends Activity {
   }
 
   void startWorker() {
-    if (busy || worker != null) return;
-    busy = true;
-    lastError = "";
+    if (busy || WorkerService.snapshot().active()) return;
+    if (
+      Build.VERSION.SDK_INT >= 33 &&
+      checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+        android.content.pm.PackageManager.PERMISSION_GRANTED
+    ) {
+      requestPermissions(
+        new String[] { android.Manifest.permission.POST_NOTIFICATIONS },
+        notificationRequest
+      );
+      return;
+    }
+    WorkerService.requestStart(getApplicationContext());
     showWorker();
-    Worker w = new Worker(this);
-    worker = w;
-    new Thread(
-      () -> {
-        try {
-          w.start();
-          runOnUiThread(() -> {
-            if (dead || worker != w) {
-              w.close();
-              return;
-            }
-            busy = false;
-            getWindow().addFlags(
-              WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-            );
-            showWorker();
-          });
-          w.listen();
-        } catch (Exception e) {
-          runOnUiThread(() -> {
-            if (!dead && worker == w) {
-              worker = null;
-              busy = false;
-              lastError = e.getMessage() == null
-                ? e.getClass().getSimpleName()
-                : e.getMessage();
-              getWindow().clearFlags(
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
-              );
-              showWorker();
-            }
-          });
-        } finally {
-          w.close();
-        }
-      },
-      "YourLM-worker"
-    ).start();
+  }
+
+  public void onRequestPermissionsResult(
+    int requestCode,
+    String[] permissions,
+    int[] results
+  ) {
+    super.onRequestPermissionsResult(requestCode, permissions, results);
+    if (requestCode == notificationRequest) {
+      // Android still permits a foreground task when notification permission is
+      // declined, but granting it exposes the persistent one-tap stop action.
+      WorkerService.requestStart(getApplicationContext());
+      showWorker();
+    }
   }
 
   void stopWorker(boolean redraw) {
-    Worker old = worker;
-    worker = null;
-    busy = false;
-    lastError = "";
-    if (old != null) old.close();
-    getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+    WorkerService.requestStop(getApplicationContext());
     if (redraw && !dead) showWorker();
   }
 
@@ -597,7 +614,7 @@ public final class NodeActivity extends Activity {
       )
     );
     Button add = button(busy ? "Kopiowanie…" : "Dodaj plik GGUF", false);
-    add.setEnabled(!busy && worker == null);
+    add.setEnabled(!busy && !WorkerService.snapshot().active());
     add.setOnClickListener(v -> chooseModel());
     library.addView(add, lp(-1, dp(52), 14, 0));
     page.addView(library, lp(-1, -2, 0, 14));
@@ -614,7 +631,7 @@ public final class NodeActivity extends Activity {
       )
     );
     Button open = button("Otwórz konsolę", true);
-    open.setEnabled(!busy && worker == null);
+    open.setEnabled(!busy && !WorkerService.snapshot().active());
     open.setOnClickListener(v -> startActivity(new Intent(this, HostActivity.class)));
     console.addView(open, lp(-1, dp(54), 14, 0));
     page.addView(console, lp(-1, -2, 0, 14));
@@ -624,7 +641,7 @@ public final class NodeActivity extends Activity {
   }
 
   void chooseModel() {
-    if (busy || worker != null) return;
+    if (busy || WorkerService.snapshot().active()) return;
     Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
     i.addCategory(Intent.CATEGORY_OPENABLE);
     i.setType("*/*");
@@ -711,19 +728,8 @@ public final class NodeActivity extends Activity {
   }
 
   public void onBackPressed() {
-    if (screen == WORKER && worker != null) {
-      new AlertDialog.Builder(this)
-        .setTitle("Zatrzymać worker?")
-        .setMessage("Laptop utraci połączenie z telefonem.")
-        .setNegativeButton("Zostań", null)
-        .setPositiveButton("Zatrzymaj", (d, i) -> {
-          stopWorker(false);
-          showHome();
-        })
-        .show();
-      return;
-    }
     if (screen != HOME) {
+      // Leaving this screen must not stop an active foreground worker.
       showHome();
       return;
     }
@@ -737,7 +743,8 @@ public final class NodeActivity extends Activity {
 
   protected void onDestroy() {
     dead = true;
-    stopWorker(false);
+    ui.removeCallbacks(workerUpdates);
+    // WorkerService owns the native process; Activity destruction is only UI.
     super.onDestroy();
   }
 }

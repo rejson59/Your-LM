@@ -103,6 +103,30 @@ if not any(re.fullmatch(r"(?:10|172\.(?:1[6-9]|2\d|3[01])|192\.168)\.[0-9.]+:\d+
 PY
 cp "$xml" test-output/android-worker-ready.xml
 
+# The worker is service-owned: backgrounding the Activity and switching the
+# display off must leave both the foreground service and native RPC process up.
+adb shell input keyevent 3
+sleep 3
+adb shell dumpsys activity services pl.yourlm.node | grep -q 'WorkerService'
+adb shell ps -A | grep -q 'libylm_rpc'
+adb shell dumpsys notification --noredact | grep -q 'Worker YourLM'
+adb shell input keyevent 26
+sleep 5
+adb shell dumpsys activity services pl.yourlm.node | grep -q 'WorkerService'
+adb shell ps -A | grep -q 'libylm_rpc'
+adb shell dumpsys power | grep -q 'YourLM:WorkerCPU'
+adb shell input keyevent 26
+adb shell wm dismiss-keyguard || true
+adb shell am start -W -n pl.yourlm.node/.NodeActivity >/dev/null
+sleep 2
+pull_ui
+python3 - "$xml" <<'PY'
+import sys, xml.etree.ElementTree as ET
+texts=[n.attrib.get("text","") for n in ET.parse(sys.argv[1]).iter("node")]
+if not any("WORKER GOTOWY" in value or "Worker działa w tle" in value for value in texts):
+    raise SystemExit(f"foreground worker was not restored in UI; visible={texts}")
+PY
+
 if adb logcat -d '*:E' | grep -q 'FATAL EXCEPTION.*pl.yourlm.node'; then
   adb logcat -d
   echo "Android app crashed" >&2

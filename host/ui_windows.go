@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"syscall"
 	"unsafe"
+
+	webview "github.com/jchv/go-webview2"
+	"github.com/jchv/go-webview2/webviewloader"
 )
 
 type openFilename struct {
@@ -48,6 +51,41 @@ func chooseModel() (string, error) {
 		return "", nil // user cancelled
 	}
 	return "", fmt.Errorf("systemowy wybór pliku nie powiódł się (0x%x)", code)
+}
+
+// runDesktopUI hosts the existing local panel in a real application window.
+// The embedded loader remains inside the single EXE; Windows supplies the
+// WebView2 runtime. Errors are returned so main can retain a browser fallback
+// for older or damaged Windows installations.
+func runDesktopUI(url, dataPath string) (err error) {
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("WebView2 nie uruchomił okna: %v", recovered)
+		}
+	}()
+	version, err := webviewloader.GetInstalledVersion()
+	if err != nil {
+		return fmt.Errorf("nie można sprawdzić WebView2: %w", err)
+	}
+	if version == "" {
+		return errors.New("brak środowiska Microsoft Edge WebView2")
+	}
+	window := webview.NewWithOptions(webview.WebViewOptions{
+		DataPath:  dataPath,
+		AutoFocus: true,
+		WindowOptions: webview.WindowOptions{
+			Title: "YourLM — prywatna AI",
+			Width: 1040, Height: 700, Center: true,
+		},
+	})
+	if window == nil {
+		return errors.New("WebView2 odmówił utworzenia okna")
+	}
+	defer window.Destroy()
+	window.SetSize(840, 600, webview.HintMin)
+	window.Navigate(url)
+	window.Run()
+	return nil
 }
 
 func openURL(url string) error {

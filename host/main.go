@@ -268,6 +268,7 @@ func (a *App) start(bind string, port int) error {
 		close(s.done)
 	}()
 	go a.check(s)
+	go a.monitorNodes(s)
 	return nil
 }
 
@@ -315,8 +316,45 @@ func (a *App) check(s *Session) {
 		}
 	}
 }
+func (a *App) monitorNodes(session *Session) {
+	if session.workers == 0 {
+		return
+	}
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-session.done:
+			return
+		case <-ticker.C:
+			a.Lock()
+			if a.s != session {
+				a.Unlock()
+				return
+			}
+			nodes := append([]Node(nil), a.nodes...)
+			a.Unlock()
+			for i := range nodes {
+				if err := nodes[i].refresh(); err != nil {
+					continue
+				}
+				a.Lock()
+				if a.s == session {
+					for j := range a.nodes {
+						if a.nodes[j].Address == nodes[i].Address {
+							a.nodes[j] = nodes[i]
+							break
+						}
+					}
+				}
+				a.Unlock()
+			}
+		}
+	}
+}
+
 func (a *App) state() map[string]any {
-	total, free := memory()
+	hostMemory := systemMemory()
 	hostname, _ := os.Hostname()
 	models := []string{}
 	entries, _ := os.ReadDir(a.library)
@@ -326,12 +364,16 @@ func (a *App) state() map[string]any {
 		}
 	}
 	var session, engine any
+	hostProcess := ProcessMemory{}
 	if s := a.s; s != nil {
+		if s.cmd != nil && s.cmd.Process != nil {
+			hostProcess = memoryForProcess(s.cmd.Process.Pid)
+		}
 		engineLog := cleanEngineLog(engineLogTail(s.logPath, 24<<10))
 		elapsed := int(time.Since(s.started).Seconds())
 		mode := "Windows mmap · bez testu fizycznego RAM"
 		if s.workers > 0 {
-			mode = fmt.Sprintf("%d workerów · automatyczny podział · rezerwa 0 MiB", s.workers)
+			mode = fmt.Sprintf("%d workerów · automatyczny podział · rezerwa 0 MiB · trwała pamięć podręczna RPC", s.workers)
 		}
 		session = map[string]any{"url": s.url + "/v1", "key": s.key, "layers": s.layers, "name": s.name, "ready": s.ready}
 		engine = map[string]any{
@@ -353,32 +395,67 @@ func (a *App) state() map[string]any {
 		code = a.off.code
 		offerAddress = a.off.pairAt
 		offerKey = a.off.manualKey
+		if a.off.cmd != nil && a.off.cmd.Process != nil {
+			hostProcess = memoryForProcess(a.off.cmd.Process.Pid)
+		}
 	}
 	advice := ""
-	available := free
-	physical := total
+	available := hostMemory.Available
+	physical := hostMemory.Total
+	osUsed := hostMemory.Used
+	workerAllocation := uint64(0)
 	for _, node := range a.nodes {
 		available += node.Free
 		physical += node.Total
+		if node.Used > 0 {
+			osUsed += node.Used
+		} else if node.Total >= node.Free {
+			osUsed += node.Total - node.Free
+		}
+		workerAllocation += node.Allocation
 	}
+	actualAllocation := hostProcess.Resident + workerAllocation
+	mappedModel := a.model.Size
 	if a.model.Name != "" && a.s == nil {
 		if len(a.nodes) == 0 {
 			advice = fmt.Sprintf(
-				"Model %.1f GiB jest odblokowany. Host ma %.1f GiB fizycznego RAM i %.1f GiB dostępne teraz. YourLM nie zastosuje limitu planisty ani testu dopasowania do fizycznego RAM: Windows spróbuje załadować GGUF przez mmap i w razie potrzeby odczytywać wagi z dysku. Kliknij „Uruchom model bez limitu”.",
+				"Model %.1f GiB jest odblokowany. %.1f GiB to cały fizyczny RAM hosta; %.1f GiB zajmują teraz Windows i aplikacje, a %.1f GiB jest natychmiast dostępne. To nie jest limit rozmiaru modelu: cały GGUF zostanie zmapowany z dysku przez mmap, a Windows ma jeszcze %.1f GiB wolnego limitu zatwierdzeń. YourLM nie wykona konserwatywnego odrzucenia.",
 				float64(a.model.Size)/float64(GiB),
 				float64(physical)/float64(GiB),
+				float64(osUsed)/float64(GiB),
 				float64(available)/float64(GiB),
+				float64(hostMemory.CommitAvailable)/float64(GiB),
 			)
 		} else {
 			advice = fmt.Sprintf(
-				"Model %.1f GiB jest odblokowany. Urządzenia mają łącznie %.1f GiB fizycznego RAM i %.1f GiB dostępne teraz. Rezerwa YourLM dla workerów wynosi 0 MiB: llama.cpp wykorzysta całe zgłaszane wolne miejsce, a pozostałe wagi zostawi w mmap na hoście. Kliknij „Uruchom model bez limitu”.",
+				"Model %.1f GiB jest odblokowany. Lenovo i workery mają razem %.1f GiB fizycznego RAM: %.1f GiB zajmują teraz systemy i aplikacje, a %.1f GiB jest natychmiast dostępne. Dostępne teraz nie jest limitem całej puli: rezerwa YourLM wynosi 0 MiB, worker wykorzysta maksymalny praktyczny przydział, a reszta GGUF pozostanie w mmap Windows. Pamięć RPC przyspieszy kolejne uruchomienia.",
 				float64(a.model.Size)/float64(GiB),
 				float64(physical)/float64(GiB),
+				float64(osUsed)/float64(GiB),
 				float64(available)/float64(GiB),
 			)
 		}
 	}
-	return map[string]any{"version": buildVersion, "commit": buildCommit, "advice": advice, "modelWarning": false, "offer": code, "offerAddress": offerAddress, "offerKey": offerKey, "host": hostname, "os": runtime.GOOS, "cores": runtime.NumCPU(), "total": total, "free": free, "available": available, "physical": physical, "fitReserveMiB": 0, "nodes": a.nodes, "ips": ips(), "model": a.model, "models": models, "library": a.library, "runtime": a.hasRuntime(), "session": session, "engine": engine, "usb": a.usb, "update": a.update, "last": a.last}
+	memoryState := map[string]any{
+		"host": hostMemory, "hostProcess": hostProcess,
+		"physical": physical, "osUsed": osUsed, "available": available,
+		"mappedModel": mappedModel, "actualAllocation": actualAllocation,
+		"workerAllocation": workerAllocation,
+		"commitLimit":      hostMemory.CommitLimit,
+		"commitAvailable":  hostMemory.CommitAvailable,
+		"pageFile":         hostMemory.PageFile,
+	}
+	return map[string]any{
+		"version": buildVersion, "commit": buildCommit, "advice": advice,
+		"modelWarning": false, "offer": code, "offerAddress": offerAddress,
+		"offerKey": offerKey, "host": hostname, "os": runtime.GOOS,
+		"cores": runtime.NumCPU(), "total": hostMemory.Total,
+		"free": hostMemory.Available, "available": available,
+		"physical": physical, "fitReserveMiB": 0, "memory": memoryState,
+		"nodes": a.nodes, "ips": ips(), "model": a.model, "models": models,
+		"library": a.library, "runtime": a.hasRuntime(), "session": session,
+		"engine": engine, "usb": a.usb, "update": a.update, "last": a.last,
+	}
 }
 
 type input struct {
@@ -597,26 +674,52 @@ func main() {
 	assets, _ := fs.Sub(web, "web")
 	mux.Handle("/", http.FileServer(http.FS(assets)))
 	srv := &http.Server{Handler: guard(addr, secret, mux), ReadHeaderTimeout: 10 * time.Second}
+	serveResult := make(chan error, 1)
+	go func() {
+		err := srv.Serve(l)
+		if err == http.ErrServerClosed {
+			err = nil
+		}
+		serveResult <- err
+	}()
+	var stopOnce sync.Once
+	shutdown := func() {
+		stopOnce.Do(func() {
+			a.Lock()
+			if a.off != nil {
+				a.off.close()
+			}
+			if a.s != nil && a.s.cmd != nil && a.s.cmd.Process != nil {
+				_ = a.s.cmd.Process.Kill()
+			}
+			a.Unlock()
+			_ = srv.Close()
+		})
+	}
+	defer shutdown()
+
 	if !*nobrowser && runtime.GOOS == "windows" {
-		if e := openURL(url); e != nil {
-			log.Print("Nie udało się otworzyć przeglądarki: ", e)
+		runtime.LockOSThread()
+		err := runDesktopUI(url, filepath.Join(dir, "webview2"))
+		runtime.UnlockOSThread()
+		if err == nil {
+			return // Closing the native window closes the local controller.
+		}
+		log.Print("Natywne okno jest niedostępne, używam przeglądarki awaryjnie: ", err)
+		if err = openURL(url); err != nil {
+			log.Print("Nie udało się otworzyć interfejsu: ", err)
 		}
 	}
+
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-signals
-		a.Lock()
-		if a.off != nil {
-			a.off.close()
+	defer signal.Stop(signals)
+	select {
+	case <-signals:
+		return
+	case err := <-serveResult:
+		if err != nil {
+			log.Print("Lokalny interfejs zakończył pracę: ", err)
 		}
-		if a.s != nil {
-			a.s.cmd.Process.Kill()
-		}
-		a.Unlock()
-		srv.Close()
-	}()
-	if e := srv.Serve(l); e != nil && e != http.ErrServerClosed {
-		log.Fatal(e)
 	}
 }

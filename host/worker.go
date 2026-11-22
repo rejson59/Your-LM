@@ -20,6 +20,8 @@ type Node struct {
 	Name        string `json:"name"`
 	Total       uint64 `json:"total"`
 	Free        uint64 `json:"free"`
+	Used        uint64 `json:"used"`
+	Allocation  uint64 `json:"allocation"`
 	Cores       int    `json:"cores"`
 	Build       string `json:"build"`
 	Address     string `json:"address"`
@@ -46,6 +48,17 @@ func parseCode(s string) (Node, error) {
 	}
 	return Node{Address: p[1], pin: p[2], secret: p[3]}, nil
 }
+func tuneTCP(conn net.Conn) {
+	if tlsConn, ok := conn.(*tls.Conn); ok {
+		conn = tlsConn.NetConn()
+	}
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		_ = tcp.SetNoDelay(true)
+		_ = tcp.SetReadBuffer(1 << 20)
+		_ = tcp.SetWriteBuffer(1 << 20)
+	}
+}
+
 func (n Node) dial(mode string) (net.Conn, error) {
 	pin, _ := hex.DecodeString(n.pin)
 	c, e := tls.DialWithDialer(&net.Dialer{Timeout: 5 * time.Second}, "tcp4", n.Address, &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true, // Trust the certificate fingerprint transferred out of band, not a public CA.
@@ -61,6 +74,7 @@ func (n Node) dial(mode string) (net.Conn, error) {
 	if e != nil {
 		return nil, e
 	}
+	tuneTCP(c)
 	c.SetDeadline(time.Now().Add(6 * time.Second))
 	_, e = fmt.Fprintf(c, "%s %s\n", mode, n.secret)
 	if e != nil {
@@ -86,9 +100,20 @@ func (n *Node) refresh() error {
 	if info.Build != "b12562" || info.Total == 0 || info.Free > info.Total || info.Cores <= 0 {
 		return errors.New("Niekompatybilny worker")
 	}
-	n.Name, n.Free, n.Total, n.Cores, n.Build = info.Name, info.Free, info.Total, info.Cores, info.Build
+	if info.Used == 0 || info.Used > info.Total {
+		info.Used = info.Total - info.Free
+	}
+	if info.Allocation > info.Total {
+		info.Allocation = 0
+	}
+	n.Name, n.Free, n.Total, n.Used, n.Allocation, n.Cores, n.Build =
+		info.Name, info.Free, info.Total, info.Used, info.Allocation, info.Cores, info.Build
 	return nil
 }
+func copyRPC(dst io.Writer, src io.Reader) {
+	_, _ = io.CopyBuffer(dst, src, make([]byte, 256<<10))
+}
+
 func (n Node) bridge() (net.Listener, error) {
 	l, e := net.Listen("tcp4", "127.0.0.1:0")
 	if e != nil {
@@ -102,6 +127,7 @@ func (n Node) bridge() (net.Listener, error) {
 			}
 			go func() {
 				defer local.Close()
+				tuneTCP(local)
 				remote, e := n.dial("RPC")
 				if e != nil {
 					return
@@ -113,8 +139,8 @@ func (n Node) bridge() (net.Listener, error) {
 					return
 				}
 				remote.SetDeadline(time.Time{})
-				go func() { io.Copy(remote, local); remote.Close() }()
-				io.Copy(local, r)
+				go func() { copyRPC(remote, local); remote.Close() }()
+				copyRPC(local, r)
 			}()
 		}
 	}()

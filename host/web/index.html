@@ -36,7 +36,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc3 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc4 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -87,11 +87,15 @@
               <div class="step"><span>3</span><div><b>Uruchom czat lub API</b><small>OpenAI-compatible /v1</small></div></div>
             </div>
 
-            <div class="metrics">
+            <div class="metrics memoryMetrics">
               <article><span class="metricIcon">●</span><div><small>URZĄDZENIA</small><strong id="count">—</strong><p>host + workery</p></div></article>
-              <article><span class="metricIcon">▤</span><div><small>FIZYCZNY RAM</small><strong id="ram">—</strong><p>bez rozszerzeń flash</p></div></article>
-              <article><span class="metricIcon">◒</span><div><small>RAM DOSTĘPNY TERAZ</small><strong id="capacity">—</strong><p>host + workery, przed startem</p></div></article>
+              <article><span class="metricIcon">▤</span><div><small>CAŁY FIZYCZNY RAM</small><strong id="ram">—</strong><p>pełna pula Lenovo + Redmi</p></div></article>
+              <article><span class="metricIcon">◐</span><div><small>SYSTEMY I APLIKACJE</small><strong id="usedRam">—</strong><p>zajęte w tej chwili</p></div></article>
+              <article><span class="metricIcon">◒</span><div><small>DOSTĘPNE NATYCHMIAST</small><strong id="capacity">—</strong><p>to nie limit wielkości GGUF</p></div></article>
+              <article><span class="metricIcon">↔</span><div><small>ZMAPOWANY MODEL</small><strong id="mappedRam">—</strong><p>mmap może czytać strony z dysku</p></div></article>
+              <article><span class="metricIcon">Y</span><div><small>AKTYWNA ALOKACJA YOURLM</small><strong id="processRam">—</strong><p>rzeczywisty RAM procesów silnika</p></div></article>
             </div>
+            <div class="memoryCommit"><b id="commitTitle">Pamięć mapowana i limit systemu</b><span id="commitRam">—</span><small id="commitHelp">Limit zatwierdzeń nie jest sztucznym budżetem YourLM.</small></div>
 
             <article class="sectionCard devicesCard">
               <div class="sectionTitle">
@@ -209,7 +213,7 @@
 
             <article class="sectionCard recommendation">
               <span class="recommendIcon">i</span>
-              <div><h3>Ten model jest odblokowany</h3><p>Nie ma już konserwatywnego progu ani sztucznej rezerwy YourLM. Kliknij <b>Uruchom model bez limitu</b>. Gemma 4 26B-A4B może długo ładować się z mmap/dysku; jeśli system rzeczywiście wyczerpie pamięć, Windows lub Android może przerwać proces.</p></div>
+              <div><h3>Ten model jest odblokowany — 12,4 GiB może zostać zmapowane</h3><p>Nie ma konserwatywnego progu ani sztucznej rezerwy YourLM. Windows mapuje cały GGUF i stronicuje jego strony, a worker używa maksymalnego praktycznego przydziału. Pierwszy transfer przez Wi-Fi może potrwać; prywatna pamięć podręczna RPC znacznie przyspiesza kolejne uruchomienia tego samego modelu.</p></div>
             </article>
           </section>
 
@@ -227,7 +231,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc3</span><span>JEDEN EXE · USB/ADB · AUTOMATYCZNE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc4</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>

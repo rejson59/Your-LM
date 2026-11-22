@@ -118,6 +118,20 @@ final class Worker implements Closeable {
     return m;
   }
 
+  long processResidentBytes() {
+    if (rpc == null || !rpc.isAlive() || Build.VERSION.SDK_INT < 26) return 0;
+    File status = new File("/proc/" + rpc.pid() + "/status");
+    try (BufferedReader reader = new BufferedReader(new FileReader(status))) {
+      String line;
+      while ((line = reader.readLine()) != null) {
+        if (!line.startsWith("VmRSS:")) continue;
+        String[] fields = line.trim().split("\\s+");
+        return fields.length >= 2 ? Long.parseLong(fields[1]) * 1024L : 0;
+      }
+    } catch (Exception ignored) {}
+    return 0;
+  }
+
   /** Reject a packaging regression before Android tries to execute it. */
   static void requireAndroid64Pie(File bin) throws IOException {
     byte[] h = new byte[20];
@@ -248,12 +262,16 @@ final class Worker implements Closeable {
       "-p",
       "" + rpcPort,
       "-t",
-      "" + Math.max(1, Runtime.getRuntime().availableProcessors() / 2)
+      "" + Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
+      "-c"
     )
       .redirectErrorStream(true)
       .redirectOutput(logFile);
+    File rpcCache = new File(ctx.getFilesDir(), "rpc-cache");
+    rpcCache.mkdirs();
     builder.environment().put("HOME", ctx.getFilesDir().getPath());
     builder.environment().put("TMPDIR", ctx.getCacheDir().getPath());
+    builder.environment().put("LLAMA_CACHE", rpcCache.getPath());
     try {
       rpc = builder.start();
     } catch (IOException e) {
@@ -366,6 +384,11 @@ final class Worker implements Closeable {
           e
         );
       }
+      try {
+        s.setTcpNoDelay(true);
+        s.setReceiveBufferSize(1024 * 1024);
+        s.setSendBufferSize(1024 * 1024);
+      } catch (Exception ignored) {}
       active.add(s);
       try {
         clients.execute(() -> serve(s));
@@ -455,6 +478,8 @@ final class Worker implements Closeable {
           .put("name", Build.MANUFACTURER + " " + Build.MODEL)
           .put("total", m.totalMem)
           .put("free", m.availMem)
+          .put("used", Math.max(0, m.totalMem - m.availMem))
+          .put("allocation", processResidentBytes())
           .put("cores", Runtime.getRuntime().availableProcessors())
           .put("build", "b12562")
           .toString();
@@ -465,6 +490,8 @@ final class Worker implements Closeable {
       try (Socket local = new Socket("127.0.0.1", rpcPort)) {
         s.setSoTimeout(0);
         local.setTcpNoDelay(true);
+        local.setReceiveBufferSize(1024 * 1024);
+        local.setSendBufferSize(1024 * 1024);
         s.setTcpNoDelay(true);
         s.getOutputStream().write('!');
         Thread back = new Thread(() -> {
@@ -485,7 +512,7 @@ final class Worker implements Closeable {
   }
 
   static void pump(InputStream in, OutputStream out) throws IOException {
-    byte[] buf = new byte[32768];
+    byte[] buf = new byte[262144];
     int n;
     while ((n = in.read(buf)) != -1) out.write(buf, 0, n);
   }

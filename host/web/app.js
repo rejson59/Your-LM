@@ -171,12 +171,30 @@ function render(nextState) {
   const workers = state.nodes || [];
   const session = state.session;
   const engineState = state.engine || {};
-  const totalRam = workers.reduce((sum, node) => sum + node.total, state.total);
-  const availableRam = workers.reduce((sum, node) => sum + node.free, state.free);
+  const memory = state.memory || {};
+  const totalRam = Number(memory.physical ?? workers.reduce((sum, node) => sum + node.total, state.total));
+  const availableRam = Number(memory.available ?? workers.reduce((sum, node) => sum + node.free, state.free));
+  const osUsed = Number(memory.osUsed ?? Math.max(0, totalRam - availableRam));
+  const mappedModel = Number(memory.mappedModel || 0);
+  const actualAllocation = Number(memory.actualAllocation || 0);
   $("count").textContent = 1 + workers.length;
   $("ram").textContent = gib(totalRam) + " GiB";
+  $("usedRam").textContent = gib(osUsed) + " GiB";
   $("capacity").textContent = gib(availableRam) + " GiB";
-  $("capacity").title = "Pamięć dostępna według systemów przed uruchomieniem modelu. Tryb maksymalny może dodatkowo użyć pamięci mapowanej i pliku stronicowania hosta.";
+  $("mappedRam").textContent = mappedModel ? gib(mappedModel) + " GiB" : "—";
+  $("processRam").textContent = actualAllocation ? gib(actualAllocation) + " GiB" : session ? "pomiar…" : "0 GiB";
+  $("capacity").title = "Pamięć natychmiast dostępna według systemów. Nie jest limitem rozmiaru mapowanego modelu.";
+  const commitAvailable = Number(memory.commitAvailable || 0);
+  const pageFile = Number(memory.pageFile || 0);
+  $("commitTitle").textContent = state.os === "windows"
+    ? "Windows: pamięć mapowana i plik stronicowania"
+    : "Host: pamięć mapowana i limit systemu";
+  $("commitRam").textContent = state.os === "windows"
+    ? `${gib(commitAvailable)} GiB wolnego limitu zatwierdzeń · ${gib(pageFile)} GiB pliku stronicowania`
+    : `${gib(commitAvailable)} GiB wolnego limitu zatwierdzeń hosta`;
+  $("commitHelp").textContent = mappedModel
+    ? `Wybrany plik ${gib(mappedModel)} GiB jest mapowany jako strony pliku; zajętość RAM rośnie według rzeczywiście używanych stron i buforów.`
+    : "Wybierz GGUF, aby zobaczyć jego pełny rozmiar mapowania osobno od wolnego RAM.";
 
   if (state.offer) {
     $("mode").textContent = "Ten komputer jest workerem";
@@ -193,13 +211,13 @@ function render(nextState) {
     device(
       state.host,
       "HOST",
-      `${state.os === "windows" ? "Windows" : "Android"} · ${state.cores} wątków · ${gib(state.total)} GiB fizyczne · ${gib(state.free)} GiB dostępne · rezerwa YourLM 0 MiB · model bez limitu planisty (mmap)`,
+      `${state.os === "windows" ? "Windows" : "Android"} · ${state.cores} wątków · ${gib(state.total)} GiB fizyczne · ${gib(memory.host?.used || Math.max(0, state.total - state.free))} GiB system i aplikacje · ${gib(state.free)} GiB dostępne teraz · ${gib(memory.hostProcess?.resident || 0)} GiB silnik YourLM · mmap bez limitu planisty`,
     ),
     ...workers.map((worker) =>
       device(
         worker.name,
         "WORKER",
-        `${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB fizyczne · ${gib(worker.free)} GiB dostępne dla modelu · rezerwa YourLM 0 MiB`,
+        `${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB fizyczne · ${gib(worker.used || Math.max(0, worker.total - worker.free))} GiB system i aplikacje · ${gib(worker.free)} GiB dostępne teraz · ${gib(worker.allocation || 0)} GiB silnik · pamięć RPC włączona`,
         worker.address,
       ),
     ),
@@ -526,7 +544,7 @@ async function refresh() {
   } catch (error) {
     note(error.message);
   } finally {
-    setTimeout(refresh, 3000);
+    setTimeout(refresh, state?.session && !state.session.ready ? 1000 : 2500);
   }
 }
 

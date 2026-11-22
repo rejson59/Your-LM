@@ -164,6 +164,17 @@ func TestRuntimeIntegrity(t *testing.T) {
 	}
 }
 
+func TestMemoryAccounting(t *testing.T) {
+	stats := systemMemory()
+	if stats.Total == 0 || stats.Available > stats.Total || stats.Used > stats.Total {
+		t.Fatalf("invalid system memory snapshot: %+v", stats)
+	}
+	process := memoryForProcess(os.Getpid())
+	if process.Resident == 0 {
+		t.Fatalf("current process has no resident-memory measurement: %+v", process)
+	}
+}
+
 func TestChildEnvironment(t *testing.T) {
 	t.Setenv("LLAMA_ARG_AGENT", "1")
 	t.Setenv("GGML_BACKEND_PATH", "untrusted")

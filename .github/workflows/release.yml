@@ -1,4 +1,4 @@
-name: Release functional gates
+name: Release RC4 functional gates
 
 on:
   push:
@@ -13,13 +13,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc3]') }}
+  PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc4]') }}
   ANDROID_CERT_SHA256: bb2639f3d49a2d7db0845884e76d6bb51152a6e9c0df92fcfe885a26c5de94a6
 
 jobs:
   android-arm64:
     name: Android ARM64 release gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc3]') && !contains(github.event.head_commit.message, '[validate fast]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc4 fast]') && !contains(github.event.head_commit.message, '[validate fast]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -52,6 +52,19 @@ jobs:
           export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
           export JOBS=2
           scripts/build-native.sh build/android-native
+      - name: Assemble the stable-signed RC4 APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/restore-android-signing.sh "$RUNNER_TEMP/yourlm-android.p12" "$RUNNER_TEMP/yourlm-android.pass"
+          export KEYSTORE="$RUNNER_TEMP/yourlm-android.p12"
+          export KS_PASS="$(cat "$RUNNER_TEMP/yourlm-android.pass")"
+          export EXPECTED_ANDROID_CERT_SHA256="$ANDROID_CERT_SHA256"
+          export RPC_BIN="$PWD/build/android-native/bin/ggml-rpc-server"
+          export SERVER_BIN="$PWD/build/android-native/bin/llama-server"
+          scripts/package-android.sh
       - name: Audit the stable-signed release APK and exact native payloads
         shell: bash
         run: |
@@ -62,8 +75,8 @@ jobs:
           cert=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           [[ "$cert" == "$ANDROID_CERT_SHA256" ]] || { echo "Unexpected Android signing identity" >&2; exit 1; }
           badging=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")
-          grep -Fq "versionCode='6'" <<<"$badging"
-          grep -Fq "versionName='0.2.0-rc3'" <<<"$badging"
+          grep -Fq "versionCode='7'" <<<"$badging"
+          grep -Fq "versionName='0.2.0-rc4'" <<<"$badging"
           mkdir -p "$RUNNER_TEMP/apk-audit"
           unzip -q "$apk" 'lib/arm64-v8a/*.so' -d "$RUNNER_TEMP/apk-audit"
           cmp build/android-native/bin/ggml-rpc-server "$RUNNER_TEMP/apk-audit/lib/arm64-v8a/libylm_rpc.so"
@@ -84,7 +97,7 @@ jobs:
 
   android-runtime:
     name: Android x86_64 runtime gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc3]') && !contains(github.event.head_commit.message, '[validate fast]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[publish rc4 fast]') && !contains(github.event.head_commit.message, '[validate fast]') }}
     runs-on: macos-15-intel
     timeout-minutes: 90
     steps:
@@ -195,6 +208,7 @@ jobs:
           set -euo pipefail
           export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
           export JOBS=2
+          scripts/regenerate-windows-resource.sh
           scripts/build-windows.sh
           mkdir -p release-scan
           cp build/windows-native/llama/bin/llama-server.exe release-scan/
@@ -229,7 +243,7 @@ jobs:
         with:
           name: windows-standalone-build
           path: .
-      - name: Exercise first-run extraction
+      - name: Exercise first-run extraction and native WebView2 window
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -256,10 +270,24 @@ jobs:
           if ($embeddedApk.Hash -ne $releaseApk.Hash) { throw 'Embedded APK differs from release APK' }
           Stop-Process -Id $process.Id -Force
           & (Join-Path $component.FullName 'platform-tools\adb.exe') kill-server 2>$null
+
+          $native = Start-Process -FilePath (Resolve-Path 'packages\YourLM.exe') -PassThru
+          $windowReady = $false
+          for ($attempt = 0; $attempt -lt 30; $attempt++) {
+            Start-Sleep -Seconds 1
+            $native.Refresh()
+            if ($native.HasExited) { throw "YourLM native window exited early with $($native.ExitCode)" }
+            if ($native.MainWindowHandle -ne 0 -and $native.MainWindowTitle -like 'YourLM*') {
+              $windowReady = $true
+              break
+            }
+          }
+          if (-not $windowReady) { throw 'YourLM did not create its native WebView2 application window' }
+          Stop-Process -Id $native.Id -Force
           "COMPONENT_ROOT=$($component.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
   publish-rc:
-    name: Publish v0.2.0-rc3 assets
-    if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc3]') }}
+    name: Publish v0.2.0-rc4 assets
+    if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc4]') }}
     needs: [android-runtime, windows-runtime]
     permissions:
       contents: write
@@ -281,14 +309,14 @@ jobs:
         run: |
           set -euo pipefail
           (cd packages && sha256sum -c SHA256SUMS)
-          tag=v0.2.0-rc3
+          tag=v0.2.0-rc4
           assets=(packages/YourLM.exe packages/YourLM-Android-arm64.apk packages/SHA256SUMS)
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc3' \
-              --notes-file windows/RELEASE-NOTES-0.2.0-rc3.md --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc4' \
+              --notes-file windows/RELEASE-NOTES-0.2.0-rc4.md --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$tag" "${assets[@]}" --prerelease --target "$GITHUB_SHA" \
-              --title 'YourLM 0.2.0-rc3' --notes-file windows/RELEASE-NOTES-0.2.0-rc3.md \
+              --title 'YourLM 0.2.0-rc4' --notes-file windows/RELEASE-NOTES-0.2.0-rc4.md \
               --repo "$GITHUB_REPOSITORY"
           fi

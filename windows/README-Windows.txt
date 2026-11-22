@@ -1,33 +1,11 @@
-YourLM 0.2.0-rc3 — Windows x64 (maksymalne użycie Lenovo + Redmi)
-==========================
+YourLM 0.2.0-rc4 — Windows x64 (natywne okno + Lenovo/Redmi bez sztucznego limitu)
 
-1. Pobierz YourLM.exe i uruchom go jako zwykły użytkownik.
-2. Program sam przygotuje prywatny silnik w katalogu danych aplikacji i otworzy
-   lokalny panel. Nie trzeba wypakowywać ZIP-a ani przechowywać plików runtime.
-3. W panelu wybierz lokalny model .gguf i uruchom go najpierw bez workera.
+Uruchom pojedynczy YourLM.exe jako zwykły użytkownik. Program otwiera panel bezpośrednio w swoim natywnym oknie WebView2; zwykła przeglądarka jest używana tylko awaryjnie, gdy WebView2 jest niedostępny. Runtime llama.cpp, minimalny ADB i aktualne APK są wbudowane w EXE oraz przygotowywane w prywatnym %AppData%\YourLM.
 
-Instalacja na telefonie przez USB
---------------------------------
-Otwórz kartę „Telefon USB”. Włącz na telefonie Opcje programisty i Debugowanie
-USB, podłącz przewód obsługujący dane, zaakceptuj odcisk RSA i wybierz
-„Zainstaluj / uaktualnij YourLM”. Program korzysta z dołączonego ADB i zachowuje
-dane aplikacji podczas uaktualnienia.
+W zakładce Telefon USB podłącz odblokowany telefon z włączonym debugowaniem USB i użyj przycisku Zainstaluj lub zaktualizuj. `adb install -r` zachowuje prywatne dane aplikacji.
 
-Aktualizacje
-------------
-YourLM sprawdza oficjalne wydania GitHub. Nowa wersja Windows może zostać
-pobrana i podmieniona z panelu. Android pobiera APK i otwiera systemowy ekran
-potwierdzenia instalacji. Modele i ustawienia pozostają w katalogach danych.
+Worker Android działa jako usługa pierwszoplanowa z blokadą CPU i Wi-Fi. Po uruchomieniu może dalej pomagać laptopowi przy wyłączonym ekranie i zamkniętym widoku aplikacji; zatrzymasz go z powiadomienia lub aplikacji. Prywatny cache RPC zachowuje przydzielone tensory i znacząco przyspiesza kolejne uruchomienia tego samego modelu.
 
-Wagi modeli nie są dołączone. Na pierwszy test wybierz model 3–4B Q4_K_M.
-Domyślny adres 127.0.0.1 nie udostępnia API innym urządzeniom.
+Panel pamięci pokazuje osobno pełny fizyczny RAM, użycie systemów, RAM dostępny teraz, zmapowany plik GGUF, rzeczywistą alokację silników oraz limit zatwierdzeń/pliku stronicowania Windows. Dostępne teraz nie jest limitem rozmiaru GGUF. YourLM nie odrzuca 12,4 GiB modelu statycznym planistą: host próbuje mmap, a worker używa natywnego podziału llama.cpp z rezerwą YourLM 0 MiB.
 
-Aby dodać telefon jako worker, zatrzymaj model, wybierz na telefonie „Pomóż
-laptopowi” i uruchom worker. W panelu Windows otwórz „Urządzenia → Dodaj
-telefon” i przepisz adres oraz krótki kod. Oba urządzenia muszą być w tym samym
-prywatnym Wi-Fi.
-
-Sumy SHA-256 plików wydania znajdują się w SHA256SUMS.
-
-Kod źródłowy:
-https://github.com/rejson59/Your-LM
+Modele, ustawienia, cache i dane aplikacji pozostają poza EXE i są zachowywane przy aktualizacji.
