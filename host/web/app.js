@@ -412,7 +412,7 @@ function render(nextState) {
     $("loadHint").hidden = !loading;
     $("loadHint").textContent = loading
       ? (workers.length
-          ? "Pierwszy start rozdziela i przesyła wagi przez sieć. Czas zależy od pełnego rozmiaru GGUF i szybkości Wi-Fi; kolejne uruchomienia mogą użyć pamięci podręcznej RPC zapisywanej w RC7 porcjami do 16 MiB."
+          ? "Pierwszy start rozdziela i przesyła wagi przez sieć. Czas zależy od pełnego rozmiaru GGUF i szybkości Wi-Fi; kolejne uruchomienia mogą użyć pamięci podręcznej RPC zapisywanej porcjami do 16 MiB. Jeśli worker przerwie pracę, Windows automatycznie dołączy diagnostykę Redmi do raportu poniżej."
           : "Windows odczytuje i mapuje pełny plik GGUF. Czas zależy od jego pełnego rozmiaru, szybkości dysku oraz dostępnego RAM-u i pliku stronicowania.") +
         (advisory ? " Widoczne ostrzeżenia o tokenach lub mmap są informacyjne — silnik nadal ładuje model." : "")
       : "";

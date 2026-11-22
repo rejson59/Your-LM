@@ -61,6 +61,7 @@ type Session struct {
 	url, key             string
 	layers               int
 	workers              int
+	nodes                []Node
 	name                 string
 	ready                bool
 	started              time.Time
@@ -101,11 +102,11 @@ func engineArguments(modelPath, bind string, port int, key string, addresses []s
 		// weights normally.
 		return append(args, "--fit", "off")
 	}
-	// With RPC devices, native fit measures every worker and places as many
-	// tensors as currently fit there. A zero target means YourLM does not hold
-	// back an additional artificial reserve; unassigned weights remain mapped on
-	// the host.
-	return append(args, "--rpc", strings.Join(addresses, ","), "--split-mode", "layer", "--fit", "on", "--fit-target", "0")
+	// Keep llama.cpp's recommended 1 GiB margin on every RPC device. Using a
+	// zero margin filled Android's reported available RAM with tensor buffers and
+	// left no safe headroom for the worker process, TLS bridge, filesystem cache
+	// or a change in system pressure. Unassigned weights remain mapped on host.
+	return append(args, "--rpc", strings.Join(addresses, ","), "--split-mode", "layer", "--fit", "on", "--fit-target", "1024")
 }
 
 func engineLogTail(path string, maxBytes int64) string {
@@ -186,7 +187,7 @@ func advanceEngineProgress(previous, current EngineProgress) EngineProgress {
 
 func engineFailureMessage(err error, engineLog string) string {
 	if strings.Contains(engineLog, "Remote RPC server crashed or returned malformed response") {
-		return "Połączenie z workerem RPC zostało przerwane podczas przesyłania wag. Sprawdź komunikat na Redmi, wolne miejsce telefonu i stabilność Wi-Fi. Otwórz diagnostykę silnika poniżej, aby skopiować pełny log."
+		return "Połączenie z workerem RPC zostało przerwane podczas przesyłania wag. Raport poniżej zawiera również automatycznie pobraną diagnostykę Redmi: kod wyjścia, RAM, pamięć telefonu, cache, Wi-Fi i log natywny. Skopiuj całość jednym przyciskiem."
 	}
 	return "Model nie został uruchomiony: " + err.Error() + ". Otwórz diagnostykę silnika poniżej i skopiuj log."
 }
@@ -236,6 +237,7 @@ func (a *App) start(bind string, port int) error {
 		key:     token(),
 		layers:  layers,
 		workers: len(a.nodes),
+		nodes:   append([]Node(nil), a.nodes...),
 		name:    m.Name,
 		logPath: filepath.Join(a.dir, "engine.log"),
 		done:    make(chan struct{}),
@@ -289,9 +291,31 @@ func (a *App) start(bind string, port int) error {
 			l.Close()
 		}
 		a.Lock()
+		stopping := s.stopping
+		a.Unlock()
+		if e != nil && !stopping {
+			elapsedSeconds := max(1, int(time.Since(s.started).Seconds()))
+			sent := s.rpcSent.Load()
+			received := s.rpcReceived.Load()
+			failureReport := fmt.Sprintf(
+				"\n\n===== DIAGNOSTYKA SESJI =====\nBłąd procesu: %v\nCzas do awarii: %d s\nWysłano RPC: %d B (średnio %.2f MiB/s)\nOdebrano RPC: %d B\nRezerwa fit workera: 1024 MiB\n",
+				e,
+				elapsedSeconds,
+				sent,
+				float64(sent)/float64(elapsedSeconds)/(1024*1024),
+				received,
+			)
+			failureReport += workerDiagnosticsReport(s.nodes)
+			if reportFile, openErr := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0600); openErr == nil {
+				_, _ = reportFile.WriteString(failureReport)
+				_ = reportFile.Close()
+			}
+			engineLog = cleanEngineLog(engineLog + failureReport)
+		}
+		a.Lock()
 		a.lastEngineLog = engineLog
 		a.lastEnginePath = s.logPath
-		if e != nil && !s.stopping {
+		if e != nil && !stopping {
 			a.last = engineFailureMessage(e, engineLog)
 		}
 		a.s = nil
@@ -404,7 +428,7 @@ func (a *App) state() map[string]any {
 		elapsed := int(time.Since(s.started).Seconds())
 		mode := "Windows mmap · bez testu fizycznego RAM"
 		if s.workers > 0 {
-			mode = fmt.Sprintf("%d workerów · automatyczny podział · rezerwa 0 MiB · trwała pamięć podręczna RPC", s.workers)
+			mode = fmt.Sprintf("%d workerów · automatyczny podział · bezpieczna rezerwa 1024 MiB · trwała pamięć podręczna RPC", s.workers)
 		}
 		lastLogAge, logBytes := -1, int64(0)
 		if info, err := os.Stat(s.logPath); err == nil {
@@ -469,7 +493,7 @@ func (a *App) state() map[string]any {
 			)
 		} else {
 			advice = fmt.Sprintf(
-				"Model %.1f GiB jest odblokowany. Lenovo i workery mają razem %.1f GiB fizycznego RAM: %.1f GiB zajmują teraz systemy i aplikacje, a %.1f GiB jest natychmiast dostępne. Dostępne teraz nie jest limitem całej puli: rezerwa YourLM wynosi 0 MiB, worker wykorzysta maksymalny praktyczny przydział, a reszta GGUF pozostanie w mmap Windows. Pamięć RPC przyspieszy kolejne uruchomienia.",
+				"Model %.1f GiB jest odblokowany. Lenovo i workery mają razem %.1f GiB fizycznego RAM: %.1f GiB zajmują teraz systemy i aplikacje, a %.1f GiB jest natychmiast dostępne. Dostępne teraz nie jest limitem całej puli: YourLM pozostawia na każdym workerze 1024 MiB zapasu dla Androida i procesu RPC, a reszta GGUF pozostanie w mmap Windows. Pamięć RPC przyspieszy kolejne uruchomienia.",
 				float64(a.model.Size)/float64(GiB),
 				float64(physical)/float64(GiB),
 				float64(osUsed)/float64(GiB),

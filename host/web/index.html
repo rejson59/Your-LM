@@ -44,7 +44,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc7 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc8 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -203,7 +203,7 @@
             </div>
 
             <article class="sectionCard serverCard">
-              <div class="serverIntro"><span class="stepNumber">3</span><div><span class="eyebrow">CZAT I OPENAI API · BEZ LIMITU PLANISTY</span><h2>Uruchom model na wszystkich urządzeniach</h2><p>Bez workera Windows ładuje GGUF bez testu dopasowania do fizycznego RAM i może korzystać z mmap. Z workerami llama.cpp wykorzystuje całe zgłaszane wolne miejsce, bez dodatkowej rezerwy YourLM. Na tym urządzeniu wybierz 127.0.0.1.</p></div></div>
+              <div class="serverIntro"><span class="stepNumber">3</span><div><span class="eyebrow">CZAT I OPENAI API · BEZ LIMITU PLANISTY</span><h2>Uruchom model na wszystkich urządzeniach</h2><p>Bez workera Windows ładuje GGUF bez testu dopasowania do fizycznego RAM i może korzystać z mmap. Z workerami llama.cpp dobiera podział automatycznie i pozostawia 1024 MiB zapasu na każdym urządzeniu RPC. Na tym urządzeniu wybierz 127.0.0.1.</p></div></div>
               <div class="inlineFields serverFields">
                 <label>Adres nasłuchu<select id="bind"></select></label>
                 <label>Port<input id="port" type="number" min="1024" max="65535" value="8080" /></label>
@@ -232,7 +232,7 @@
 
             <article class="sectionCard recommendation">
               <span class="recommendIcon">i</span>
-              <div><h3>Ten model jest odblokowany — 12,4 GiB może zostać zmapowane</h3><p>Nie ma konserwatywnego progu ani sztucznej rezerwy YourLM. Windows mapuje cały GGUF i stronicuje jego strony, a worker używa maksymalnego praktycznego przydziału. Pierwszy transfer przez Wi-Fi może potrwać; prywatna pamięć podręczna RPC znacznie przyspiesza kolejne uruchomienia. RC7 zapisuje ją porcjami bez dodatkowej kopii całego tensora w RAM.</p></div>
+              <div><h3>Ten model jest odblokowany — 12,4 GiB może zostać zmapowane</h3><p>Windows mapuje cały GGUF i stronicuje jego strony. Worker dobiera przydział automatycznie, pozostawiając 1024 MiB zapasu dla Androida, TLS i procesu RPC. Pierwszy transfer przez Wi-Fi może potrwać; prywatna pamięć podręczna RPC zapisuje dane porcjami bez dodatkowej kopii całego tensora w RAM.</p></div>
             </article>
           </section>
 
@@ -250,7 +250,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc7</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc8</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>

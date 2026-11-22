@@ -1,7 +1,12 @@
 package pl.yourlm.node;
 
 import android.app.ActivityManager;
+import android.app.ApplicationExitInfo;
 import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.security.keystore.*;
 import java.io.*;
@@ -49,7 +54,11 @@ final class Worker implements Closeable {
   String code, pairAddress, pin;
   int rpcPort;
   volatile int rpcPid;
+  volatile int rpcExitCode = Integer.MIN_VALUE;
+  volatile long rpcStoppedAt;
   volatile boolean closed;
+
+  private static final long DIAGNOSTIC_GRACE_MS = 60_000;
 
   Worker(Context c) {
     ctx = c;
@@ -277,6 +286,7 @@ final class Worker implements Closeable {
       .getServerSocketFactory()
       .createServerSocket(0, 8, ip);
     server.setEnabledProtocols(new String[] { "TLSv1.2" });
+    server.setSoTimeout(1000);
     pairing = new ServerSocket(0, 8, ip);
     pairAddress = ip.getHostAddress() + ":" + pairing.getLocalPort();
 
@@ -305,6 +315,8 @@ final class Worker implements Closeable {
     builder.environment().put("LLAMA_CACHE", rpcCache.getPath());
     try {
       rpcPid = 0;
+      rpcExitCode = Integer.MIN_VALUE;
+      rpcStoppedAt = 0;
       rpc = builder.start();
       rpcPid = findProcessId();
     } catch (IOException e) {
@@ -360,6 +372,145 @@ final class Worker implements Closeable {
     }
   }
 
+  private static void cacheStats(File entry, long[] stats) {
+    if (entry == null || !entry.exists()) return;
+    if (entry.isDirectory()) {
+      File[] children = entry.listFiles();
+      if (children != null) for (File child : children) cacheStats(child, stats);
+      return;
+    }
+    stats[0]++;
+    stats[1] += Math.max(0, entry.length());
+    if (
+      entry.getName().startsWith(".incoming-") &&
+      entry.getName().endsWith(".part")
+    ) stats[2]++;
+  }
+
+  private static String exitReason(int reason) {
+    switch (reason) {
+      case ApplicationExitInfo.REASON_EXIT_SELF:
+        return "EXIT_SELF";
+      case ApplicationExitInfo.REASON_SIGNALED:
+        return "SIGNALED";
+      case ApplicationExitInfo.REASON_LOW_MEMORY:
+        return "LOW_MEMORY";
+      case ApplicationExitInfo.REASON_CRASH:
+        return "CRASH";
+      case ApplicationExitInfo.REASON_CRASH_NATIVE:
+        return "CRASH_NATIVE";
+      case ApplicationExitInfo.REASON_ANR:
+        return "ANR";
+      case ApplicationExitInfo.REASON_INITIALIZATION_FAILURE:
+        return "INITIALIZATION_FAILURE";
+      case ApplicationExitInfo.REASON_PERMISSION_CHANGE:
+        return "PERMISSION_CHANGE";
+      case ApplicationExitInfo.REASON_EXCESSIVE_RESOURCE_USAGE:
+        return "EXCESSIVE_RESOURCE_USAGE";
+      case ApplicationExitInfo.REASON_USER_REQUESTED:
+        return "USER_REQUESTED";
+      case ApplicationExitInfo.REASON_USER_STOPPED:
+        return "USER_STOPPED";
+      case ApplicationExitInfo.REASON_DEPENDENCY_DIED:
+        return "DEPENDENCY_DIED";
+      case ApplicationExitInfo.REASON_OTHER:
+        return "OTHER";
+      default:
+        return "UNKNOWN_" + reason;
+    }
+  }
+
+  private org.json.JSONArray nativeExitHistory() {
+    org.json.JSONArray out = new org.json.JSONArray();
+    if (Build.VERSION.SDK_INT < 30) return out;
+    try {
+      ActivityManager manager = (ActivityManager) ctx.getSystemService(
+        Context.ACTIVITY_SERVICE
+      );
+      List<ApplicationExitInfo> entries = manager.getHistoricalProcessExitReasons(
+        null,
+        0,
+        8
+      );
+      for (ApplicationExitInfo entry : entries) {
+        out.put(
+          new JSONObject()
+            .put("process", entry.getProcessName())
+            .put("reason", exitReason(entry.getReason()))
+            .put("reasonCode", entry.getReason())
+            .put("status", entry.getStatus())
+            .put("importance", entry.getImportance())
+            .put("pssKiB", entry.getPss())
+            .put("rssKiB", entry.getRss())
+            .put("timestampEpochMs", entry.getTimestamp())
+            .put("description", entry.getDescription())
+        );
+      }
+    } catch (Throwable ignored) {}
+    return out;
+  }
+
+  private JSONObject diagnostics() {
+    ActivityManager.MemoryInfo memory = mem();
+    File rpcCache = new File(ctx.getFilesDir(), "rpc-cache");
+    long[] cache = new long[3];
+    cacheStats(rpcCache, cache);
+    JSONObject out = new JSONObject();
+    try {
+      out
+        .put("device", Build.MANUFACTURER + " " + Build.MODEL)
+        .put("android", Build.VERSION.RELEASE)
+        .put("sdk", Build.VERSION.SDK_INT)
+        .put("workerBuild", "b12562-ylm-rpc2")
+        .put("capturedAtEpochMs", System.currentTimeMillis())
+        .put("rpcAlive", rpc != null && rpc.isAlive())
+        .put("rpcPid", rpcPid)
+        .put("rpcResidentBytes", processResidentBytes())
+        .put("memoryTotalBytes", memory.totalMem)
+        .put("memoryAvailableBytes", memory.availMem)
+        .put("memoryLow", memory.lowMemory)
+        .put("memoryLowThresholdBytes", memory.threshold)
+        .put("storageAvailableBytes", ctx.getFilesDir().getUsableSpace())
+        .put("storageTotalBytes", ctx.getFilesDir().getTotalSpace())
+        .put("cacheFiles", cache[0])
+        .put("cacheBytes", cache[1])
+        .put("cachePartialFiles", cache[2])
+        .put("nativeLog", logTail(logFile, 24000))
+        .put("exitHistory", nativeExitHistory());
+      if (rpcExitCode == Integer.MIN_VALUE) out.put("rpcExitCode", JSONObject.NULL);
+      else out.put("rpcExitCode", rpcExitCode);
+
+      WifiManager wifi = (WifiManager) ctx
+        .getApplicationContext()
+        .getSystemService(Context.WIFI_SERVICE);
+      WifiInfo info = wifi == null ? null : wifi.getConnectionInfo();
+      if (info != null) {
+        out
+          .put("wifiFrequencyMHz", info.getFrequency())
+          .put("wifiLinkSpeedMbps", info.getLinkSpeed())
+          .put("wifiRssiDbm", info.getRssi());
+      }
+      ConnectivityManager connectivity = (ConnectivityManager) ctx.getSystemService(
+        Context.CONNECTIVITY_SERVICE
+      );
+      if (connectivity != null) {
+        NetworkCapabilities capabilities = connectivity.getNetworkCapabilities(
+          connectivity.getActiveNetwork()
+        );
+        if (capabilities != null) {
+          out
+            .put("networkDownstreamKbps", capabilities.getLinkDownstreamBandwidthKbps())
+            .put("networkUpstreamKbps", capabilities.getLinkUpstreamBandwidthKbps());
+        }
+      }
+    } catch (Exception e) {
+      try {
+        out.put("diagnosticError", e.toString());
+      } catch (Exception ignored) {}
+    }
+    return out;
+  }
+
   private String failure(String heading, File bin) {
     StringBuilder out = new StringBuilder(heading);
     if (rpc != null && !rpc.isAlive()) {
@@ -397,10 +548,12 @@ final class Worker implements Closeable {
     new Thread(
       () -> {
         try {
-          rpc.waitFor();
+          rpcExitCode = rpc.waitFor();
           rpcPid = 0;
-          if (server != null) server.close();
-          if (pairing != null) pairing.close();
+          rpcStoppedAt = System.currentTimeMillis();
+          // Keep the authenticated control listener alive briefly. The Windows
+          // host uses this grace period to retrieve the native log, exit code,
+          // RAM, storage, cache and Android process-exit history after RPC drops.
         } catch (Exception ignored) {}
       },
       "YourLM-engine-watch"
@@ -428,6 +581,15 @@ final class Worker implements Closeable {
       Socket s;
       try {
         s = server.accept();
+      } catch (SocketTimeoutException e) {
+        if (
+          rpcStoppedAt > 0 &&
+          System.currentTimeMillis() - rpcStoppedAt >= DIAGNOSTIC_GRACE_MS
+        ) throw new IOException(
+          failure("Silnik workera nieoczekiwanie się zatrzymał", engineFile),
+          e
+        );
+        continue;
       } catch (IOException e) {
         if (closed) return;
         throw new IOException(
@@ -532,9 +694,16 @@ final class Worker implements Closeable {
           .put("used", Math.max(0, m.totalMem - m.availMem))
           .put("allocation", processResidentBytes())
           .put("cores", Runtime.getRuntime().availableProcessors())
-          .put("build", "b12562-ylm-rpc1")
+          .put("build", "b12562-ylm-rpc2")
           .toString();
         s.getOutputStream().write((info + "\n").getBytes(StandardCharsets.UTF_8));
+        return;
+      }
+      if (auth[0].equals("DIAG")) {
+        OutputStream output = s.getOutputStream();
+        output.write((diagnostics().toString() + "\n").getBytes(StandardCharsets.UTF_8));
+        output.flush();
+        if (rpc != null && !rpc.isAlive() && server != null) server.close();
         return;
       }
       if (!auth[0].equals("RPC")) return;

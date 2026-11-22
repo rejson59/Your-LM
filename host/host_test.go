@@ -104,7 +104,7 @@ func TestEngineArgumentsDoNotBlockLargeModels(t *testing.T) {
 		"--rpc":        "127.0.0.1:50052",
 		"--split-mode": "layer",
 		"--fit":        "on",
-		"--fit-target": "0",
+		"--fit-target": "1024",
 	} {
 		if !containsPair(rpc, key, value) {
 			t.Fatalf("RPC launch missing %s %s: %q", key, value, rpc)
@@ -390,6 +390,14 @@ func TestPairAndBridge(t *testing.T) {
 	n := testNode(t, l.Addr().String())
 	if e := n.refresh(); e != nil {
 		t.Fatal(e)
+	}
+	diagnostic, e := n.diagnostics()
+	if e != nil || !bytes.Contains(diagnostic, []byte(`"workerBuild"`)) || !bytes.Contains(diagnostic, []byte(rpcWorkerBuild)) {
+		t.Fatalf("worker diagnostics unavailable: %s, %v", diagnostic, e)
+	}
+	combined := workerDiagnosticsReport([]Node{n})
+	if !strings.Contains(combined, "DIAGNOSTYKA WORKERÓW") || !strings.Contains(combined, rpcWorkerBuild) {
+		t.Fatalf("combined diagnostics missing worker data: %s", combined)
 	}
 	bad := n
 	bad.pin = strings.Repeat("00", 32)

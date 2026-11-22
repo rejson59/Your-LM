@@ -191,6 +191,24 @@ func (o *Offer) serve(c net.Conn) {
 			Name: n, Total: stats.Total, Free: stats.Available, Used: stats.Used,
 			Allocation: allocation, Cores: runtime.NumCPU(), Build: rpcWorkerBuild,
 		})
+	case "DIAG":
+		n, _ := os.Hostname()
+		stats := systemMemory()
+		allocation := uint64(0)
+		alive := false
+		if o.cmd != nil && o.cmd.Process != nil {
+			allocation = memoryForProcess(o.cmd.Process.Pid).Resident
+			alive = o.cmd.ProcessState == nil || !o.cmd.ProcessState.Exited()
+		}
+		json.NewEncoder(c).Encode(map[string]any{
+			"device":               n,
+			"os":                   runtime.GOOS,
+			"workerBuild":          rpcWorkerBuild,
+			"rpcAlive":             alive,
+			"rpcResidentBytes":     allocation,
+			"memoryTotalBytes":     stats.Total,
+			"memoryAvailableBytes": stats.Available,
+		})
 	case "RPC":
 		local, e := net.DialTimeout("tcp4", o.local, time.Second)
 		if e != nil {

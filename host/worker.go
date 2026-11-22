@@ -87,7 +87,7 @@ func (n Node) dial(mode string) (net.Conn, error) {
 
 const (
 	GiB            uint64 = 1 << 30
-	rpcWorkerBuild        = "b12562-ylm-rpc1"
+	rpcWorkerBuild        = "b12562-ylm-rpc2"
 )
 
 func validateWorkerInfo(info Node) error {
@@ -123,6 +123,56 @@ func (n *Node) refresh() error {
 	n.Name, n.Free, n.Total, n.Used, n.Allocation, n.Cores, n.Build =
 		info.Name, info.Free, info.Total, info.Used, info.Allocation, info.Cores, info.Build
 	return nil
+}
+
+func (n Node) diagnostics() ([]byte, error) {
+	c, err := n.dial("DIAG")
+	if err != nil {
+		return nil, err
+	}
+	defer c.Close()
+	var report map[string]any
+	if err = json.NewDecoder(io.LimitReader(c, 64<<10)).Decode(&report); err != nil {
+		return nil, err
+	}
+	return json.MarshalIndent(report, "", "  ")
+}
+
+func workerDiagnosticsReport(nodes []Node) string {
+	if len(nodes) == 0 {
+		return ""
+	}
+	var out strings.Builder
+	out.WriteString("\n\n===== DIAGNOSTYKA WORKERÓW =====\n")
+	for i, node := range nodes {
+		name := node.Name
+		if name == "" {
+			name = "worker"
+		}
+		fmt.Fprintf(
+			&out,
+			"\n[%d] %s (%s)\nOstatni pomiar: RAM %.2f/%.2f GiB dostępne, proces %.2f GiB, build %s\n",
+			i+1,
+			name,
+			node.Address,
+			float64(node.Free)/float64(GiB),
+			float64(node.Total)/float64(GiB),
+			float64(node.Allocation)/float64(GiB),
+			node.Build,
+		)
+		report, err := node.diagnostics()
+		if err != nil {
+			fmt.Fprintf(
+				&out,
+				"Nie udało się pobrać raportu z telefonu: %v. Mogło zostać zakończone całe YourLM, a nie tylko natywny worker.\n",
+				err,
+			)
+			continue
+		}
+		out.Write(report)
+		out.WriteByte('\n')
+	}
+	return out.String()
 }
 
 type rpcCountingWriter struct {
