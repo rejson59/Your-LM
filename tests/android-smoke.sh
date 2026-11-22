@@ -159,6 +159,13 @@ adb shell input keyevent 26
 adb shell wm dismiss-keyguard || true
 adb shell am start -W -n pl.yourlm.node/.NodeActivity >/dev/null
 sleep 2
+# The Activity restores its previous scroll position. Return to the status card
+# before asserting it, rather than mistaking the still-visible pairing card for
+# a stopped worker.
+for attempt in 1 2 3; do
+  adb shell input swipe $((screen_width / 2)) $((screen_height / 4)) $((screen_width / 2)) $((screen_height * 4 / 5)) 350
+  sleep 1
+done
 pull_ui
 python3 - "$xml" <<'PY'
 import sys, xml.etree.ElementTree as ET

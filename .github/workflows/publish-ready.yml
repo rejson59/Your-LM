@@ -114,6 +114,71 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  promote-verified-rc7:
+    name: Publish verified RC7 artifacts
+    # Run 45040206040 built and audited the patched ARM64 APK and Windows EXE;
+    # its emulator reached a live worker and pairing screen, then only the UI
+    # assertion missed a status card above the restored scroll position.
+    if: ${{ contains(github.event.head_commit.message, '[promote verified rc7]') }}
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify source run and successful release jobs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          run=45040206040
+          expected=4b8fe08f1985577316fdbcb7b383c708c6065dc1
+          [[ $(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run" --jq .head_sha) == "$expected" ]]
+          for job in \
+            'Android ARM64 release gate' \
+            'Build standalone Windows x64' \
+            'Windows first-run functional gate'; do
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs?per_page=100" \
+              --jq ".jobs[] | select(.name == \"$job\") | .conclusion")
+            [[ "$conclusion" == success ]] || { echo "$job did not pass" >&2; exit 1; }
+          done
+      - name: Download audited ARM64 and Windows release artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-arm64-build
+          path: .
+          github-token: ${{ github.token }}
+          run-id: '45040206040'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-standalone-build
+          path: .
+          github-token: ${{ github.token }}
+          run-id: '45040206040'
+      - name: Verify checksums and publish public prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd packages && sha256sum -c SHA256SUMS)
+          test "$(head -c2 packages/YourLM.exe)" = MZ
+          test -s packages/YourLM-Android-arm64.apk
+          tag=v0.2.0-rc7
+          assets=(packages/YourLM.exe packages/YourLM-Android-arm64.apk packages/SHA256SUMS)
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc7' \
+              --notes-file windows/RELEASE-NOTES-0.2.0-rc7.md --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" "${assets[@]}" --prerelease \
+              --target 4b8fe08f1985577316fdbcb7b383c708c6065dc1 \
+              --title 'YourLM 0.2.0-rc7' --notes-file windows/RELEASE-NOTES-0.2.0-rc7.md \
+              --repo "$GITHUB_REPOSITORY"
+          fi
+
   windows-install:
     name: Exercise per-user Windows installation
     needs: validate
