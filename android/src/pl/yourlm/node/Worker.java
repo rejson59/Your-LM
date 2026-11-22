@@ -96,7 +96,7 @@ final class Worker implements Closeable {
     String storedKey = preferences.getString("manual_key", "");
     if (!storedKey.matches("[ABCDEFGHJKLMNPQRSTUVWXYZ2-9]{5}(?:-[ABCDEFGHJKLMNPQRSTUVWXYZ2-9]{5}){3}")) {
       storedKey = createManualKey();
-      preferences.edit().putString("manual_key", storedKey).apply();
+      preferences.edit().putString("manual_key", storedKey).commit();
     }
     manualKey = storedKey;
     secret = derivedSecret(manualKey.replace("-", ""));
@@ -373,7 +373,6 @@ final class Worker implements Closeable {
     if (restart) restartCount++;
     recovering = false;
     recoveryError = "";
-    if (restart) notifyStateChanged();
   }
 
   void start() throws Exception {
@@ -468,7 +467,7 @@ final class Worker implements Closeable {
     preferences
       .edit()
       .putInt("bridge_port", server.getLocalPort())
-      .apply();
+      .commit();
     server.setEnabledProtocols(new String[] { "TLSv1.2" });
     server.setSoTimeout(1000);
     pairing = new ServerSocket(0, 8, ip);
@@ -1032,6 +1031,9 @@ final class Worker implements Closeable {
       ) return;
       if (auth[0].equals("INFO")) {
         ActivityManager.MemoryInfo m = mem();
+        String infoRecoveryError = recoveryError.length() <= 1000
+          ? recoveryError
+          : recoveryError.substring(0, 1000) + "…";
         String info = new JSONObject()
           .put("name", Build.MANUFACTURER + " " + Build.MODEL)
           .put("total", m.totalMem)
@@ -1046,7 +1048,7 @@ final class Worker implements Closeable {
           .put("restartCount", restartCount)
           .put(
             "recoveryError",
-            recoveryError.isEmpty() ? JSONObject.NULL : recoveryError
+            infoRecoveryError.isEmpty() ? JSONObject.NULL : infoRecoveryError
           )
           .toString();
         s.getOutputStream().write((info + "\n").getBytes(StandardCharsets.UTF_8));
