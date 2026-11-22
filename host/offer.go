@@ -190,7 +190,7 @@ func (o *Offer) serve(c net.Conn) {
 		tuneTCP(local)
 		c.Write([]byte{'!'})
 		c.SetDeadline(time.Time{})
-		go func() { copyRPC(c, local); c.Close() }()
-		copyRPC(local, r)
+		go func() { copyRPC(c, local, nil); c.Close() }()
+		copyRPC(local, r, nil)
 	}
 }

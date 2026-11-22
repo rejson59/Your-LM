@@ -11,6 +11,8 @@ var (
 	openProcess    = kernel32Memory.NewProc("OpenProcess")
 	closeHandle    = kernel32Memory.NewProc("CloseHandle")
 	processMemory  = kernel32Memory.NewProc("K32GetProcessMemoryInfo")
+	processIO      = kernel32Memory.NewProc("GetProcessIoCounters")
+	processTimes   = kernel32Memory.NewProc("GetProcessTimes")
 )
 
 func systemMemory() MemorySnapshot {
@@ -75,8 +77,31 @@ func memoryForProcess(pid int) ProcessMemory {
 	if result == 0 {
 		return ProcessMemory{}
 	}
+	var ioCounters struct {
+		ReadOperations, WriteOperations, OtherOperations uint64
+		ReadBytes, WriteBytes, OtherBytes                uint64
+	}
+	readBytes := uint64(0)
+	if result, _, _ := processIO.Call(handle, uintptr(unsafe.Pointer(&ioCounters))); result != 0 {
+		readBytes = ioCounters.ReadBytes
+	}
+	type filetime struct{ Low, High uint32 }
+	var creation, exit, kernel, user filetime
+	cpuTimeMS := uint64(0)
+	if result, _, _ := processTimes.Call(
+		handle,
+		uintptr(unsafe.Pointer(&creation)),
+		uintptr(unsafe.Pointer(&exit)),
+		uintptr(unsafe.Pointer(&kernel)),
+		uintptr(unsafe.Pointer(&user)),
+	); result != 0 {
+		ticks := func(value filetime) uint64 { return uint64(value.High)<<32 | uint64(value.Low) }
+		cpuTimeMS = (ticks(kernel) + ticks(user)) / 10000
+	}
 	return ProcessMemory{
 		Resident:  uint64(counters.WorkingSetSize),
 		Committed: uint64(counters.PrivateUsage),
+		ReadBytes: readBytes,
+		CPUTimeMS: cpuTimeMS,
 	}
 }

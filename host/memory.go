@@ -16,6 +16,8 @@ type MemorySnapshot struct {
 type ProcessMemory struct {
 	Resident  uint64 `json:"resident"`
 	Committed uint64 `json:"committed"`
+	ReadBytes uint64 `json:"readBytes"`
+	CPUTimeMS uint64 `json:"cpuTimeMs"`
 }
 
 func memory() (total, free uint64) {

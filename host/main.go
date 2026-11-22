@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -54,17 +55,19 @@ func ips() []string {
 }
 
 type Session struct {
-	stopping  bool
-	cmd       *exec.Cmd
-	listeners []net.Listener
-	url, key  string
-	layers    int
-	workers   int
-	name      string
-	ready     bool
-	started   time.Time
-	logPath   string
-	done      chan struct{}
+	stopping             bool
+	cmd                  *exec.Cmd
+	listeners            []net.Listener
+	url, key             string
+	layers               int
+	workers              int
+	name                 string
+	ready                bool
+	started              time.Time
+	logPath              string
+	progress             EngineProgress
+	rpcSent, rpcReceived atomic.Uint64
+	done                 chan struct{}
 }
 type App struct {
 	off *Offer
@@ -141,23 +144,44 @@ func cleanEngineLog(value string) string {
 	return strings.TrimSpace(value)
 }
 
-func enginePhase(engineLog string, ready bool) string {
+type EngineProgress struct {
+	Step  int    `json:"step"`
+	Steps int    `json:"steps"`
+	Label string `json:"label"`
+	Ready bool   `json:"ready"`
+}
+
+func engineProgress(engineLog string, ready bool) EngineProgress {
+	const steps = 6
 	if ready {
-		return "Model gotowy"
+		return EngineProgress{Step: steps, Steps: steps, Label: "Model gotowy", Ready: true}
 	}
 	text := strings.ToLower(engineLog)
 	switch {
-	case strings.Contains(text, "listening on http") || strings.Contains(text, "server is listening"):
-		return "Finalizowanie lokalnego API"
+	case strings.Contains(text, "model loaded"):
+		return EngineProgress{Step: 6, Steps: steps, Label: "Finalizowanie lokalnego API"}
 	case strings.Contains(text, "kv cache") || strings.Contains(text, "kv_cache") || strings.Contains(text, "llama_context"):
-		return "Tworzenie kontekstu i buforów"
-	case strings.Contains(text, "load_tensors") || strings.Contains(text, "offload") || strings.Contains(text, "fit"):
-		return "Rozmieszczanie wag na urządzeniach"
+		return EngineProgress{Step: 5, Steps: steps, Label: "Tworzenie kontekstu i buforów"}
+	case strings.Contains(text, "loading model tensors") || strings.Contains(text, "load_tensors") || strings.Contains(text, "offload"):
+		return EngineProgress{Step: 4, Steps: steps, Label: "Ładowanie i przesyłanie wag"}
+	case strings.Contains(text, "tensor overrides to cpu") || strings.Contains(text, "common_fit") || strings.Contains(text, "fit:"):
+		return EngineProgress{Step: 3, Steps: steps, Label: "Planowanie podziału pamięci"}
 	case strings.Contains(text, "loading model") || strings.Contains(text, "model_loader") || strings.Contains(text, "load_model"):
-		return "Odczytywanie modelu GGUF"
+		return EngineProgress{Step: 2, Steps: steps, Label: "Odczyt metadanych i tokenizera GGUF"}
 	default:
-		return "Uruchamianie silnika llama.cpp"
+		return EngineProgress{Step: 1, Steps: steps, Label: "Uruchamianie silnika llama.cpp"}
 	}
+}
+
+func enginePhase(engineLog string, ready bool) string {
+	return engineProgress(engineLog, ready).Label
+}
+
+func advanceEngineProgress(previous, current EngineProgress) EngineProgress {
+	if !current.Ready && previous.Step > current.Step {
+		return previous
+	}
+	return current
 }
 
 func (a *App) start(bind string, port int) error {
@@ -218,7 +242,7 @@ func (a *App) start(bind string, port int) error {
 	}()
 	var addresses []string
 	for _, n := range a.nodes {
-		l, e := n.bridge()
+		l, e := n.bridge(&s.rpcSent, &s.rpcReceived)
 		if e != nil {
 			return e
 		}
@@ -375,10 +399,20 @@ func (a *App) state() map[string]any {
 		if s.workers > 0 {
 			mode = fmt.Sprintf("%d workerów · automatyczny podział · rezerwa 0 MiB · trwała pamięć podręczna RPC", s.workers)
 		}
+		lastLogAge, logBytes := -1, int64(0)
+		if info, err := os.Stat(s.logPath); err == nil {
+			logBytes = info.Size()
+			lastLogAge = max(0, int(time.Since(info.ModTime()).Seconds()))
+		}
+		progress := advanceEngineProgress(s.progress, engineProgress(engineLog, s.ready))
+		s.progress = progress
 		session = map[string]any{"url": s.url + "/v1", "key": s.key, "layers": s.layers, "name": s.name, "ready": s.ready}
 		engine = map[string]any{
-			"active": true, "ready": s.ready, "phase": enginePhase(engineLog, s.ready),
+			"active": true, "ready": s.ready, "phase": progress.Label, "progress": progress,
 			"elapsed": elapsed, "log": engineLog, "path": s.logPath, "mode": mode,
+			"lastLogAge": lastLogAge, "logBytes": logBytes,
+			"rpcSent": s.rpcSent.Load(), "rpcReceived": s.rpcReceived.Load(),
+			"readBytes": hostProcess.ReadBytes, "cpuTimeMs": hostProcess.CPUTimeMS,
 		}
 	} else if a.lastEngineLog != "" || a.lastEnginePath != "" {
 		phase := "Ostatnia sesja zakończona"

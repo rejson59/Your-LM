@@ -14,6 +14,7 @@ let stream = null;
 let scanId = 0;
 let offered = "";
 let lastSession = "";
+let loadSample = null;
 
 const gib = (n) =>
   (Number(n || 0) / 1073741824).toLocaleString("pl-PL", {
@@ -21,11 +22,103 @@ const gib = (n) =>
   });
 
 function elapsed(seconds) {
-  const total = Math.max(0, Number(seconds || 0));
+  const value = Number(seconds || 0);
+  const total = Number.isFinite(value) ? Math.max(0, value) : 0;
   if (total < 60) return `${total} s`;
   const minutes = Math.floor(total / 60);
   const rest = total % 60;
   return `${minutes} min ${String(rest).padStart(2, "0")} s`;
+}
+
+function loadingTelemetry(session, engine) {
+  const now = Date.now();
+  const current = {
+    key: session?.key || "",
+    at: now,
+    sent: Number(engine.rpcSent || 0),
+    received: Number(engine.rpcReceived || 0),
+    read: Number(engine.readBytes || 0),
+    cpu: Number(engine.cpuTimeMs || 0),
+    log: Number(engine.logBytes || 0),
+    stage: Number(engine.progress?.step || 0),
+  };
+  if (!session || loadSample?.key !== current.key) {
+    loadSample = session
+      ? { ...current, observedAt: now, activeAt: 0, hasActivity: false, rpcSendRate: 0, rpcReceiveRate: 0, diskRate: 0, cpuRate: 0 }
+      : null;
+    return loadSample;
+  }
+  const seconds = (now - loadSample.at) / 1000;
+  if (seconds >= 0.5) {
+    const sent = Math.max(0, current.sent - loadSample.sent);
+    const received = Math.max(0, current.received - loadSample.received);
+    const read = Math.max(0, current.read - loadSample.read);
+    const cpu = Math.max(0, current.cpu - loadSample.cpu);
+    const active =
+      sent > 0 ||
+      received > 0 ||
+      read > 0 ||
+      cpu / seconds > 20 ||
+      current.log !== loadSample.log ||
+      current.stage !== loadSample.stage;
+    loadSample = {
+      ...current,
+      observedAt: loadSample.observedAt,
+      activeAt: active ? now : loadSample.activeAt,
+      hasActivity: active || loadSample.hasActivity,
+      rpcSendRate: sent / seconds,
+      rpcReceiveRate: received / seconds,
+      diskRate: read / seconds,
+      cpuRate: cpu / seconds,
+    };
+  }
+  return loadSample;
+}
+
+function loadingActivity(engine, sample, workers) {
+  const mib = (value) => (value / 1048576).toLocaleString("pl-PL", { maximumFractionDigits: 1 });
+  if (engine.ready) return `Gotowy po ${elapsed(engine.elapsed)}.`;
+  if (sample?.rpcSendRate > 1048576) {
+    return `Transfer do workera: ${mib(sample.rpcSendRate)} MiB/s · wysłano ${gib(sample.sent)} GiB.`;
+  }
+  if (sample?.rpcReceiveRate > 1048576) {
+    return `Odbiór z workera: ${mib(sample.rpcReceiveRate)} MiB/s · odebrano ${gib(sample.received)} GiB.`;
+  }
+  if (sample?.diskRate > 1048576) {
+    return `Odczyt dysku: ${mib(sample.diskRate)} MiB/s · odczytano ${gib(sample.read)} GiB.`;
+  }
+  if (sample?.cpuRate > 20) {
+    return "CPU pracuje nad analizą modelu lub planem rozmieszczenia wag.";
+  }
+  const logAge = Number(engine.lastLogAge);
+  if (!Number.isFinite(logAge) || logAge < 0) return "Oczekiwanie na pierwszą informację o aktywności silnika…";
+  if (logAge < 10) return "Silnik właśnie zgłosił aktywność w logu.";
+  return workers.length
+    ? `Brak nowej linii logu od ${elapsed(logAge)}; sprawdzamy dalej CPU, dysk i transfer do workera.`
+    : `Brak nowej linii logu od ${elapsed(logAge)}; sprawdzamy dalej CPU i odczyt dysku.`;
+}
+
+function loadingStalled(engine, sample) {
+  if (engine.ready || !sample || Number(engine.elapsed || 0) < 180) return false;
+  const now = Date.now();
+  const observed = Math.max(0, (now - sample.observedAt) / 1000);
+  const quiet = sample.hasActivity ? Math.max(0, (now - sample.activeAt) / 1000) : observed;
+  const recentLog = Number(engine.lastLogAge) >= 0 && Number(engine.lastLogAge) < 15;
+  return !recentLog && observed >= 60 && quiet >= 60;
+}
+
+function loadingDecision(engine, sample) {
+  if (engine.ready) return "Ładowanie zakończone — można przejść do czatu.";
+  const quiet = sample?.hasActivity ? Math.max(0, (Date.now() - sample.activeAt) / 1000) : Infinity;
+  const recentLog = Number(engine.lastLogAge) >= 0 && Number(engine.lastLogAge) < 15;
+  if (engine.elapsed < 45) return "To wczesny etap — na razie warto czekać.";
+  if (recentLog || (sample?.hasActivity && quiet < 15)) {
+    return "Widać mierzalną aktywność — warto nadal czekać.";
+  }
+  if (loadingStalled(engine, sample)) {
+    return "Od co najmniej minuty nie widać aktywności. Możesz zatrzymać i spróbować bez workera.";
+  }
+  return "Brak dokładnej ETA; pasek pokazuje potwierdzony etap, a nie udawany procent pliku.";
 }
 
 function note(value) {
@@ -172,6 +265,7 @@ function render(nextState) {
   const session = state.session;
   const engineState = state.engine || {};
   const memory = state.memory || {};
+  const loadTelemetry = loadingTelemetry(session, engineState);
   const totalRam = Number(memory.physical ?? workers.reduce((sum, node) => sum + node.total, state.total));
   const availableRam = Number(memory.available ?? workers.reduce((sum, node) => sum + node.free, state.free));
   const osUsed = Number(memory.osUsed ?? Math.max(0, totalRam - availableRam));
@@ -276,6 +370,36 @@ function render(nextState) {
   $("sessionInfo").classList.toggle("failed", Boolean(!session && state.last));
   $("apiDetails").hidden = !session;
   $("engineDiagnostics").hidden = !hasEngineDetails;
+  $("loadProgressPanel").hidden = !session;
+  if (session) {
+    const progress = engineState.progress || {
+      step: session.ready ? 6 : 1,
+      steps: 6,
+      label: engineState.phase || "Uruchamianie silnika",
+      ready: Boolean(session.ready),
+    };
+    const steps = Math.max(1, Number(progress.steps || 6));
+    const step = Math.min(steps, Math.max(1, Number(progress.step || 1)));
+    const progressReady = Boolean(progress.ready || session.ready);
+    const completed = progressReady ? steps : step - 1;
+    $("loadStepLabel").textContent = progress.label;
+    $("loadStepCount").textContent = progressReady
+      ? `${steps} z ${steps} · GOTOWY`
+      : `Etap ${step} z ${steps} · orientacyjnie`;
+    $("loadProgressFill").style.width = `${(completed / steps) * 100}%`;
+    $("loadProgressTrack").classList.toggle("loading", !session.ready);
+    $("loadProgressTrack").classList.toggle("ready", Boolean(session.ready));
+    $("loadProgressTrack").setAttribute("aria-valuemax", String(steps));
+    $("loadProgressTrack").setAttribute("aria-valuenow", String(step));
+    $("loadProgressTrack").setAttribute(
+      "aria-valuetext",
+      session.ready ? "Model gotowy" : `Etap ${step} z ${steps}: ${progress.label}`,
+    );
+    $("loadActivity").textContent = loadingActivity(engineState, loadTelemetry, workers);
+    $("loadDecisionText").textContent = loadingDecision(engineState, loadTelemetry);
+    $("loadProgressPanel").classList.toggle("stalled", loadingStalled(engineState, loadTelemetry));
+    $("cancelLoad").hidden = Boolean(session.ready);
+  }
   if (hasEngineDetails) {
     $("runstate").textContent = engineState.phase || (session?.ready ? "Model gotowy" : "Ostatnia sesja silnika");
     $("loadMeta").textContent = session
@@ -383,6 +507,7 @@ $("choose").onclick = () => act("model", { path: $("path").value }, $("pathDlg")
 $("library").onchange = (event) => event.target.value && act("model", { path: event.target.value });
 $("pick").onclick = () => act("pick");
 $("offerBtn").onclick = () => act(state.offer ? "unoffer" : "offer", { bind: $("workerIP").value });
+$("cancelLoad").onclick = () => act("stop");
 $("run").onclick = () => {
   if (
     !state.session &&

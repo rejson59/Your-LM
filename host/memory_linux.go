@@ -48,6 +48,41 @@ func systemMemory() MemorySnapshot {
 	}
 }
 
+func processReadBytes(pid int) uint64 {
+	data, _ := os.ReadFile(fmt.Sprintf("/proc/%d/io", pid))
+	for _, line := range strings.Split(string(data), "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok || strings.TrimSpace(key) != "read_bytes" {
+			continue
+		}
+		result, _ := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
+		return result
+	}
+	return 0
+}
+
+func parseProcCPUTimeMS(data string) uint64 {
+	// comm (field 2) may contain spaces and parentheses, so fields before its
+	// final ')' cannot be split safely. Linux exports utime/stime in USER_HZ;
+	// USER_HZ is fixed at 100 ticks per second for this procfs interface.
+	end := strings.LastIndexByte(data, ')')
+	if end < 0 || end+1 >= len(data) {
+		return 0
+	}
+	fields := strings.Fields(data[end+1:])
+	if len(fields) <= 12 {
+		return 0
+	}
+	user, _ := strconv.ParseUint(fields[11], 10, 64)
+	kernel, _ := strconv.ParseUint(fields[12], 10, 64)
+	return (user + kernel) * 10
+}
+
+func processCPUTimeMS(pid int) uint64 {
+	data, _ := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	return parseProcCPUTimeMS(string(data))
+}
+
 func memoryForProcess(pid int) ProcessMemory {
 	if pid <= 0 {
 		return ProcessMemory{}
@@ -56,5 +91,7 @@ func memoryForProcess(pid int) ProcessMemory {
 	return ProcessMemory{
 		Resident:  values["VmRSS"],
 		Committed: values["VmRSS"] + values["VmSwap"],
+		ReadBytes: processReadBytes(pid),
+		CPUTimeMS: processCPUTimeMS(pid),
 	}
 }

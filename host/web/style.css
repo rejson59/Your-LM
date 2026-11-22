@@ -386,6 +386,21 @@ h3 { margin: 0 0 5px; font-size: 17px; }
 .engineHeadline b, .engineHeadline small { display: block; }
 .engineHeadline small { margin-top: 2px; color: var(--muted); }
 .loadHint { max-width: 760px; margin: 8px 0 0; padding: 9px 11px; border-radius: 9px; color: #42604f; background: rgba(23, 107, 75, .07); font-size: 12px; }
+.loadProgressPanel { margin-top: 14px; padding: 14px; border: 1px solid #c8dfd1; border-radius: 11px; background: rgba(255, 255, 255, .62); }
+.loadProgressHeader, .loadDecision { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.loadProgressHeader b { font-size: 13px; }
+.loadProgressHeader span { color: var(--green-dark); font: 750 10px ui-monospace, monospace; letter-spacing: .5px; }
+.loadProgressTrack { position: relative; height: 12px; margin-top: 10px; overflow: hidden; border-radius: 999px; background: #dbe8df; }
+.loadProgressTrack i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #176b4b, #43ad79); transition: width .5s ease; }
+.loadProgressTrack.loading::after { content: ""; position: absolute; inset: 0 auto 0 -28%; width: 24%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, .72), transparent); animation: loadSweep 1.7s ease-in-out infinite; }
+.loadProgressTrack.ready i { background: #35a66f; }
+.loadActivity { min-height: 20px; margin: 8px 0 7px; color: #42604f; font-size: 12px; }
+.loadDecision small { color: var(--muted); }
+.loadDecision button { min-height: 36px; padding: 7px 11px; flex: 0 0 auto; color: var(--danger); background: #fff1ef; border-color: #edccc6; }
+.loadProgressPanel.stalled { border-color: #e6ada4; background: #fff8f6; }
+.loadProgressPanel.stalled .loadProgressTrack::after { display: none; }
+.loadProgressPanel.stalled .loadDecision small { color: #a23e33; font-weight: 700; }
+@keyframes loadSweep { to { transform: translateX(620%); } }
 .sessionBox label { margin-top: 12px; }
 .liveDot { display: inline-block; margin: 5px 0 0; }
 .sessionBox.loading .liveDot { animation: enginePulse 1.25s ease-in-out infinite; }
@@ -551,6 +566,14 @@ html[data-theme="dark"] .sessionBox.failed { border-color: #663b35; background: 
 html[data-theme="dark"] #engineDiagnostics { border-color: #2c4538; }
 html[data-theme="dark"] #engineDiagnostics summary { color: #a6ebc8; }
 html[data-theme="dark"] .loadHint { color: #b5c9be; background: rgba(91, 209, 154, .08); }
+html[data-theme="dark"] .loadProgressPanel { border-color: #315140; background: rgba(8, 17, 12, .42); }
+html[data-theme="dark"] .loadProgressTrack { background: #26382f; }
+html[data-theme="dark"] .loadProgressTrack i { background: linear-gradient(90deg, #248b61, #5bd19a); }
+html[data-theme="dark"] .loadProgressTrack.loading::after { background: linear-gradient(90deg, transparent, rgba(223, 255, 238, .32), transparent); }
+html[data-theme="dark"] .loadActivity { color: #b5c9be; }
+html[data-theme="dark"] .loadDecision button { color: #ffaaa0; border-color: #5d3631; background: #38201e; }
+html[data-theme="dark"] .loadProgressPanel.stalled { border-color: #7d453e; background: #2b1917; }
+html[data-theme="dark"] .loadProgressPanel.stalled .loadDecision small { color: #ffaaa0; }
 html[data-theme="dark"] .recommendation { border-color: #554b2d; background: #241f14; }
 html[data-theme="dark"] .recommendIcon { color: #f1d58c; background: #4b3c1c; }
 html[data-theme="dark"] label { color: #adbbb3; }
@@ -644,6 +667,8 @@ html[data-theme="dark"] .mobileHeader { background: rgba(15, 23, 19, .95); }
   .serverIntro { align-items: flex-start; }
   .serverFields { display: grid; grid-template-columns: 1fr 100px; }
   .serverFields button { grid-column: 1 / -1; width: 100%; }
+  .loadDecision { align-items: flex-start; flex-direction: column; }
+  .loadDecision button { width: 100%; }
   .recommendation { padding: 15px; }
   .chatHead { align-items: flex-start; }
   .chatHead button { font-size: 12px; }

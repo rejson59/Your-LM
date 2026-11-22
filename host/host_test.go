@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -121,15 +122,30 @@ func TestEngineProgressPhases(t *testing.T) {
 		ready     bool
 	}{
 		{"", "Uruchamianie silnika llama.cpp", false},
-		{"srv load_model: loading model", "Odczytywanie modelu GGUF", false},
-		{"load_tensors: offloaded 8 layers", "Rozmieszczanie wag na urządzeniach", false},
+		{"srv load_model: loading model", "Odczyt metadanych i tokenizera GGUF", false},
+		{"tensor overrides to CPU are used with mmap", "Planowanie podziału pamięci", false},
+		{"load_tensors: offloaded 8 layers", "Ładowanie i przesyłanie wag", false},
 		{"llama_kv_cache: size", "Tworzenie kontekstu i buforów", false},
-		{"listening on http://127.0.0.1", "Finalizowanie lokalnego API", false},
+		{"model loaded", "Finalizowanie lokalnego API", false},
 		{"anything", "Model gotowy", true},
 	} {
 		if got := enginePhase(test.log, test.ready); got != test.want {
 			t.Fatalf("enginePhase(%q, %v)=%q, want %q", test.log, test.ready, got, test.want)
 		}
+	}
+	progress := engineProgress("load_tensors: loading", false)
+	if progress.Step != 4 || progress.Steps != 6 || progress.Ready {
+		t.Fatalf("unexpected tensor-loading progress: %+v", progress)
+	}
+	ready := engineProgress("", true)
+	if ready.Step != ready.Steps || !ready.Ready {
+		t.Fatalf("ready progress is not complete: %+v", ready)
+	}
+	if got := advanceEngineProgress(progress, engineProgress("", false)); got.Step != progress.Step {
+		t.Fatalf("engine progress regressed: %+v", got)
+	}
+	if got := advanceEngineProgress(progress, ready); !got.Ready {
+		t.Fatalf("ready state did not replace prior progress: %+v", got)
 	}
 	if got := cleanEngineLog("one\r\ntwo\x00\rthree"); got != "one\ntwo\nthree" {
 		t.Fatalf("cleanEngineLog returned %q", got)
@@ -185,6 +201,16 @@ func TestChildEnvironment(t *testing.T) {
 	}
 	if !strings.Contains(joined, "\nYOURLM_TEST_SAFE=kept\n") || !strings.Contains(joined, "\nGGML_RPC_NO_COMM=1\n") {
 		t.Fatal("safe or mandatory child variable missing")
+	}
+}
+
+func TestRPCTrafficCounter(t *testing.T) {
+	payload := bytes.Repeat([]byte("rpc"), 4096)
+	var output bytes.Buffer
+	var transferred atomic.Uint64
+	copyRPC(&output, bytes.NewReader(payload), &transferred)
+	if !bytes.Equal(output.Bytes(), payload) || transferred.Load() != uint64(len(payload)) {
+		t.Fatalf("RPC copy counted %d bytes for %d-byte payload", transferred.Load(), len(payload))
 	}
 }
 
@@ -329,7 +355,8 @@ func TestPairAndBridge(t *testing.T) {
 	if bad.refresh() == nil {
 		t.Fatal("accepted incorrect token")
 	}
-	bridge, e := n.bridge()
+	var sent, received atomic.Uint64
+	bridge, e := n.bridge(&sent, &received)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -344,6 +371,9 @@ func TestPairAndBridge(t *testing.T) {
 	v, e := bufio.NewReader(c).ReadString('\n')
 	if e != nil || v != "tensor bytes\n" {
 		t.Fatal(v, e)
+	}
+	if sent.Load() == 0 || received.Load() == 0 {
+		t.Fatalf("bridge did not count bidirectional traffic: sent=%d received=%d", sent.Load(), received.Load())
 	}
 }
 

@@ -1,4 +1,4 @@
-YourLM 0.2.0-rc5 — Windows x64 (natywne okno + Lenovo/Redmi bez sztucznego limitu)
+YourLM 0.2.0-rc6 — Windows x64 (natywne okno + Lenovo/Redmi bez sztucznego limitu)
 
 Uruchom pobrany pojedynczy YourLM.exe jako zwykły użytkownik. Przy pierwszym starcie program instaluje się bez administratora w %LocalAppData%\Programs\YourLM, dodaje skrót do Menu Start i wpis w Ustawienia → Aplikacje → Zainstalowane aplikacje, a następnie otwiera panel bezpośrednio w natywnym oknie WebView2. Zwykła przeglądarka jest używana tylko awaryjnie, gdy WebView2 jest niedostępny. Runtime llama.cpp, minimalny ADB i aktualne APK są wbudowane w EXE oraz przygotowywane w prywatnym %AppData%\YourLM. Parametr --portable pomija instalację.
 
@@ -7,5 +7,7 @@ W zakładce Telefon USB podłącz odblokowany telefon z włączonym debugowaniem
 Worker Android działa jako usługa pierwszoplanowa z blokadą CPU i Wi-Fi. Po uruchomieniu może dalej pomagać laptopowi przy wyłączonym ekranie i zamkniętym widoku aplikacji; zatrzymasz go z powiadomienia lub aplikacji. Prywatny cache RPC zachowuje przydzielone tensory i znacząco przyspiesza kolejne uruchomienia tego samego modelu.
 
 Panel pamięci pokazuje osobno pełny fizyczny RAM, użycie systemów, RAM dostępny teraz, zmapowany plik GGUF, rzeczywistą alokację silników oraz limit zatwierdzeń/pliku stronicowania Windows. Dostępne teraz nie jest limitem rozmiaru GGUF. YourLM nie odrzuca 12,4 GiB modelu statycznym planistą: host próbuje mmap, a worker używa natywnego podziału llama.cpp z rezerwą YourLM 0 MiB.
+
+Podczas startu modelu panel pokazuje potwierdzony etap, czas oraz rzeczywistą aktywność dysku, CPU i RPC. Etapy są orientacyjne, a nie udawanym procentem tensorów. Po dłuższym braku wszystkich mierzalnych sygnałów panel podpowiada, kiedy rozsądnie zatrzymać próbę.
 
 Modele, ustawienia, cache i dane aplikacji pozostają poza EXE i są zachowywane przy aktualizacji.

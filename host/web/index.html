@@ -44,7 +44,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc5 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc6 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -211,6 +211,12 @@
               </div>
               <div id="sessionInfo" class="sessionBox" hidden>
                 <div class="engineHeadline"><span class="liveDot"></span><div><b id="runstate"></b><small id="loadMeta"></small><p id="loadHint" class="loadHint" hidden></p></div></div>
+                <div id="loadProgressPanel" class="loadProgressPanel" aria-live="polite" hidden>
+                  <div class="loadProgressHeader"><b id="loadStepLabel">Uruchamianie silnika</b><span id="loadStepCount">Etap 1 z 6</span></div>
+                  <div id="loadProgressTrack" class="loadProgressTrack" role="progressbar" aria-label="Etap uruchamiania modelu" aria-valuemin="1" aria-valuemax="6"><i id="loadProgressFill"></i></div>
+                  <p id="loadActivity" class="loadActivity"></p>
+                  <div class="loadDecision"><small id="loadDecisionText"></small><button id="cancelLoad" class="secondary">Zatrzymaj ładowanie</button></div>
+                </div>
                 <div id="apiDetails">
                   <label>Adres API</label><pre id="endpoint"></pre>
                   <div class="actions"><button id="copyKey">Kopiuj klucz API</button><button class="secondary" id="copyCfg">Kopiuj konfigurację Continue</button></div>
@@ -244,7 +250,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc5</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc6</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>

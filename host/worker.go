@@ -13,6 +13,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -110,11 +111,25 @@ func (n *Node) refresh() error {
 		info.Name, info.Free, info.Total, info.Used, info.Allocation, info.Cores, info.Build
 	return nil
 }
-func copyRPC(dst io.Writer, src io.Reader) {
-	_, _ = io.CopyBuffer(dst, src, make([]byte, 256<<10))
+
+type rpcCountingWriter struct {
+	io.Writer
+	transferred *atomic.Uint64
 }
 
-func (n Node) bridge() (net.Listener, error) {
+func (w rpcCountingWriter) Write(data []byte) (int, error) {
+	written, err := w.Writer.Write(data)
+	if written > 0 && w.transferred != nil {
+		w.transferred.Add(uint64(written))
+	}
+	return written, err
+}
+
+func copyRPC(dst io.Writer, src io.Reader, transferred *atomic.Uint64) {
+	_, _ = io.CopyBuffer(rpcCountingWriter{Writer: dst, transferred: transferred}, src, make([]byte, 256<<10))
+}
+
+func (n Node) bridge(sent, received *atomic.Uint64) (net.Listener, error) {
 	l, e := net.Listen("tcp4", "127.0.0.1:0")
 	if e != nil {
 		return nil, e
@@ -139,8 +154,8 @@ func (n Node) bridge() (net.Listener, error) {
 					return
 				}
 				remote.SetDeadline(time.Time{})
-				go func() { copyRPC(remote, local); remote.Close() }()
-				copyRPC(local, r)
+				go func() { copyRPC(remote, local, sent); remote.Close() }()
+				copyRPC(local, r, received)
 			}()
 		}
 	}()
