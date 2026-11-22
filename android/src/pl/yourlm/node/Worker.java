@@ -47,7 +47,7 @@ final class Worker implements Closeable {
   SSLServerSocket server;
   ServerSocket pairing;
   String code, pairAddress, pin;
-  int rpcPort;
+  int rpcPort, rpcPid;
   volatile boolean closed;
 
   Worker(Context c) {
@@ -118,9 +118,34 @@ final class Worker implements Closeable {
     return m;
   }
 
+  int findProcessId() {
+    if (engineFile == null) return 0;
+    File[] entries = new File("/proc").listFiles();
+    if (entries == null) return 0;
+    String executable = engineFile.getPath();
+    byte[] data = new byte[4096];
+    for (File entry : entries) {
+      String name = entry.getName();
+      if (!name.matches("[0-9]+")) continue;
+      try (InputStream input = new FileInputStream(new File(entry, "cmdline"))) {
+        int count = input.read(data);
+        if (count <= 0) continue;
+        int end = 0;
+        while (end < count && data[end] != 0) end++;
+        String command = new String(data, 0, end, StandardCharsets.UTF_8);
+        if (command.equals(executable) || command.endsWith("/libylm_rpc.so")) {
+          return Integer.parseInt(name);
+        }
+      } catch (Exception ignored) {}
+    }
+    return 0;
+  }
+
   long processResidentBytes() {
-    if (rpc == null || !rpc.isAlive() || Build.VERSION.SDK_INT < 26) return 0;
-    File status = new File("/proc/" + rpc.pid() + "/status");
+    if (rpc == null || !rpc.isAlive()) return 0;
+    if (rpcPid == 0) rpcPid = findProcessId();
+    if (rpcPid == 0) return 0;
+    File status = new File("/proc/" + rpcPid + "/status");
     try (BufferedReader reader = new BufferedReader(new FileReader(status))) {
       String line;
       while ((line = reader.readLine()) != null) {
@@ -274,6 +299,7 @@ final class Worker implements Closeable {
     builder.environment().put("LLAMA_CACHE", rpcCache.getPath());
     try {
       rpc = builder.start();
+      rpcPid = findProcessId();
     } catch (IOException e) {
       throw new IOException(failure("Android odmówił uruchomienia silnika", bin), e);
     }
