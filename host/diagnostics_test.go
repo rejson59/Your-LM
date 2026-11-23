@@ -183,6 +183,15 @@ func TestExistingMigrationMarkerCannotDiscardDifferentSource(t *testing.T) {
 	}
 }
 
+func TestDiagnosticRateKeepsSubTickTransfersNonZero(t *testing.T) {
+	if got := diagnosticBytesPerSecond(2<<20, 0); got == 0 {
+		t.Fatal("positive cached transfer was reported as zero throughput")
+	}
+	if got := diagnosticBytesPerSecond(0, 0); got != 0 {
+		t.Fatalf("empty transfer reported throughput: %d", got)
+	}
+}
+
 func TestDiskDiagnosticUsesOnlyOwnedTemporaryFile(t *testing.T) {
 	directory := t.TempDir()
 	writeRate, readRate, used, err := benchmarkDisk(context.Background(), directory, 2<<20)

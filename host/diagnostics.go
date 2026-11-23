@@ -195,6 +195,19 @@ func benchmarkCPU(ctx context.Context, duration time.Duration) (uint64, int) {
 	return uint64(float64(processed.Load()) / elapsed.Seconds()), workers
 }
 
+func diagnosticBytesPerSecond(bytes int64, elapsed time.Duration) uint64 {
+	if bytes <= 0 {
+		return 0
+	}
+	// A small cached read can complete within one clock tick on Windows. The
+	// transfer still happened, so report it against the smallest representable
+	// interval instead of returning a misleading zero throughput.
+	if elapsed <= 0 {
+		elapsed = time.Nanosecond
+	}
+	return uint64(float64(bytes) / elapsed.Seconds())
+}
+
 func benchmarkDisk(ctx context.Context, directory string, size int64) (writeBps, readBps uint64, used int64, err error) {
 	if size <= 0 {
 		return 0, 0, 0, errors.New("niepoprawny rozmiar testu dysku")
@@ -249,9 +262,7 @@ func benchmarkDisk(ctx context.Context, directory string, size int64) (writeBps,
 		return 0, 0, written, err
 	}
 	writeElapsed := time.Since(started)
-	if writeElapsed > 0 {
-		writeBps = uint64(float64(written) / writeElapsed.Seconds())
-	}
+	writeBps = diagnosticBytesPerSecond(written, writeElapsed)
 	file, err = os.Open(path)
 	if err != nil {
 		return writeBps, 0, written, err
@@ -284,9 +295,7 @@ func benchmarkDisk(ctx context.Context, directory string, size int64) (writeBps,
 		return writeBps, 0, written, err
 	}
 	readElapsed := time.Since(started)
-	if readElapsed > 0 {
-		readBps = uint64(float64(read) / readElapsed.Seconds())
-	}
+	readBps = diagnosticBytesPerSecond(read, readElapsed)
 	return writeBps, readBps, written, nil
 }
 
