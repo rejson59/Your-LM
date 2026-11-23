@@ -541,3 +541,26 @@ jobs:
               --title 'YourLM 0.2.0-rc17' --notes-file windows/RELEASE-NOTES-0.2.0-rc17.md \
               --repo "$GITHUB_REPOSITORY"
           fi
+
+  diagnose-previous-windows-log:
+    name: Diagnose previous Windows gate log
+    if: ${{ contains(github.event.head_commit.message, '[diagnose windows]') }}
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Surface inaccessible Windows failure output
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/jobs/137831169002/logs" > "$RUNNER_TEMP/windows-job.log"
+          tail_output=$(tail -n 140 "$RUNNER_TEMP/windows-job.log")
+          tail_output=${tail_output: -30000}
+          tail_output=${tail_output//'%'/'%25'}
+          tail_output=${tail_output//$'\r'/'%0D'}
+          tail_output=${tail_output//$'\n'/'%0A'}
+          echo "::error title=Previous Windows gate output::$tail_output"
+          exit 1
