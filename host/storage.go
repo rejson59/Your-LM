@@ -52,6 +52,8 @@ type StorageMigrationState struct {
 	ReusedFiles     int    `json:"reusedFiles,omitempty"`
 	ReusedBytes     uint64 `json:"reusedBytes,omitempty"`
 	RecoveredParts  int    `json:"recoveredParts,omitempty"`
+	ReplacedFiles   int    `json:"replacedFiles,omitempty"`
+	RemovedEntries  int    `json:"removedEntries,omitempty"`
 	CopiedFiles     int    `json:"copiedFiles,omitempty"`
 	VerifiedFiles   int    `json:"verifiedFiles,omitempty"`
 	VerifiedBytes   uint64 `json:"verifiedBytes,omitempty"`
@@ -294,20 +296,36 @@ func copyStorageFile(source, destination string, mode os.FileMode, modified time
 	}
 	part := destination + storageMigrationPartSuffix
 	if current, statErr := os.Lstat(destination); statErr == nil {
-		if current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() || current.Size() != sourceInfo.Size() {
-			return fmt.Errorf("docelowy plik już istnieje i różni się rozmiarem lub typem: %s", destination)
+		if current.Mode()&os.ModeSymlink != 0 || !current.Mode().IsRegular() {
+			return fmt.Errorf("istniejący wpis etapowy nie jest bezpiecznym zwykłym plikiem: %s", destination)
 		}
-		left, leftErr := fileSHA256(source)
-		right, rightErr := fileSHA256(destination)
-		if leftErr != nil || rightErr != nil || left != right {
-			return fmt.Errorf("docelowy plik już istnieje i ma inną zawartość: %s", destination)
+		matches := false
+		if current.Size() == sourceInfo.Size() {
+			left, leftErr := fileSHA256(source)
+			right, rightErr := fileSHA256(destination)
+			if leftErr != nil {
+				return leftErr
+			}
+			if rightErr != nil {
+				return fmt.Errorf("sprawdzanie gotowego pliku etapowego %s: %w", destination, rightErr)
+			}
+			matches = left == right
 		}
-		if err := removeMigrationPart(part, state); err != nil {
-			return err
+		if matches {
+			if err := removeMigrationPart(part, state); err != nil {
+				return err
+			}
+			state.ReusedFiles++
+			state.ReusedBytes += uint64(current.Size())
+			return nil
 		}
-		state.ReusedFiles++
-		state.ReusedBytes += uint64(current.Size())
-		return nil
+		// This is a regular file inside the explicitly non-published staging
+		// tree, but it no longer matches the authoritative source. Replace only
+		// this validated stale entry; never remove the source or whole staging.
+		if err := os.Remove(destination); err != nil {
+			return fmt.Errorf("zastąpienie niezgodnego pliku etapowego %s: %w", destination, err)
+		}
+		state.ReplacedFiles++
 	} else if !errors.Is(statErr, os.ErrNotExist) {
 		return statErr
 	}
@@ -420,7 +438,82 @@ func copyStorageFile(source, destination string, mode os.FileMode, modified time
 	return nil
 }
 
-func prepareStorageStaging(staging string) error {
+func cleanStaleStorageEntries(source, staging string, state *StorageMigrationState) error {
+	var directories []string
+	err := filepath.Walk(staging, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(staging, path)
+		if err != nil {
+			return err
+		}
+		if relative == "." || relative == storageMarker {
+			return nil
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() && !info.IsDir() {
+			return fmt.Errorf("katalog etapowy zawiera nieobsługiwany wpis: %s", path)
+		}
+		sourcePath := filepath.Join(source, relative)
+		sourceInfo, sourceErr := os.Lstat(sourcePath)
+		if sourceErr == nil {
+			if sourceInfo.Mode()&os.ModeSymlink != 0 || !sourceInfo.Mode().IsRegular() && !sourceInfo.IsDir() {
+				return fmt.Errorf("źródło zawiera nieobsługiwany wpis: %s", sourcePath)
+			}
+			if sourceInfo.IsDir() == info.IsDir() {
+				return nil
+			}
+			if info.IsDir() {
+				// The authoritative source now has a file where an old staging
+				// attempt had a directory. The whole subtree is necessarily stale.
+				if err := os.RemoveAll(path); err != nil {
+					return fmt.Errorf("usunięcie niezgodnego poddrzewa etapowego %s: %w", path, err)
+				}
+				state.RemovedEntries++
+				return filepath.SkipDir
+			}
+			if err := os.Remove(path); err != nil {
+				return fmt.Errorf("usunięcie niezgodnego wpisu etapowego %s: %w", path, err)
+			}
+			state.RemovedEntries++
+			return nil
+		}
+		if !errors.Is(sourceErr, os.ErrNotExist) {
+			return sourceErr
+		}
+		if info.Mode().IsRegular() && strings.HasSuffix(relative, storageMigrationPartSuffix) {
+			original := strings.TrimSuffix(relative, storageMigrationPartSuffix)
+			originalInfo, originalErr := os.Lstat(filepath.Join(source, original))
+			if originalErr == nil && originalInfo.Mode().IsRegular() && originalInfo.Mode()&os.ModeSymlink == 0 {
+				return nil // Valid candidate part; copyStorageFile will verify its prefix.
+			}
+			if originalErr != nil && !errors.Is(originalErr, os.ErrNotExist) {
+				return originalErr
+			}
+		}
+		if info.IsDir() {
+			directories = append(directories, path)
+			return nil
+		}
+		if err := os.Remove(path); err != nil {
+			return fmt.Errorf("usunięcie osieroconego wpisu etapowego %s: %w", path, err)
+		}
+		state.RemovedEntries++
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	for index := len(directories) - 1; index >= 0; index-- {
+		if err := os.Remove(directories[index]); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("usunięcie pustego katalogu etapowego %s: %w", directories[index], err)
+		}
+		state.RemovedEntries++
+	}
+	return nil
+}
+
+func prepareStorageStaging(source, staging string, state *StorageMigrationState) error {
 	info, err := os.Lstat(staging)
 	if errors.Is(err, os.ErrNotExist) {
 		return os.MkdirAll(staging, 0700)
@@ -442,11 +535,11 @@ func prepareStorageStaging(staging string) error {
 	} else if !errors.Is(markerErr, os.ErrNotExist) {
 		return markerErr
 	}
-	return nil
+	return cleanStaleStorageEntries(source, staging, state)
 }
 
 func copyStorageTree(source, destination string, state *StorageMigrationState) error {
-	if err := prepareStorageStaging(destination); err != nil {
+	if err := prepareStorageStaging(source, destination, state); err != nil {
 		return err
 	}
 	return filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
@@ -821,7 +914,7 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 		return result, fmt.Errorf("synchronizacja publikacji biblioteki: %w", err)
 	}
 	result.migrated = true
-	recovered := result.state.RecoveredLock || result.state.ResumedFiles > 0 || result.state.ReusedFiles > 0 || result.state.RecoveredParts > 0
+	recovered := result.state.RecoveredLock || result.state.ResumedFiles > 0 || result.state.ReusedFiles > 0 || result.state.RecoveredParts > 0 || result.state.ReplacedFiles > 0 || result.state.RemovedEntries > 0
 	if recovered {
 		result.state.Status = "recovered"
 		result.state.Title = "Migracja odzyskana i zweryfikowana"

@@ -541,6 +541,8 @@ function renderStorage(storage = {}) {
   if (migration.resumedFiles) stats.push(["WZNOWIONO", `${migration.resumedFiles} plik · ${humanBytes(migration.resumedBytes)}`]);
   if (migration.reusedFiles) stats.push(["UŻYTO PONOWNIE", `${migration.reusedFiles} plik · ${humanBytes(migration.reusedBytes)}`]);
   if (migration.recoveredParts) stats.push(["ODRZUCONO", `${migration.recoveredParts} uszkodzona część`]);
+  if (migration.replacedFiles) stats.push(["ODŚWIEŻONO", `${migration.replacedFiles} niezgodny plik stagingu`]);
+  if (migration.removedEntries) stats.push(["UPRZĄTNIĘTO", `${migration.removedEntries} osierocony wpis stagingu`]);
   if (migration.verifiedFiles) stats.push(["SHA-256", `${migration.verifiedFiles} plik · ${humanBytes(migration.verifiedBytes)}`]);
   if (migration.recoveredLock) stats.push(["BLOKADA", "odzyskana po przerwaniu"]);
   $("storageRecoveryStats").hidden = !stats.length;

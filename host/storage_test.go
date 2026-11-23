@@ -77,6 +77,40 @@ func TestMigrationReusesCompleteStagingFile(t *testing.T) {
 	}
 }
 
+func TestMigrationReplacesStaleCompletedAndOrphanedStagingEntries(t *testing.T) {
+	source, destination, model, payload := storageMigrationFixture(t)
+	staging := destination + ".migrating"
+	staged := filepath.Join(staging, model)
+	if err := os.MkdirAll(filepath.Dir(staged), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(staged, []byte("an older completed copy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(staging, "obsolete", "removed-model.gguf")
+	if err := os.MkdirAll(filepath.Dir(orphan), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(orphan, []byte("no longer present in source"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !result.migrated {
+		t.Fatalf("stale completed staging data was not recovered: result=%+v err=%v", result, err)
+	}
+	if result.state.ReplacedFiles != 1 || result.state.RemovedEntries < 1 || result.state.Status != "recovered" {
+		t.Fatalf("stale staging cleanup was not explicit: %+v", result.state)
+	}
+	got, readErr := os.ReadFile(filepath.Join(destination, model))
+	if readErr != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("refreshed staged file differs: bytes=%d err=%v", len(got), readErr)
+	}
+	if _, orphanErr := os.Stat(filepath.Join(destination, "obsolete")); !errors.Is(orphanErr, os.ErrNotExist) {
+		t.Fatalf("orphaned staging entry was published: %v", orphanErr)
+	}
+}
+
 func TestMigrationRejectsCorruptPartThenRestartsIt(t *testing.T) {
 	source, destination, model, payload := storageMigrationFixture(t)
 	part := filepath.Join(destination+".migrating", model) + storageMigrationPartSuffix

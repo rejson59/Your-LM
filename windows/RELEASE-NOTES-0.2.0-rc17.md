@@ -8,7 +8,8 @@ RC17 naprawia rzeczywisty błąd pierwszej migracji Lenovo z C: na D:, w którym
 - Jeśli rozmiar nie przekracza źródła, RC17 porównuje **cały istniejący prefiks bajt po bajcie**. Zgodną część dopisuje od pierwszego brakującego bajtu; pełną zgodną część zatwierdza bez ponownego kopiowania.
 - Część o złym prefiksie lub nadmiarowym rozmiarze jest odrzucana pojedynczo i tworzona ponownie. Program nie kasuje w ciemno całego dużego `Data.migrating`.
 - Błąd odczytu, zapisania, `fsync`, blokada antywirusa/innego procesu albo brak miejsca zatrzymuje publikację. Prawidłowy prefiks pozostaje do następnego wznowienia, a źródło C: nie jest usuwane.
-- Gotowe pliki są porównywane SHA-256, a następnie RC17 ponownie sprawdza dokładne drzewo źródło → staging. Obcy, brakujący, nieprawidłowy lub nadal tymczasowy wpis uniemożliwia publikację.
+- Ukończony plik stagingu, który nie odpowiada już źródłu, jest zastępowany pojedynczo. Zwykły osierocony wpis nieobecny w źródle jest usuwany wyłącznie ze stagingu; dowiązanie, specjalny typ albo wpis, którego nie można bezpiecznie odczytać/usunąć, zatrzymuje operację.
+- Gotowe pliki są porównywane SHA-256, a następnie RC17 ponownie sprawdza dokładne drzewo źródło → staging. Brakujący, nieprawidłowy lub nadal tymczasowy wpis uniemożliwia publikację.
 - Znacznik `.yourlm-storage-v1` jest zapisywany i synchronizowany dopiero po pełnej kontroli. Jedyną publikacją jest atomowa zmiana nazwy `Data.migrating` na `Data`.
 - Oryginał na C: jest atomowo odkładany i usuwany dopiero po publikacji D:. Jeśli Windows nie pozwoli go odłożyć, D: pozostaje aktywne, a interfejs wyraźnie pokazuje zachowaną nieaktywną kopię.
 

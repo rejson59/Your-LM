@@ -603,8 +603,8 @@ func diagnosticsReport(state DiagnosticsState, storage StorageState) string {
 		if storage.Migration.Detail != "" {
 			fmt.Fprintf(&out, "Stan: %s\n", storage.Migration.Detail)
 		}
-		if storage.Migration.ResumedFiles > 0 || storage.Migration.ReusedFiles > 0 || storage.Migration.RecoveredParts > 0 {
-			fmt.Fprintf(&out, "Odzyskiwanie: wznowiono %d plików / %.2f GiB; użyto %d gotowych; odrzucono %d uszkodzonych części\n", storage.Migration.ResumedFiles, float64(storage.Migration.ResumedBytes)/float64(GiB), storage.Migration.ReusedFiles, storage.Migration.RecoveredParts)
+		if storage.Migration.ResumedFiles > 0 || storage.Migration.ReusedFiles > 0 || storage.Migration.RecoveredParts > 0 || storage.Migration.ReplacedFiles > 0 || storage.Migration.RemovedEntries > 0 {
+			fmt.Fprintf(&out, "Odzyskiwanie: wznowiono %d plików / %.2f GiB; użyto %d gotowych; odrzucono %d uszkodzonych części; odświeżono %d plików; uprzątnięto %d wpisów stagingu\n", storage.Migration.ResumedFiles, float64(storage.Migration.ResumedBytes)/float64(GiB), storage.Migration.ReusedFiles, storage.Migration.RecoveredParts, storage.Migration.ReplacedFiles, storage.Migration.RemovedEntries)
 		}
 		if storage.Migration.VerifiedFiles > 0 {
 			fmt.Fprintf(&out, "Weryfikacja: %d plików / %.2f GiB · SHA-256\n", storage.Migration.VerifiedFiles, float64(storage.Migration.VerifiedBytes)/float64(GiB))
