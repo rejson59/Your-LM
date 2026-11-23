@@ -385,14 +385,21 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - name: Download verified artifacts from the failed full gate
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: android-arm64-build
+          path: .
+          run-id: 45211064321
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-standalone-build
+          path: .
+          run-id: 45211064321
+          github-token: ${{ github.token }}
+      - name: Check verified artifacts
         shell: pwsh
         run: |
-          $ErrorActionPreference = 'Stop'
-          gh run download 45211064321 --repo $env:GITHUB_REPOSITORY --name android-arm64-build --dir .
-          gh run download 45211064321 --repo $env:GITHUB_REPOSITORY --name windows-standalone-build --dir .
           if (-not (Test-Path 'packages\YourLM.exe')) { throw 'Verified Windows artifact was not downloaded' }
       - name: Reproduce Windows runtime failure with explicit diagnostics
         shell: pwsh
