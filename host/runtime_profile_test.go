@@ -103,7 +103,7 @@ func TestGoldenRecipeRejectsDifferentCheckpoint(t *testing.T) {
 	q2.Metadata = cloneMetadata()
 	q2.Tensors = []recipeTensor{
 		{Name: "blk.0.attn.weight", Dimensions: []uint64{8, 8}, Type: 10, SourceOffset: 0, Span: 64},
-		{Name: "blk.0.ffn_down_exps.weight", Dimensions: []uint64{8, 8, 256}, Type: 10, SourceOffset: 64, Span: 128},
+		{Name: "blk.0.ffn_down_exps.weight", Dimensions: []uint64{8, 8, 256}, Type: 11, SourceOffset: 64, Span: 128},
 	}
 	layout, err := buildGoldenTensorLayout(q4, q2)
 	if err != nil {

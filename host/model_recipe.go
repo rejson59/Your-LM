@@ -456,8 +456,12 @@ func buildGoldenTensorLayout(q4, q2 recipeGGUFHeader) ([]recipeTensor, error) {
 		tensor.Source = 1
 		q2ByName[tensor.Name] = tensor
 		if isExpertTensor(tensor.Name) {
-			if tensor.Type != 10 { // GGML_TYPE_Q2_K
-				return nil, fmt.Errorf("ekspert %s nie jest przypiętym Q2_K", tensor.Name)
+			// A llama.cpp MOSTLY_Q2_K file deliberately stores FFN-down
+			// tensors as Q3_K while gate/up remain Q2_K. Both are part of the
+			// pinned Q2_K recipe; accepting arbitrary higher types would hide a
+			// changed quantization policy.
+			if tensor.Type != 10 && tensor.Type != 11 { // Q2_K / Q3_K
+				return nil, fmt.Errorf("ekspert %s ma nieoczekiwany typ w przypiętym źródle Q2_K", tensor.Name)
 			}
 			q2Experts[tensor.Name] = tensor
 		}
