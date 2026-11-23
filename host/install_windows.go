@@ -184,7 +184,7 @@ func createStartMenuShortcut(shortcut, target string) error {
 }
 
 func registerDesktopInstall(target, shortcut, version string) error {
-	// Recreate the shortcut even when it already exists: RC17 can move the
+	// Recreate the shortcut even when it already exists: RC18 can move the
 	// installed executable from LocalAppData on C: to the managed D: root.
 	if err := createStartMenuShortcut(shortcut, target); err != nil {
 		return err

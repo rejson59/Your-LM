@@ -15,7 +15,7 @@ try {
   if ($install.ExitCode -ne 0) { throw "Per-user installation exited with $($install.ExitCode)" }
   if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) { throw 'Per-user EXE was not installed' }
   if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) { throw 'Start Menu shortcut was not created' }
-  if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc17') { throw 'Installed Apps version is incorrect' }
+  if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc18') { throw 'Installed Apps version is incorrect' }
 
   $controllerOut = Join-Path $root 'controller.out'
   $controllerErr = Join-Path $root 'controller.err'
@@ -92,7 +92,7 @@ try {
   if (Test-Path -LiteralPath $shortcut) { throw 'Uninstall did not remove the Start Menu shortcut' }
   if (Test-Path -LiteralPath $uninstallKey) { throw 'Uninstall did not remove the Installed Apps entry' }
 
-  # Exercise the RC17 managed-drive path and verified migration using a
+  # Exercise the RC18 managed-drive path and verified migration using a
   # fixed-volume directory override. This keeps the hosted runner
   # deterministic even though its real D: scratch disk varies.
   Remove-Item Env:YOURLM_DISABLE_DRIVE_MIGRATION
@@ -107,7 +107,7 @@ try {
   $managedExe = Join-Path $managedRoot 'App\YourLM.exe'
   $managedData = Join-Path $managedRoot 'Data'
   # Reproduce the field failure exactly: RC16 left a valid prefix at
-  # Data.migrating\...migrating-part. RC17 must validate and append it,
+  # Data.migrating\...migrating-part. RC18 must validate and append it,
   # not delete the source and not fail with ERROR_FILE_EXISTS.
   $stagingModel = Join-Path $managedRoot 'Data.migrating\models\resume.gguf.part.migrating-part'
   New-Item -ItemType Directory -Force (Split-Path -Parent $stagingModel) | Out-Null
@@ -150,6 +150,55 @@ try {
   if (-not (Test-Path -LiteralPath $migrationLock -PathType Leaf)) { throw 'Migration lock evidence is missing' }
   if ((Get-Item -LiteralPath $migrationLock).Length -ne 0) { throw 'Migration lock remained owned after startup' }
 
+  # Reproduce the RC17 field report on the next start: D: is already a valid
+  # published library, while retained active C: has a component absent from D:.
+  # RC18 must publish union(C,D), with C winning collisions and D-only data kept.
+  Stop-Process -Id $managedProcess.Id -Force
+  Wait-Process -Id $managedProcess.Id -ErrorAction SilentlyContinue
+  $dOnly = Join-Path $managedData 'models\published-only-on-D.gguf'
+  $collision = 'config\reconcile-precedence.txt'
+  New-Item -ItemType Directory -Force (Split-Path -Parent $dOnly) | Out-Null
+  New-Item -ItemType Directory -Force (Join-Path $managedData 'config') | Out-Null
+  [IO.File]::WriteAllText($dOnly, 'preserve the D-only model')
+  [IO.File]::WriteAllText((Join-Path $managedData $collision), 'older published D value')
+  $reportedComponent = 'components\0.2.0-rc13-e9711eb1537f4f64\runtime.dll'
+  $cOnly = 'recovery\active-C-only.txt'
+  New-Item -ItemType Directory -Force (Split-Path -Parent (Join-Path $legacyData $reportedComponent)) | Out-Null
+  New-Item -ItemType Directory -Force (Split-Path -Parent (Join-Path $legacyData $cOnly)) | Out-Null
+  New-Item -ItemType Directory -Force (Join-Path $legacyData 'config') | Out-Null
+  [IO.File]::WriteAllText((Join-Path $legacyData $reportedComponent), 'component present only on retained C')
+  [IO.File]::WriteAllText((Join-Path $legacyData $cOnly), 'preserve the C-only recovery file')
+  [IO.File]::WriteAllText((Join-Path $legacyData $collision), 'authoritative active C value')
+
+  $reconcileOut = Join-Path $root 'reconcile-controller.out'
+  $reconcileErr = Join-Path $root 'reconcile-controller.err'
+  $managedProcess = Start-Process -FilePath $managedExe -ArgumentList '--no-browser' -RedirectStandardOutput $reconcileOut -RedirectStandardError $reconcileErr -PassThru
+  $reconcileText = ''
+  for ($attempt = 0; $attempt -lt 120; $attempt++) {
+    Start-Sleep -Milliseconds 500
+    $managedProcess.Refresh()
+    if ($managedProcess.HasExited) { throw "Reconciliation run exited with $($managedProcess.ExitCode): $(Get-Content -Raw -ErrorAction SilentlyContinue $reconcileErr)" }
+    if (Test-Path -LiteralPath $reconcileOut) { $reconcileText = Get-Content -Raw -LiteralPath $reconcileOut }
+    if ($reconcileText -match '(?m)^http://127\.0\.0\.1:[0-9]+/#[0-9a-f]+$') { break }
+  }
+  $managedMatch = [regex]::Match($reconcileText, '(?m)^(http://127\.0\.0\.1:[0-9]+)/#([0-9a-f]+)$')
+  if (-not $managedMatch.Success) { throw "Reconciliation controller URL was not emitted: $reconcileText" }
+  $managedBase = $managedMatch.Groups[1].Value
+  $managedHeaders = @{ 'X-YourLM' = $managedMatch.Groups[2].Value }
+  $managedState = Invoke-RestMethod -Uri "$managedBase/api/state" -Headers $managedHeaders
+  if ($managedState.storage.migration.status -ne 'reconciled' -or -not $managedState.storage.migration.reconciled) { throw "Retained C: and published D: were not reported as reconciled: $($managedState.storage.migration.status)" }
+  if ($managedState.storage.dataPath -ne $managedData) { throw 'Reconciled D: storage is not active' }
+  if ((Get-Content -Raw -LiteralPath $dOnly) -ne 'preserve the D-only model') { throw 'Reconciliation lost a D-only file' }
+  if ((Get-Content -Raw -LiteralPath (Join-Path $managedData $collision)) -ne 'authoritative active C value') { throw 'Active C: did not win a colliding path' }
+  if ((Get-Content -Raw -LiteralPath (Join-Path $managedData $cOnly)) -ne 'preserve the C-only recovery file') { throw 'Reconciliation lost a C-only file' }
+  # The exact old component is part of the verified union; normal post-storage
+  # component maintenance may then retire obsolete runtime versions safely.
+  $reconciledMarker = Get-Content -Raw -LiteralPath (Join-Path $managedData '.yourlm-storage-v1') | ConvertFrom-Json
+  if (-not $reconciledMarker.reconciled -or -not $reconciledMarker.treeSha256) { throw 'Published union lacks a reconciled SHA-256 marker' }
+  if (Test-Path -LiteralPath $legacyData) { throw 'Retained C: was not retired after complete verified reconciliation' }
+  if (Test-Path -LiteralPath (Join-Path $managedRoot 'Data.migrating')) { throw 'Reconciliation staging remained after publication' }
+  if (Test-Path -LiteralPath (Join-Path $managedRoot 'Data.reconcile-backup')) { throw 'Reconciliation rollback directory remained after verified publication' }
+
   if ($managedState.diagnostics.recommendation.readyToApply) { throw 'Managed autopilot unlocked before collecting hardware facts' }
   Invoke-RestMethod -Method Post -Uri "$managedBase/api/diagnostics-start" -Headers $managedHeaders -ContentType 'application/json' -Body '{}' | Out-Null
   $managedDiagnosticState = $null
@@ -159,6 +208,8 @@ try {
     if (-not $managedDiagnosticState.diagnostics.running) { break }
   }
   if (-not $managedDiagnosticState.diagnostics.complete) { throw "Managed-storage diagnostics did not complete: $($managedDiagnosticState.diagnostics.error)" }
+  $managedReport = Get-Content -Raw -LiteralPath $managedDiagnosticState.diagnostics.reportPath
+  if ($managedReport -notmatch 'Scalanie: zachowano wpisy D:') { throw 'Text diagnostics did not expose successful reconciliation' }
   if ($managedDiagnosticState.diagnostics.recommendation.selectedId -ne 'qwen36-35b-a3b-abliterated-balanced') { throw 'Managed autopilot selected an unaudited recipe' }
   if (-not $managedDiagnosticState.diagnostics.recommendation.readyToApply) { throw "Autopilot stayed blocked after verified D: publication: $($managedDiagnosticState.diagnostics.recommendation.nextStep)" }
 

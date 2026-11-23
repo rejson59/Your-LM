@@ -15,10 +15,11 @@ import (
 )
 
 const (
-	storageMarker              = ".yourlm-storage-v1"
-	storageMigrationPartSuffix = ".migrating-part"
-	storageMigrationLockName   = ".yourlm-data-migration.lock"
-	storageInstanceLockName    = ".yourlm-instance.lock"
+	storageMarker                = ".yourlm-storage-v1"
+	storageMigrationPartSuffix   = ".migrating-part"
+	storageMigrationLockName     = ".yourlm-data-migration.lock"
+	storageInstanceLockName      = ".yourlm-instance.lock"
+	storageReconcileBackupSuffix = ".reconcile-backup"
 )
 
 var errStorageMigrationBusy = errors.New("migracja magazynu działa w innym procesie YourLM")
@@ -48,6 +49,7 @@ type StorageMigrationState struct {
 	RetainedPath    string `json:"retainedPath,omitempty"`
 	SourceRetained  bool   `json:"sourceRetained"`
 	RecoveredLock   bool   `json:"recoveredLock"`
+	Reconciled      bool   `json:"reconciled"`
 	ResumedFiles    int    `json:"resumedFiles,omitempty"`
 	ResumedBytes    uint64 `json:"resumedBytes,omitempty"`
 	ReusedFiles     int    `json:"reusedFiles,omitempty"`
@@ -81,13 +83,16 @@ type storageVerification struct {
 }
 
 type storageMarkerDocument struct {
-	Format     string `json:"format"`
-	VerifiedAt string `json:"verifiedAt"`
-	Source     string `json:"source,omitempty"`
-	Files      int    `json:"files"`
-	Bytes      uint64 `json:"bytes"`
-	TreeSHA256 string `json:"treeSha256"`
-	YourLM     string `json:"yourlm,omitempty"`
+	Format                  string `json:"format"`
+	VerifiedAt              string `json:"verifiedAt"`
+	Source                  string `json:"source,omitempty"`
+	Files                   int    `json:"files"`
+	Bytes                   uint64 `json:"bytes"`
+	TreeSHA256              string `json:"treeSha256"`
+	YourLM                  string `json:"yourlm,omitempty"`
+	Reconciled              bool   `json:"reconciled,omitempty"`
+	RollbackRetained        bool   `json:"rollbackRetained,omitempty"`
+	SourceRetirementPending bool   `json:"sourceRetirementPending,omitempty"`
 }
 
 type storageMigrationResult struct {
@@ -106,6 +111,12 @@ type storageMigrationLockMetadata struct {
 type storageMigrationLock struct {
 	file *os.File
 	path string
+}
+
+type expectedStorageEntry struct {
+	relative string
+	path     string
+	isDir    bool
 }
 
 func refreshStorageFree(state *StorageState) {
@@ -498,11 +509,11 @@ func cleanStaleStorageEntries(source, staging string, state *StorageMigrationSta
 			}
 			if info.IsDir() {
 				// The authoritative source now has a file where an old staging
-				// attempt had a directory. The whole subtree is necessarily stale.
-				if err := os.RemoveAll(path); err != nil {
-					return fmt.Errorf("usunięcie niezgodnego poddrzewa etapowego %s: %w", path, err)
+				// attempt had a directory. Validate every descendant before removing
+				// the stale subtree; never recurse through an unvisited special entry.
+				if err := removeValidatedStorageTree(path, state); err != nil {
+					return fmt.Errorf("bezpieczne usunięcie niezgodnego poddrzewa etapowego %s: %w", path, err)
 				}
-				state.RemovedEntries++
 				return filepath.SkipDir
 			}
 			if err := os.Remove(path); err != nil {
@@ -721,7 +732,7 @@ func storageMarkerStatus(destination string) (valid, structured bool, err error)
 	return false, false, fmt.Errorf("znacznik magazynu YourLM jest uszkodzony")
 }
 
-func writeStorageMarker(directory, source string, verified storageVerification) error {
+func writeStorageMarkerState(directory, source string, verified storageVerification, reconciled bool) error {
 	document := storageMarkerDocument{
 		Format:     "YourLM storage v1",
 		VerifiedAt: time.Now().Format(time.RFC3339Nano),
@@ -730,6 +741,7 @@ func writeStorageMarker(directory, source string, verified storageVerification) 
 		Bytes:      verified.Bytes,
 		TreeSHA256: verified.TreeSHA256,
 		YourLM:     buildVersion,
+		Reconciled: reconciled,
 	}
 	data, err := json.MarshalIndent(document, "", "  ")
 	if err != nil {
@@ -741,6 +753,10 @@ func writeStorageMarker(directory, source string, verified storageVerification) 
 		return err
 	}
 	return syncStorageDirectory(directory)
+}
+
+func writeStorageMarker(directory, source string, verified storageVerification) error {
+	return writeStorageMarkerState(directory, source, verified, false)
 }
 
 func directoryHasEntries(path string) (bool, error) {
@@ -760,8 +776,8 @@ func retireStorageSource(source string) (retainedPath, warning string) {
 		return source, "Biblioteka na D: jest zweryfikowana i aktywna, ale Windows zachował oryginał na C:, ponieważ nie można go jeszcze odłożyć: " + err.Error()
 	}
 	_ = syncStorageDirectory(filepath.Dir(source))
-	if err := os.RemoveAll(backup); err != nil {
-		return backup, "Biblioteka na D: jest zweryfikowana i aktywna, ale kopia zapasowa na C: nie została jeszcze w pełni usunięta: " + err.Error()
+	if err := removeValidatedStorageTree(backup, nil); err != nil {
+		return backup, "Biblioteka na D: jest zweryfikowana i aktywna, ale kopia zapasowa na C: nie została jeszcze bezpiecznie usunięta: " + err.Error()
 	}
 	return "", ""
 }
@@ -773,7 +789,7 @@ func migrationAction(err error) string {
 	text := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(text, strings.ToLower(storageMigrationPartSuffix)), strings.Contains(text, "plik etapowy"):
-		return "Zamknij inne okna YourLM oraz program, który może skanować lub blokować ten plik, a następnie uruchom RC17 ponownie. Zweryfikowana część zostanie wznowiona; danych z C: nie usuwaj."
+		return "Zamknij inne okna YourLM oraz program, który może skanować lub blokować ten plik, a następnie uruchom RC18 ponownie. Zweryfikowana część zostanie wznowiona; danych z C: nie usuwaj."
 	case strings.Contains(text, "za mało"), strings.Contains(text, "not enough space"), strings.Contains(text, "disk full"):
 		return "Zwolnij miejsce na D: i uruchom YourLM ponownie. Oryginał na C: pozostaje bezpieczny."
 	case strings.Contains(text, "access is denied"), strings.Contains(text, "permission denied"), strings.Contains(text, "odmowa dostępu"):
@@ -846,6 +862,15 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 	if sourceExists && !sourceInfo.IsDir() {
 		return result, errors.New("dotychczasowa ścieżka danych nie jest katalogiem")
 	}
+	swapRecovery, recoveryWarning, swapErr := recoverStorageReconcileSwap(destination)
+	if swapErr != nil {
+		return result, fmt.Errorf("odzyskanie przerwanej publikacji scalonego magazynu: %w", swapErr)
+	}
+	swapFinalized := swapRecovery == storageReconcileRecoveryFinalized
+	swapRestored := swapRecovery == storageReconcileRecoveryRestored
+	if swapFinalized {
+		result.state.Reconciled = true
+	}
 
 	markerValid, markerStructured, markerErr := storageMarkerStatus(destination)
 	if markerErr != nil {
@@ -855,6 +880,55 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 		result.state.Status = "ready"
 		result.state.Title = "Magazyn D: jest aktywny"
 		result.state.Detail = "Znacznik opublikowanej biblioteki jest prawidłowy; katalog Data.migrating nie jest używany."
+		if swapFinalized {
+			result.state.Status = "reconciled"
+			result.state.Title = "Przerwane scalanie odzyskane i zweryfikowane"
+			result.state.Detail = "RC18 ponownie sprawdził opublikowaną sumę SHA-256 i bezpiecznie dokończył transakcyjną podmianę biblioteki D:."
+		} else if swapRestored {
+			result.state.Title = "Poprzednia biblioteka D: bezpiecznie przywrócona"
+			result.state.Detail = "RC18 wykrył przerwanie przed publikacją scalonej wersji i przywrócił wcześniejsze opublikowane D:."
+		}
+		var markerDocument storageMarkerDocument
+		if markerStructured {
+			var documentErr error
+			markerDocument, documentErr = readStructuredStorageMarker(destination)
+			if documentErr != nil {
+				return result, documentErr
+			}
+		}
+		if !sourceExists && markerDocument.SourceRetirementPending {
+			if clearErr := setStorageSourceRetirementPending(destination, false); clearErr != nil {
+				recoveryWarning = strings.TrimSpace(recoveryWarning + " Nie udało się wyczyścić znacznika zakończonego sprzątania C: " + clearErr.Error())
+			} else {
+				markerDocument.SourceRetirementPending = false
+			}
+		}
+		if sourceExists && markerDocument.SourceRetirementPending {
+			// This flag is written only after a complete verified publication when
+			// Windows refuses to rename the now-inactive C: source. Do not merge a
+			// stale cleanup copy back over D: after the active library evolves.
+			result.migrated = true
+			result.state.Reconciled = markerDocument.Reconciled
+			retained, warning := retireStorageSource(source)
+			if retained == "" || !sameCleanPath(retained, source) {
+				if clearErr := setStorageSourceRetirementPending(destination, false); clearErr != nil {
+					warning = strings.TrimSpace(warning + " Nie udało się wyczyścić znacznika zakończonego sprzątania C: " + clearErr.Error())
+				}
+			}
+			result.warning = strings.TrimSpace(recoveryWarning + " " + warning)
+			if retained != "" {
+				result.state.Status = "retained"
+				result.state.Title = "D: działa; nieaktywna kopia C: nadal jest zablokowana"
+				result.state.Detail = "RC18 rozpoznał C: jako kopię pozostałą po wcześniejszej zweryfikowanej publikacji i nie nałoży jej ponownie na aktywne D:."
+				result.state.SourceRetained = true
+				result.state.RetainedPath = retained
+				result.state.Action = "Zamknij program blokujący starą kopię C: i uruchom YourLM ponownie. Nie usuwaj aktywnego D:\\YourLM\\Data."
+			} else {
+				result.state.Title = "Nieaktywna kopia C: bezpiecznie wycofana"
+				result.state.Detail = "Aktywna biblioteka D: pozostała bez zmian; RC18 dokończył tylko zaległe sprzątanie wcześniej zweryfikowanego źródła."
+			}
+			return result, nil
+		}
 		if sourceExists {
 			// A marker proves that staging was verified before publication, but it
 			// must never become a permanent exemption from checking the retained
@@ -863,7 +937,39 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 			// detects post-publication corruption or a forged structured marker.
 			verified, verifyErr := verifyStorageTreeDetailed(source, destination, false)
 			if verifyErr != nil {
-				return result, fmt.Errorf("istniejąca biblioteka docelowa nie odpowiada źródłu; stary katalog pozostaje nietknięty: %w", verifyErr)
+				// D: is already a valid published library, while C: may contain
+				// components, logs or models created during an earlier safe fallback.
+				// Build a verified union in inactive staging instead of deleting C:
+				// or rejecting every additive difference forever.
+				verified, reconcileWarning, reconcileErr := reconcilePublishedStorage(source, destination, result.state.StagingPath, &result.state)
+				if reconcileErr != nil {
+					return result, fmt.Errorf("opublikowane D: różni się od zachowanego C: (%v); bezpieczne scalenie nie powiodło się: %w", verifyErr, reconcileErr)
+				}
+				result.state.VerifiedFiles = verified.Files
+				result.state.VerifiedBytes = verified.Bytes
+				result.state.Status = "reconciled"
+				result.state.Title = "C: i D: scalone oraz zweryfikowane"
+				result.state.Detail = "RC18 zachował wpisy istniejące tylko na D:, nałożył aktywne pliki C:, sprawdził całą sumę SHA-256 i atomowo opublikował nową bibliotekę."
+				result.migrated = true
+				retained, retireWarning := retireStorageSource(source)
+				result.warning = strings.TrimSpace(reconcileWarning + " " + retireWarning)
+				if retained != "" && sameCleanPath(retained, source) {
+					if markerErr := markStorageSourceRetirementPending(destination); markerErr != nil {
+						result.migrated = false
+						result.state.Reconciled = false
+						return result, fmt.Errorf("scalona biblioteka D: jest zweryfikowana, ale nie zapisano stanu nieaktywnej kopii C:; pozostaje ona aktywnym fallbackiem: %w", markerErr)
+					}
+				}
+				if retained != "" {
+					result.state.Status = "retained"
+					result.state.Title = "D: działa; scalona kopia C: została zachowana"
+					result.state.Detail = "Scalona i zweryfikowana biblioteka D: jest aktywna. Windows nie usunął jeszcze starej, nieaktywnej kopii C:."
+					result.state.SourceRetained = true
+					result.state.RetainedPath = retained
+					result.state.Action = "Zamknij programy korzystające ze starego katalogu i uruchom YourLM ponownie. Nie usuwaj aktywnego D:\\YourLM\\Data."
+				}
+				result.warning = strings.TrimSpace(recoveryWarning + " " + result.warning)
+				return result, nil
 			}
 			result.state.VerifiedFiles = verified.Files
 			result.state.VerifiedBytes = verified.Bytes
@@ -876,6 +982,13 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 			result.migrated = true
 			retained, warning := retireStorageSource(source)
 			result.warning = warning
+			if retained != "" && sameCleanPath(retained, source) {
+				if markerErr := markStorageSourceRetirementPending(destination); markerErr != nil {
+					result.migrated = false
+					result.state.Reconciled = false
+					return result, fmt.Errorf("biblioteka D: jest zweryfikowana, ale nie zapisano stanu nieaktywnej kopii C:; pozostaje ona aktywnym fallbackiem: %w", markerErr)
+				}
+			}
 			if retained != "" {
 				result.state.Status = "retained"
 				result.state.Title = "D: działa; kopia C: została zachowana"
@@ -885,6 +998,7 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 				result.state.Action = "Po zamknięciu programów korzystających ze starego katalogu uruchom YourLM ponownie. Nie usuwaj aktywnego D:\\YourLM\\Data."
 			}
 		}
+		result.warning = strings.TrimSpace(recoveryWarning + " " + result.warning)
 		return result, nil
 	}
 
@@ -957,7 +1071,7 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 	if recovered {
 		result.state.Status = "recovered"
 		result.state.Title = "Migracja odzyskana i zweryfikowana"
-		result.state.Detail = "RC17 bezpiecznie wykorzystał prawidłowe dane etapowe, porównał całość SHA-256 i dopiero wtedy aktywował D:."
+		result.state.Detail = "RC18 bezpiecznie wykorzystał prawidłowe dane etapowe, porównał całość SHA-256 i dopiero wtedy aktywował D:."
 	} else {
 		result.state.Status = "completed"
 		result.state.Title = "Migracja zakończona i zweryfikowana"
@@ -965,6 +1079,13 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 	}
 	retained, warning := retireStorageSource(source)
 	result.warning = warning
+	if retained != "" && sameCleanPath(retained, source) {
+		if markerErr := markStorageSourceRetirementPending(destination); markerErr != nil {
+			result.migrated = false
+			result.state.Reconciled = false
+			return result, fmt.Errorf("biblioteka D: jest zweryfikowana, ale nie zapisano stanu nieaktywnej kopii C:; pozostaje ona aktywnym fallbackiem: %w", markerErr)
+		}
+	}
 	if retained != "" {
 		result.state.Status = "retained"
 		result.state.Title = "D: działa; kopia C: została zachowana"

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -135,6 +136,490 @@ func TestMigrationRejectsCorruptPartThenRestartsIt(t *testing.T) {
 	}
 }
 
+func TestPublishedDestinationReconcilesRetainedSourceAndPreservesDOnlyFiles(t *testing.T) {
+	source, destination, model, payload := storageMigrationFixture(t)
+	settings := filepath.Join("config", "settings.json")
+	if err := os.MkdirAll(filepath.Join(source, "config"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, settings), []byte("old D settings"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !first.migrated {
+		t.Fatalf("fixture publication failed: result=%+v err=%v", first, err)
+	}
+
+	dOnly := filepath.Join("models", "downloaded-only-on-D.gguf")
+	if err := os.WriteFile(filepath.Join(destination, dOnly), []byte("keep this D-only model"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, "components", "0.2.0-rc13-e9711eb1537f4f64"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, "config"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, "models"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, model), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, settings), []byte("new active C settings"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	component := filepath.Join("components", "0.2.0-rc13-e9711eb1537f4f64", "runtime.dll")
+	if err := os.WriteFile(filepath.Join(source, component), []byte("retained component"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	part := filepath.Join(destination+".migrating", component) + storageMigrationPartSuffix
+	if err := os.MkdirAll(filepath.Dir(part), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(part, []byte("retained"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !result.migrated {
+		t.Fatalf("published D: and retained C: were not reconciled: result=%+v err=%v", result, err)
+	}
+	if result.state.Status != "reconciled" || !result.state.Reconciled {
+		t.Fatalf("reconciliation was not surfaced: %+v", result.state)
+	}
+	if result.state.ResumedFiles != 1 || result.state.ResumedBytes != uint64(len("retained")) {
+		t.Fatalf("retained reconciliation prefix was not resumed: %+v", result.state)
+	}
+	checks := map[string]string{
+		model:     string(payload),
+		settings:  "new active C settings",
+		component: "retained component",
+		dOnly:     "keep this D-only model",
+	}
+	for relative, want := range checks {
+		got, readErr := os.ReadFile(filepath.Join(destination, relative))
+		if readErr != nil || string(got) != want {
+			t.Fatalf("reconciled %s = %q, err=%v; want %q", relative, got, readErr, want)
+		}
+	}
+	if reconciled, markerErr := reconciledStorageMarker(destination); markerErr != nil || !reconciled {
+		t.Fatalf("published union lacks a reconciled marker: reconciled=%v err=%v", reconciled, markerErr)
+	}
+	unexpectedDirectory := filepath.Join(destination, "unexpected-empty-directory")
+	if err := os.Mkdir(unexpectedDirectory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyReconciledStorageMarker(destination); err == nil {
+		t.Fatal("reconciled marker did not cover the complete directory union")
+	}
+	if err := os.Remove(unexpectedDirectory); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := verifyReconciledStorageMarker(destination); err != nil {
+		t.Fatalf("reconciled marker did not verify after restoring the exact tree: %v", err)
+	}
+	if _, sourceErr := os.Stat(source); !errors.Is(sourceErr, os.ErrNotExist) {
+		t.Fatalf("verified retained source was not retired: %v", sourceErr)
+	}
+	if _, stagingErr := os.Stat(destination + ".migrating"); !errors.Is(stagingErr, os.ErrNotExist) {
+		t.Fatalf("reconciliation staging remained: %v", stagingErr)
+	}
+	if _, backupErr := os.Stat(destination + storageReconcileBackupSuffix); !errors.Is(backupErr, os.ErrNotExist) {
+		t.Fatalf("transactional D: backup remained: %v", backupErr)
+	}
+}
+
+func TestBlockedSourceRetirementIsRecordedBeforeDBecomesActive(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ACL behavior is covered by the runtime gate; chmod does not block rename")
+	}
+	source, destination, model, _ := storageMigrationFixture(t)
+	sourceParent := filepath.Dir(source)
+	if err := os.Chmod(sourceParent, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sourceParent, 0700) })
+
+	result, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !result.migrated {
+		t.Fatalf("verified publication did not survive blocked source retirement: result=%+v err=%v", result, err)
+	}
+	if result.state.Status != "retained" || !sameCleanPath(result.state.RetainedPath, source) {
+		t.Fatalf("blocked inactive source was not reported: %+v", result.state)
+	}
+	marker, err := readStructuredStorageMarker(destination)
+	if err != nil || !marker.SourceRetirementPending {
+		t.Fatalf("inactive-source authority was not persisted: marker=%+v err=%v", marker, err)
+	}
+	if err := os.Chmod(sourceParent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	evolved := []byte("D evolved while the inactive C copy was retained")
+	if err := os.WriteFile(filepath.Join(destination, model), evolved, 0600); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !retried.migrated {
+		t.Fatalf("recorded inactive source was not retired on retry: result=%+v err=%v", retried, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(destination, model)); err != nil || !bytes.Equal(got, evolved) {
+		t.Fatalf("retry replayed stale C: over active D:: %q err=%v", got, err)
+	}
+	if _, err := os.Stat(source); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("inactive source remained after its lock was released: %v", err)
+	}
+	marker, err = readStructuredStorageMarker(destination)
+	if err != nil || marker.SourceRetirementPending {
+		t.Fatalf("completed source retirement remained armed: marker=%+v err=%v", marker, err)
+	}
+}
+
+func TestPendingSourceRetirementNeverReplaysInactiveCOverEvolvedD(t *testing.T) {
+	source, destination, model, payload := storageMigrationFixture(t)
+	first, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !first.migrated {
+		t.Fatalf("fixture publication failed: result=%+v err=%v", first, err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, filepath.Dir(model)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, model), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "inactive-C-only.txt"), []byte("must not be replayed"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := markStorageSourceRetirementPending(destination); err != nil {
+		t.Fatal(err)
+	}
+	evolved := []byte("active D changed after its verified publication")
+	if err := os.WriteFile(filepath.Join(destination, model), evolved, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !result.migrated {
+		t.Fatalf("pending inactive-source cleanup failed: result=%+v err=%v", result, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(destination, model)); err != nil || !bytes.Equal(got, evolved) {
+		t.Fatalf("inactive C: overwrote the evolved D: library: %q err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "inactive-C-only.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("inactive C-only file was replayed into D:: %v", err)
+	}
+	if _, err := os.Stat(source); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("pending inactive C: source was not retired: %v", err)
+	}
+}
+
+func TestReconciliationBuildDoesNotOverwritePublishedDOrActiveC(t *testing.T) {
+	source, destination, _, _ := storageMigrationFixture(t)
+	collision := filepath.Join("config", "settings.json")
+	if err := os.MkdirAll(filepath.Join(source, "config"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, collision), []byte("published D value"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !first.migrated {
+		t.Fatalf("fixture publication failed: result=%+v err=%v", first, err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, "config"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, collision), []byte("authoritative active C value"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	staging := destination + ".migrating"
+	state := StorageMigrationState{}
+	if err := prepareReconciliationStaging(source, destination, staging, &state); err != nil {
+		t.Fatal(err)
+	}
+	if err := overlayStorageTree(destination, staging, source, true, &state); err != nil {
+		t.Fatal(err)
+	}
+	if err := overlayStorageTree(source, staging, "", false, &state); err != nil {
+		t.Fatal(err)
+	}
+	checks := map[string]string{
+		filepath.Join(destination, collision): "published D value",
+		filepath.Join(source, collision):      "authoritative active C value",
+		filepath.Join(staging, collision):     "authoritative active C value",
+	}
+	for path, want := range checks {
+		got, err := os.ReadFile(path)
+		if err != nil || string(got) != want {
+			t.Fatalf("reconciliation build changed %s: %q err=%v, want %q", path, got, err, want)
+		}
+	}
+	if _, err := verifyReconciledStorageDetailed(source, destination, staging); err != nil {
+		t.Fatalf("independently built staging union did not verify: %v", err)
+	}
+}
+
+func TestReconciliationUsesActiveCForFileDirectoryTypeCollisions(t *testing.T) {
+	source, destination, model, payload := storageMigrationFixture(t)
+	fileOnC := filepath.Join("shape-c-file", "old-d-child.txt")
+	directoryOnC := "shape-c-directory"
+	if err := os.MkdirAll(filepath.Join(source, filepath.Dir(fileOnC)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, fileOnC), []byte("old D subtree"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, directoryOnC), []byte("old D file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !first.migrated {
+		t.Fatalf("fixture publication failed: result=%+v err=%v", first, err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(source, directoryOnC), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "shape-c-file"), []byte("authoritative C file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, directoryOnC, "new-c-child.txt"), []byte("authoritative C subtree"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !result.migrated || !result.state.Reconciled {
+		t.Fatalf("type collisions were not reconciled: result=%+v err=%v", result, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(destination, "shape-c-file")); err != nil || string(got) != "authoritative C file" {
+		t.Fatalf("C: file did not replace the D: directory: %q err=%v", got, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(destination, directoryOnC, "new-c-child.txt")); err != nil || string(got) != "authoritative C subtree" {
+		t.Fatalf("C: directory did not replace the D: file: %q err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, fileOnC)); err == nil {
+		t.Fatal("shadowed D: subtree survived an authoritative C: file")
+	}
+	if got, err := os.ReadFile(filepath.Join(destination, model)); err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("unrelated D-only model was not preserved: bytes=%d err=%v", len(got), err)
+	}
+}
+
+func TestVerifiedReconciledDestinationStaysActiveWhenOldBackupCannotBeCleaned(t *testing.T) {
+	source, destination, model, payload := storageMigrationFixture(t)
+	first, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !first.migrated {
+		t.Fatalf("fixture publication failed: result=%+v err=%v", first, err)
+	}
+	component := filepath.Join("components", "0.2.0-rc13-field", "runtime.dll")
+	if err := os.MkdirAll(filepath.Join(source, filepath.Dir(component)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, filepath.Dir(model)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, model), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, component), []byte("retained component"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	merged, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !merged.migrated || !merged.state.Reconciled {
+		t.Fatalf("fixture reconciliation failed: result=%+v err=%v", merged, err)
+	}
+
+	backup := destination + storageReconcileBackupSuffix
+	if err := os.MkdirAll(backup, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backup, storageMarker), []byte("unrecognized rollback marker"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	result, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil {
+		t.Fatalf("cleanup-only backup problem forced a fallback: result=%+v err=%v", result, err)
+	}
+	if result.state.Status != "reconciled" || !result.state.Reconciled || result.warning == "" {
+		t.Fatalf("verified D: was not retained with an intelligible cleanup warning: %+v", result)
+	}
+	if got, err := os.ReadFile(filepath.Join(destination, component)); err != nil || string(got) != "retained component" {
+		t.Fatalf("verified reconciled destination stopped being active: %q err=%v", got, err)
+	}
+	if _, err := os.Stat(backup); err != nil {
+		t.Fatalf("unrecognized backup was deleted despite cleanup warning: %v", err)
+	}
+	marker, err := readReconciledStorageMarker(destination)
+	if err != nil || !marker.RollbackRetained {
+		t.Fatalf("retained rollback was not durably recorded: marker=%+v err=%v", marker, err)
+	}
+	if err := os.WriteFile(filepath.Join(destination, component), []byte("active D evolved after publication"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	retried, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || retried.state.Status != "reconciled" || retried.warning == "" {
+		t.Fatalf("known retained rollback forced an empty C: fallback after active D: changed: result=%+v err=%v", retried, err)
+	}
+	if got, err := os.ReadFile(filepath.Join(destination, component)); err != nil || string(got) != "active D evolved after publication" {
+		t.Fatalf("retry changed the active evolved D: library: %q err=%v", got, err)
+	}
+	if _, err := os.Stat(backup); err != nil {
+		t.Fatalf("retained rollback disappeared after the active tree evolved: %v", err)
+	}
+	if err := removeValidatedStorageTree(backup, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := migrateDataDirectoryDetailed(source, destination); err != nil {
+		t.Fatalf("clearing a resolved rollback marker failed: %v", err)
+	}
+	marker, err = readReconciledStorageMarker(destination)
+	if err != nil || marker.RollbackRetained {
+		t.Fatalf("resolved rollback remained armed: marker=%+v err=%v", marker, err)
+	}
+}
+
+func TestInterruptedReconciliationSwapRestoresPublishedDestination(t *testing.T) {
+	source, destination, model, _ := storageMigrationFixture(t)
+	first, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !first.migrated {
+		t.Fatalf("fixture publication failed: result=%+v err=%v", first, err)
+	}
+	backup := destination + storageReconcileBackupSuffix
+	if err := os.Rename(destination, backup); err != nil {
+		t.Fatal(err)
+	}
+
+	recovery, warning, err := recoverStorageReconcileSwap(destination)
+	if err != nil || recovery != storageReconcileRecoveryRestored || warning != "" {
+		t.Fatalf("interrupted directory swap was not restored: recovery=%s warning=%q err=%v", recovery, warning, err)
+	}
+	if _, err := os.Stat(filepath.Join(destination, model)); err != nil {
+		t.Fatalf("published destination was not restored: %v", err)
+	}
+	if _, err := os.Stat(backup); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("backup path remained after restoration: %v", err)
+	}
+}
+
+func TestInterruptedReconciliationSwapVerifiesNewTreeBeforeDiscardingBackup(t *testing.T) {
+	source, destination, model, payload := storageMigrationFixture(t)
+	first, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !first.migrated {
+		t.Fatalf("fixture publication failed: result=%+v err=%v", first, err)
+	}
+	component := filepath.Join("components", "0.2.0-rc13-field", "runtime.dll")
+	componentPayload := []byte("component retained on active C")
+	if err := os.MkdirAll(filepath.Join(source, filepath.Dir(component)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, filepath.Dir(model)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, model), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, component), componentPayload, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	staging := destination + ".migrating"
+	state := StorageMigrationState{}
+	if err := prepareReconciliationStaging(source, destination, staging, &state); err != nil {
+		t.Fatal(err)
+	}
+	if err := overlayStorageTree(destination, staging, source, true, &state); err != nil {
+		t.Fatal(err)
+	}
+	if err := overlayStorageTree(source, staging, "", false, &state); err != nil {
+		t.Fatal(err)
+	}
+	verified, err := verifyReconciledStorageDetailed(source, destination, staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeStorageMarkerState(staging, source, verified, true); err != nil {
+		t.Fatal(err)
+	}
+	backup := destination + storageReconcileBackupSuffix
+	if err := os.Rename(destination, backup); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(staging, destination); err != nil {
+		t.Fatal(err)
+	}
+
+	corrupt := bytes.Repeat([]byte{0x7f}, len(componentPayload))
+	if err := os.WriteFile(filepath.Join(destination, component), corrupt, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if recovery, warning, err := recoverStorageReconcileSwap(destination); err == nil || recovery != storageReconcileRecoveryNone || warning != "" {
+		t.Fatalf("corrupt new publication discarded its rollback copy: recovery=%s warning=%q err=%v", recovery, warning, err)
+	}
+	if _, err := os.Stat(filepath.Join(backup, model)); err != nil {
+		t.Fatalf("rollback copy was not retained after failed verification: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(source, component)); err != nil {
+		t.Fatalf("active C: source changed during failed recovery: %v", err)
+	}
+
+	if err := os.WriteFile(filepath.Join(destination, component), componentPayload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if recovery, warning, err := recoverStorageReconcileSwap(destination); err != nil || recovery != storageReconcileRecoveryFinalized || warning != "" {
+		t.Fatalf("valid published tree did not finish interrupted swap: recovery=%s warning=%q err=%v", recovery, warning, err)
+	}
+	if _, err := os.Stat(backup); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("verified rollback copy remained: %v", err)
+	}
+}
+
+func TestReconciliationRejectsUnsafeOrphanedStagingSubtreeWithoutDeletingIt(t *testing.T) {
+	source, destination, model, payload := storageMigrationFixture(t)
+	first, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !first.migrated {
+		t.Fatalf("fixture publication failed: result=%+v err=%v", first, err)
+	}
+	component := filepath.Join("components", "0.2.0-rc13-field", "runtime.dll")
+	if err := os.MkdirAll(filepath.Join(source, filepath.Dir(component)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, filepath.Dir(model)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, model), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, component), []byte("C-only component"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	guard := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(guard, []byte("must remain"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(destination+".migrating", "orphan")
+	if err := os.MkdirAll(orphan, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(orphan, "unsafe-link")
+	if err := os.Symlink(guard, link); err != nil {
+		t.Skipf("symlinks unavailable for unsafe-staging regression: %v", err)
+	}
+
+	result, err := migrateDataDirectoryDetailed(source, destination)
+	if err == nil || result.migrated {
+		t.Fatalf("unsafe staging subtree was accepted: result=%+v err=%v", result, err)
+	}
+	if result.state.Status != "fallback" || !result.state.SourceRetained {
+		t.Fatalf("unsafe staging did not preserve active C: fallback: %+v", result.state)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("unvisited unsafe entry was deleted or changed: info=%v err=%v", info, err)
+	}
+	if got, err := os.ReadFile(guard); err != nil || string(got) != "must remain" {
+		t.Fatalf("unsafe staging cleanup touched external target: %q err=%v", got, err)
+	}
+}
+
 func TestStructuredMarkerDoesNotBypassRetainedSourceVerification(t *testing.T) {
 	source, destination, model, payload := storageMigrationFixture(t)
 	first, err := migrateDataDirectoryDetailed(source, destination)
@@ -153,15 +638,52 @@ func TestStructuredMarkerDoesNotBypassRetainedSourceVerification(t *testing.T) {
 	}
 
 	result, err := migrateDataDirectoryDetailed(source, destination)
-	if err == nil || result.migrated {
-		t.Fatalf("structured marker bypassed source verification: result=%+v err=%v", result, err)
+	if err != nil || !result.migrated {
+		t.Fatalf("structured marker prevented verified repair: result=%+v err=%v", result, err)
 	}
-	if result.state.Status != "fallback" || !result.state.SourceRetained {
-		t.Fatalf("corrupt published data did not select safe source fallback: %+v", result.state)
+	if result.state.Status != "reconciled" || !result.state.Reconciled {
+		t.Fatalf("marker bypassed retained-source verification instead of reconciliation: %+v", result.state)
 	}
-	got, readErr := os.ReadFile(filepath.Join(source, model))
+	got, readErr := os.ReadFile(filepath.Join(destination, model))
 	if readErr != nil || !bytes.Equal(got, payload) {
-		t.Fatalf("retained source changed after failed re-verification: bytes=%d err=%v", len(got), readErr)
+		t.Fatalf("active C: file did not replace conflicting D: file: bytes=%d err=%v", len(got), readErr)
+	}
+	if _, sourceErr := os.Stat(source); !errors.Is(sourceErr, os.ErrNotExist) {
+		t.Fatalf("verified source was not retired after repair: %v", sourceErr)
+	}
+}
+
+func TestInitialMigrationRejectsUnsafeDescendantBeforeTypeConflictCleanup(t *testing.T) {
+	source, destination, _, _ := storageMigrationFixture(t)
+	collision := filepath.Join(source, "collision")
+	if err := os.WriteFile(collision, []byte("authoritative source file"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	guard := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(guard, []byte("must remain"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	staleDirectory := filepath.Join(destination+".migrating", "collision")
+	if err := os.MkdirAll(staleDirectory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(staleDirectory, "unsafe-link")
+	if err := os.Symlink(guard, link); err != nil {
+		t.Skipf("symlinks unavailable for unsafe-staging regression: %v", err)
+	}
+
+	result, err := migrateDataDirectoryDetailed(source, destination)
+	if err == nil || result.migrated {
+		t.Fatalf("unsafe type-conflict subtree was removed and published: result=%+v err=%v", result, err)
+	}
+	if _, err := os.Stat(collision); err != nil {
+		t.Fatalf("source changed after unsafe staging rejection: %v", err)
+	}
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("unsafe descendant was deleted before validation: info=%v err=%v", info, err)
+	}
+	if got, err := os.ReadFile(guard); err != nil || string(got) != "must remain" {
+		t.Fatalf("unsafe cleanup touched external target: %q err=%v", got, err)
 	}
 }
 

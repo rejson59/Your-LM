@@ -144,7 +144,7 @@ func TestVerifiedStorageMigration(t *testing.T) {
 	}
 }
 
-func TestExistingMigrationMarkerCannotDiscardDifferentSource(t *testing.T) {
+func TestExistingMigrationMarkerReconcilesDifferentAuthoritativeSource(t *testing.T) {
 	root := t.TempDir()
 	source := filepath.Join(root, "old", "YourLM")
 	destination := filepath.Join(root, "new", "Data")
@@ -164,22 +164,36 @@ func TestExistingMigrationMarkerCannotDiscardDifferentSource(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(destination, storageMarker), []byte("YourLM storage v1\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	migrated, _, err := migrateDataDirectory(source, destination)
-	if err == nil || migrated {
-		t.Fatalf("different marked target was accepted: migrated=%v err=%v", migrated, err)
-	}
-	if got, readErr := os.ReadFile(sourceModel); readErr != nil || string(got) != "authoritative source" {
-		t.Fatalf("source changed after rejected migration: %q, %v", got, readErr)
-	}
-	if err := os.WriteFile(destinationModel, []byte("authoritative source"), 0600); err != nil {
-		t.Fatal(err)
-	}
 	migrated, warning, err := migrateDataDirectory(source, destination)
 	if err != nil || !migrated || warning != "" {
-		t.Fatalf("verified marked target did not resume: migrated=%v warning=%q err=%v", migrated, warning, err)
+		t.Fatalf("different marked target was not reconciled: migrated=%v warning=%q err=%v", migrated, warning, err)
+	}
+	if got, readErr := os.ReadFile(destinationModel); readErr != nil || string(got) != "authoritative source" {
+		t.Fatalf("active source did not replace the target collision: %q, %v", got, readErr)
 	}
 	if _, err := os.Stat(source); !os.IsNotExist(err) {
 		t.Fatalf("verified legacy source was not retired: %v", err)
+	}
+}
+
+func TestDiagnosticReportExplainsReconciledStorageAndCleanupWarning(t *testing.T) {
+	report := diagnosticsReport(DiagnosticsState{}, StorageState{
+		DataPath: "D:/YourLM/Data",
+		Warning:  "poprzednia kopia pozostała do bezpiecznego sprzątnięcia",
+		Migration: StorageMigrationState{
+			Status:     "reconciled",
+			Title:      "C: i D: scalone oraz zweryfikowane",
+			Reconciled: true,
+		},
+	})
+	for _, expected := range []string{
+		"status=reconciled",
+		"Scalanie: zachowano wpisy D:",
+		"Ostrzeżenie magazynu: poprzednia kopia pozostała do bezpiecznego sprzątnięcia",
+	} {
+		if !strings.Contains(report, expected) {
+			t.Fatalf("diagnostic report omitted %q:\n%s", expected, report)
+		}
 	}
 }
 

@@ -612,6 +612,9 @@ func diagnosticsReport(state DiagnosticsState, storage StorageState) string {
 		if storage.Migration.Detail != "" {
 			fmt.Fprintf(&out, "Stan: %s\n", storage.Migration.Detail)
 		}
+		if storage.Migration.Reconciled {
+			fmt.Fprintln(&out, "Scalanie: zachowano wpisy D: i nałożono aktywną bibliotekę C: w nieaktywnym stagingu.")
+		}
 		if storage.Migration.ResumedFiles > 0 || storage.Migration.ReusedFiles > 0 || storage.Migration.RecoveredParts > 0 || storage.Migration.ReplacedFiles > 0 || storage.Migration.RemovedEntries > 0 {
 			fmt.Fprintf(&out, "Odzyskiwanie: wznowiono %d plików / %.2f GiB; użyto %d gotowych; odrzucono %d uszkodzonych części; odświeżono %d plików; uprzątnięto %d wpisów stagingu\n", storage.Migration.ResumedFiles, float64(storage.Migration.ResumedBytes)/float64(GiB), storage.Migration.ReusedFiles, storage.Migration.RecoveredParts, storage.Migration.ReplacedFiles, storage.Migration.RemovedEntries)
 		}
@@ -627,6 +630,9 @@ func diagnosticsReport(state DiagnosticsState, storage StorageState) string {
 		if storage.Migration.Error != "" {
 			fmt.Fprintf(&out, "Szczegóły techniczne: %s\n", storage.Migration.Error)
 		}
+	}
+	if storage.Warning != "" {
+		fmt.Fprintf(&out, "Ostrzeżenie magazynu: %s\n", storage.Warning)
 	}
 	for _, drive := range storage.Drives {
 		fmt.Fprintf(&out, "%s %s: %.1f / %.1f GiB wolne%s%s\n", drive.Letter, drive.Label, float64(drive.Free)/float64(GiB), float64(drive.Total)/float64(GiB), map[bool]string{true: " · WYBRANY"}[drive.Selected], map[bool]string{true: " · SYSTEMOWY"}[drive.System])

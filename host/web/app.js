@@ -507,6 +507,7 @@ function renderStorage(storage = {}) {
     checking: { badge: "KONTROLA", tone: "working", source: "chronione", destination: "sprawdzanie" },
     copying: { badge: "WZNAWIANIE", tone: "working", source: "aktywne i chronione", destination: "kopia etapowa" },
     recovered: { badge: "ODZYSKANO", tone: "success", source: "zweryfikowane", destination: "aktywne" },
+    reconciled: { badge: "SCALONO", tone: "success", source: "włączone do D:", destination: "aktywne" },
     completed: { badge: "GOTOWE", tone: "success", source: "zweryfikowane", destination: "aktywne" },
     ready: { badge: "D: AKTYWNE", tone: "success", source: migration.sourceRetained ? "kopia zachowana" : "przeniesione", destination: "aktywne" },
     retained: { badge: "D: AKTYWNE", tone: "notice", source: "kopia zachowana", destination: "aktywne" },
@@ -538,6 +539,7 @@ function renderStorage(storage = {}) {
   $("storageFlow").className = `storageFlow ${view.tone}`;
 
   const stats = [];
+  if (migration.reconciled) stats.push(["SCALONO", "zachowane C: + opublikowane D:"]);
   if (migration.resumedFiles) stats.push(["WZNOWIONO", `${migration.resumedFiles} plik · ${humanBytes(migration.resumedBytes)}`]);
   if (migration.reusedFiles) stats.push(["UŻYTO PONOWNIE", `${migration.reusedFiles} plik · ${humanBytes(migration.reusedBytes)}`]);
   if (migration.recoveredParts) stats.push(["ODRZUCONO", `${migration.recoveredParts} uszkodzona część`]);
