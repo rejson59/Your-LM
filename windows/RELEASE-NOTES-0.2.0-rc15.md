@@ -7,7 +7,8 @@ preserving the proven Windows/RPC runtime.
 
 - Adds **Qwen3.6-35B-A3B Abliterated · Balanced Q2/Q4** to the model screen.
 - Builds one experts-last GGUF from immutable Huihui Q4_K and Q2_K sources:
-  non-experts/head/MTP stay Q4_K; only expert tensors use Q2_K.
+  non-experts/head/MTP come from the Q4_K variant; expert tensors come from the
+  MOSTLY_Q2_K variant (its normal Q2_K/Q3_K policy).
 - Streams only the needed ranges, resumes interrupted work, validates exact
   tokenizer/checkpoint metadata and tensor schemas, and calculates a
   publishable whole-file SHA-256 after assembly.

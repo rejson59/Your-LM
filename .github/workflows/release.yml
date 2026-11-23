@@ -32,7 +32,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go test -mod=vendor ./host
+          TEST_HF_GOLDEN=1 go test -mod=vendor ./host
           node --check host/web/app.js
           bash -n scripts/apply-smolmaxxing-patch.sh scripts/build-smol-android.sh scripts/package-android.sh
           echo 'f0677c48522e1659969998654d83db9ede7652e771e045dbcd35427abd0230bd  patches/smolmaxxing-8d12bb1-llama-v0.8.0.patch' | sha256sum -c -

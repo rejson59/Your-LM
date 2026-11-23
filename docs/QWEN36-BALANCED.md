@@ -34,8 +34,9 @@ not claim that abliteration makes a model more intelligent.
    metadata (except the expected quantization file type).
 6. Copy every non-expert tensor, including output/head and MTP tensors, from
    Q4_K.
-7. Replace only tensors whose names contain `_exps.` with the matching Q2_K
-   tensor.
+7. Replace only tensors whose names contain `_exps.` with the matching tensor
+   from the `MOSTLY_Q2_K` variant. That standard policy uses Q2_K for gate/up
+   and Q3_K for FFN-down; the exact per-tensor type remains in the GGUF.
 8. Store non-experts first and experts last, with valid GGUF alignment.
 9. Add `yourlm.*` metadata containing the recipe, source revision, source
    SHA-256 values, and mixed-quantization description.

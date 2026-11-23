@@ -529,7 +529,7 @@ func writeRecipeStringMetadata(buffer *bytes.Buffer, key, value string) {
 func buildGoldenHeader(base recipeGGUFHeader, tensors []recipeTensor) ([]byte, int64, error) {
 	extraMetadata := [][2]string{
 		{"yourlm.recipe", goldenModelID + "/v1"},
-		{"yourlm.quantization", "Q4_K non-expert tensors + Q2_K expert tensors; experts-last"},
+		{"yourlm.quantization", "non-experts from Q4_K variant; experts from MOSTLY_Q2_K variant (Q2_K/Q3_K policy); experts-last"},
 		{"yourlm.source.repository", goldenModelRepo},
 		{"yourlm.source.revision", goldenModelRevision},
 		{"yourlm.source.q4_sha256", goldenModelQ4OID},

@@ -2,8 +2,11 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 func balancedTestModel(path string) Model {
@@ -116,6 +119,38 @@ func TestGoldenRecipeRejectsDifferentCheckpoint(t *testing.T) {
 	q2.Metadata["tokenizer.ggml.model"][len(q2.Metadata["tokenizer.ggml.model"])-1] = 'x'
 	if _, err := buildGoldenTensorLayout(q4, q2); err == nil {
 		t.Fatal("accepted two different tokenizer/checkpoint metadata sets")
+	}
+}
+
+func TestPinnedGoldenRemoteHeaders(t *testing.T) {
+	if os.Getenv("TEST_HF_GOLDEN") != "1" {
+		t.Skip("set TEST_HF_GOLDEN=1 for the immutable remote-header gate")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	q4File := HFFile{Repo: goldenModelRepo, Path: goldenModelQ4, Name: goldenModelQ4, Size: goldenModelQ4Size, OID: goldenModelQ4OID, Quantization: "Q4_K"}
+	q2File := HFFile{Repo: goldenModelRepo, Path: goldenModelQ2, Name: goldenModelQ2, Size: goldenModelQ2Size, OID: goldenModelQ2OID, Quantization: "Q2_K"}
+	if err := validateGoldenSourceFiles(q4File, q2File); err != nil {
+		t.Fatal(err)
+	}
+	q4Header, _, err := fetchRecipeHeader(ctx, q4File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q2Header, _, err := fetchRecipeHeader(ctx, q2File)
+	if err != nil {
+		t.Fatal(err)
+	}
+	layout, err := buildGoldenTensorLayout(q4Header, q2Header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	header, size, err := buildGoldenHeader(q4Header, layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(layout) == 0 || len(header) == 0 || size <= int64(len(header)) || size >= goldenModelQ4Size {
+		t.Fatalf("unexpected mixed artifact dimensions: tensors=%d header=%d size=%d", len(layout), len(header), size)
 	}
 }
 
