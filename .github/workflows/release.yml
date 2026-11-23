@@ -305,10 +305,25 @@ jobs:
           @('runtime.zip', 'platform-tools.zip', 'YourLM-Android-arm64.apk') | ForEach-Object {
             [IO.File]::WriteAllBytes((Join-Path 'host\embedded' $_), [byte[]]@())
           }
+          $testOutput = @()
+          $testExit = 1
           try {
-            go test -mod=vendor ./host
-            if ($LASTEXITCODE -ne 0) { throw 'Windows Go tests failed' }
-          } finally { Remove-Item -Recurse -Force 'host\embedded' }
+            $testOutput = @(& go test -mod=vendor ./host 2>&1)
+            $testExit = $LASTEXITCODE
+            $testOutput | ForEach-Object { Write-Host "$_" }
+          } finally {
+            for ($attempt = 0; $attempt -lt 10 -and (Test-Path -LiteralPath 'host\embedded'); $attempt++) {
+              Remove-Item -Recurse -Force -ErrorAction SilentlyContinue 'host\embedded'
+              if (Test-Path -LiteralPath 'host\embedded') { Start-Sleep -Milliseconds 500 }
+            }
+          }
+          if ($testExit -ne 0) {
+            $tail = (($testOutput | Select-Object -Last 80 | ForEach-Object { "$_" }) -join "`n")
+            $escaped = $tail.Replace('%', '%25').Replace("`r", '%0D').Replace("`n", '%0A')
+            Write-Host "::error title=Windows Go tests failed::$escaped"
+            throw "Windows Go tests failed with exit code $testExit"
+          }
+          if (Test-Path -LiteralPath 'host\embedded') { throw 'Temporary Windows embed stubs remained locked after tests' }
       - name: Exercise installation, diagnostics, migration and native WebView2
         shell: pwsh
         run: |
