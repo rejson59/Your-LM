@@ -44,7 +44,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc14 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc15 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -205,7 +205,15 @@
                 <h2>Wybierz model GGUF</h2>
                 <p id="selected">Nie wybrano pliku.</p>
                 <p id="advice" class="advice"></p>
-                <div class="actions"><button id="hfBrowse">Wyszukaj na Hugging Face</button><button id="pick" class="secondary">Wybierz plik…</button><button id="manual" class="secondary">Podaj ścieżkę</button></div>
+                <div class="goldenModel">
+                  <span>JEDEN POLECANY ŚRODEK</span>
+                  <h3>Qwen3.6-35B-A3B Abliterated · Balanced Q2/Q4</h3>
+                  <p>Pełny head i tensory wspólne Q4_K, eksperci Q2_K oraz układ experts-last dla pagera telefonu. Abliteracja ogranicza wyuczone odmowy — nie zwiększa inteligencji modelu. MTP pozostaje domyślnie wyłączone, bo bez pomiaru na Redmi może spowalniać.</p>
+                  <ul><li>przypięte źródła Huihui z jednego checkpointu</li><li>wznawialne składanie bez dwóch pełnych kopii GGUF</li><li>SHA-256 gotowego pliku po lokalnej walidacji</li></ul>
+                  <button id="goldenDownload" class="primary">Zbuduj i wybierz model Balanced</button>
+                  <small id="goldenStatus">Wagi nie są dołączone do aplikacji. Sprawdź licencję modelu Apache-2.0 przed użyciem.</small>
+                </div>
+                <div class="actions"><button id="hfBrowse" class="secondary">Inny model z Hugging Face</button><button id="pick" class="secondary">Wybierz plik…</button><button id="manual" class="secondary">Podaj ścieżkę</button></div>
                 <select id="library" aria-label="Modele z biblioteki" hidden></select>
                 <div id="hfDownload" class="hfDownload" hidden>
                   <div><b id="hfDownloadName"></b><span id="hfDownloadPercent"></span></div>
@@ -220,7 +228,8 @@
                 <span class="stepNumber">2</span><span class="eyebrow">SILNIK</span>
                 <h2>Sprawdź gotowość</h2>
                 <div class="runtimeStatus"><i></i><p id="engine"></p></div>
-                <p class="muted">Runtime llama.cpp b12562 jest wbudowany w pojedynczy YourLM.exe i przygotowywany automatycznie.</p>
+                <div id="profileCard" class="profileCard" hidden><b id="profileName"></b><span id="profileEngine"></span><p id="profileDescription"></p><small id="profileWarning"></small></div>
+                <p class="muted">Silnik standardowy b12562 obsługuje Windows i RPC. Android ARM64 zawiera osobny, audytowalny runtime v0.8.0 tylko dla profilu Qwen3.6 Balanced; przy braku zgodności automatycznie pozostaje na standardowym silniku.</p>
               </article>
             </div>
 
@@ -254,7 +263,7 @@
 
             <article class="sectionCard recommendation">
               <span class="recommendIcon">i</span>
-              <div><h3>Ten model jest odblokowany — 12,4 GiB może zostać zmapowane</h3><p>Windows mapuje cały GGUF i stronicuje jego strony. Worker dobiera przydział automatycznie, pozostawiając co najmniej 2048 MiB zapasu, zwiększanego automatycznie dla modeli z większymi tensorami. Pierwszy transfer przez Wi-Fi może potrwać; prywatna pamięć podręczna RPC zapisuje dane porcjami bez dodatkowej kopii całego tensora w RAM.</p></div>
+              <div><h3>Balanced wybiera jedną praktyczną konfigurację automatycznie</h3><p>Na telefonie z lokalnym Qwen3.6 MoE YourLM dobiera pulę ekspertów, kontekst i najszybsze rdzenie, a wagi ekspertów stronicuje z prywatnego cache UFS. Windows i połączenia RPC zachowują stabilny silnik b12562. Nie zmieniamy headu ani nie usuwamy ekspertów.</p></div>
             </article>
           </section>
 
@@ -278,7 +287,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc14</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc15</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>
@@ -305,7 +314,7 @@
       <button class="close iconButton" aria-label="Zamknij">×</button>
       <span class="eyebrow">HUGGING FACE · PUBLICZNE GGUF</span>
       <h2>Znajdź i pobierz model</h2>
-      <p class="dialogLead">Wyszukaj model typu instruct/chat. YourLM pokaże jednoplikowe warianty GGUF, poleci Q4_K_M i pobierze wybrany plik równolegle z możliwością wznowienia.</p>
+      <p class="dialogLead">To przeglądarka innych publicznych modeli. Główny profil Balanced jest dostępny bez wyszukiwania na ekranie „Model”. YourLM pokaże jednoplikowe warianty GGUF i pobierze wybrany plik równolegle z możliwością wznowienia.</p>
       <div class="hfSearchBar"><input id="hfQuery" placeholder="np. Gemma 4B instruct, Qwen 7B" autocomplete="off"/><button id="hfSearch">Szukaj</button></div>
       <small class="hfPrivacy">Internet jest używany tylko do wyszukania i pobrania wybranego pliku. Inferencja pozostaje lokalna. Sprawdź licencję modelu na Hugging Face.</small>
       <div id="hfStatus" class="hfStatus"></div>

@@ -344,6 +344,7 @@ function renderHuggingFace(hf = {}) {
     if (total > 0) pieces.push(`${humanBytes(received)} / ${humanBytes(total)}`);
     if (speed > 0) pieces.push(`${humanBytes(speed)}/s`);
     if (Number(download.etaSeconds || 0) > 0) pieces.push(`pozostało ok. ${elapsed(download.etaSeconds)}`);
+    if (download.sha256) pieces.push(`SHA-256 ${download.sha256}`);
     if (download.error) pieces.push(download.error);
     $("hfDownloadMeta").textContent = pieces.filter(Boolean).join(" · ");
     $("hfCancel").hidden = !download.active;
@@ -353,6 +354,21 @@ function renderHuggingFace(hf = {}) {
     $("hfRetry").dataset.repo = download.repo || "";
     $("hfRetry").dataset.file = download.file || "";
   }
+
+  const curated = (hf.curated || [])[0] || {};
+  const golden = $("goldenDownload");
+  const goldenDownload = download.recipeId === curated.id || download.recipeId === "qwen36-35b-a3b-abliterated-balanced";
+  golden.disabled = Boolean(state?.session || download.active);
+  golden.textContent = goldenDownload && download.active
+    ? "Budowanie modelu Balanced…"
+    : goldenDownload && download.complete
+      ? "Model Balanced gotowy i wybrany"
+      : goldenDownload && (download.canceled || download.error)
+        ? "Wznów model Balanced"
+        : "Zbuduj i wybierz model Balanced";
+  $("goldenStatus").textContent = goldenDownload
+    ? [download.message, download.sha256 ? `SHA-256: ${download.sha256}` : ""].filter(Boolean).join(" · ")
+    : curated.description || "Wagi nie są dołączone do aplikacji; zostaną złożone lokalnie z przypiętych źródeł.";
 
   const results = hf.results || [];
   const files = hf.files || [];
@@ -635,10 +651,22 @@ function render(nextState) {
     }
   }
 
+  const modelPlan = state.modelPlan || {};
   $("engine").textContent = state.runtime
-    ? "Wbudowany silnik jest gotowy. Nie potrzebujesz dodatkowego folderu runtime."
+    ? modelPlan.useSmol
+      ? "Osobny runtime smolmaxxing jest zgodny z tym modelem i procesorem. Profil zostanie uruchomiony automatycznie."
+      : "Wbudowany stabilny silnik jest gotowy. Nie potrzebujesz dodatkowego folderu runtime."
     : "Nie udało się przygotować wbudowanego silnika. Uruchom ponownie YourLM.exe lub pobierz aktualną wersję.";
   document.querySelector(".runtimeStatus").classList.toggle("bad", !state.runtime);
+  $("profileCard").hidden = !state.model.name;
+  $("profileName").textContent = modelPlan.label || "Profil standardowy";
+  $("profileEngine").textContent = modelPlan.engine || "llama.cpp b12562";
+  const profileFacts = modelPlan.useSmol
+    ? ` Kontekst ${Number(modelPlan.contextSize || 0).toLocaleString("pl-PL")}, pula ${modelPlan.expertPool} ekspertów/warstwę, ${modelPlan.threads} rdzenie obliczeń, ${modelPlan.readers} czytniki UFS, cache ${modelPlan.cacheReady ? "gotowy" : "do zbudowania"}.`
+    : "";
+  $("profileDescription").textContent = (modelPlan.description || "Uniwersalny profil zgodności.") + profileFacts;
+  $("profileWarning").textContent = modelPlan.warning || "";
+  $("profileWarning").hidden = !modelPlan.warning;
   $("selected").textContent = state.model.name
     ? `${state.model.name} · ${gib(state.model.size)} GiB · ${state.model.layers} warstw`
     : "Nie wybrano pliku.";
@@ -646,6 +674,7 @@ function render(nextState) {
   $("advice").classList.toggle("warn", Boolean(state.modelWarning));
   $("pick").hidden = state.os !== "windows";
   $("pick").disabled = $("manual").disabled = $("hfBrowse").disabled = Boolean(session);
+  $("goldenDownload").disabled = Boolean(session || state.huggingFace?.download?.active);
   renderHuggingFace(state.huggingFace || {});
   options("library", state.models || [], "Wybierz z prywatnej biblioteki…");
   $("library").hidden = !state.models.length;
@@ -654,7 +683,7 @@ function render(nextState) {
 
   options("bind", state.ips);
   $("bind").disabled = $("port").disabled = Boolean(session);
-  $("run").textContent = session ? "Zatrzymaj model" : "Uruchom model bez limitu";
+  $("run").textContent = session ? "Zatrzymaj model" : modelPlan.useSmol ? "Uruchom Qwen3.6 Balanced" : "Uruchom model bez limitu";
   $("run").disabled = !session && (!state.model.name || !state.runtime || Boolean(state.offer));
   const hasEngineDetails = Boolean(session || engineState.log || engineState.path);
   $("sessionInfo").hidden = !hasEngineDetails;
@@ -821,12 +850,20 @@ $("hfQuery").onkeydown = (event) => {
     $("hfSearch").click();
   }
 };
+$("goldenDownload").onclick = async () => {
+  const download = state?.huggingFace?.download || {};
+  if (!download.recipeId && !confirm("YourLM pobierze tylko potrzebne zakresy przypiętych Q4_K i Q2_K, a następnie zbuduje jeden model Balanced w prywatnej bibliotece. Proces wymaga około 15–20 GiB transferu i dodatkowego miejsca na cache pagera. Kontynuować?")) return;
+  await act("hf-golden", { repo: "qwen36-35b-a3b-abliterated-balanced" });
+};
 $("hfCancel").onclick = () => act("hf-cancel");
-$("hfRetry").onclick = () =>
-  act("hf-download", {
+$("hfRetry").onclick = () => {
+  const download = state?.huggingFace?.download || {};
+  if (download.recipeId) return act("hf-golden", { repo: download.recipeId });
+  return act("hf-download", {
     repo: $("hfRetry").dataset.repo,
     file: $("hfRetry").dataset.file,
   });
+};
 document.querySelectorAll(".close").forEach((button) => {
   button.onclick = () => button.closest("dialog").close();
 });

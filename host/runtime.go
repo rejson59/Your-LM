@@ -82,6 +82,16 @@ func verifyProgram(path, want string) error {
 	return nil
 }
 
+func (a *App) launchModelPath(plan RuntimePlan) (string, error) {
+	if plan.UseSmol {
+		if runtime.GOOS != "android" || !regularExecutable(a.smolEngine) {
+			return "", errors.New("Eksperymentalny runtime smolmaxxing jest niedostępny; uruchom ponownie aplikację albo użyj silnika standardowego")
+		}
+		return a.smolEngine, nil
+	}
+	return a.launchPath(false)
+}
+
 func (a *App) launchPath(worker bool) (string, error) {
 	path := a.runtimePath(worker)
 	if runtime.GOOS != "windows" {

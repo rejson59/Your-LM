@@ -7,3 +7,4 @@ golang.org/x/sys — Go Authors, BSD-3-Clause (go.txt).
 jsQR 1.4.0 — Cozmo, Apache-2.0 (host/web/jsQR.LICENSE).
 Java QR encoder — Project Nayuki, MIT, QR-Code-generator v1.8.0.
 JavaScript QR encoder — Kazuhiko Arase, MIT, qrcode-generator 1.4.4.
+smolmaxxing expert pager and ARM kernels — hyperionaidev/smolmaxxing 8d12bb17fd389c25f3c6167a5b73f93034d6324f (MIT); isolated Android runtime patch based on llama.cpp v0.8.0.

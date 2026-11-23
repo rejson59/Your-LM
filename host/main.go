@@ -90,11 +90,14 @@ type Session struct {
 	nodes                []Node
 	workerReports        map[string]WorkerDiagnosticSnapshot
 	name                 string
+	plan                 RuntimePlan
 	ready                bool
 	started              time.Time
 	logPath              string
 	progress             EngineProgress
 	rpcSent, rpcReceived atomic.Uint64
+	memoryGuard          atomic.Bool
+	guardAvailable       atomic.Uint64
 	done                 chan struct{}
 }
 type App struct {
@@ -103,6 +106,7 @@ type App struct {
 	dir, engine, library, last    string
 	lastEngineLog, lastEnginePath string
 	runtimeRoot, adbPath, apkPath string
+	smolEngine                    string
 	nodes                         []Node
 	model                         Model
 	s                             *Session
@@ -125,7 +129,36 @@ func (a *App) binary() string {
 	return executable(root)
 }
 func engineArguments(modelPath, bind string, port int, key string, addresses []string, fitReserveMiB int) []string {
-	args := []string{"--model", modelPath, "--offline", "--no-webui", "--no-agent", "--no-ui-mcp-proxy", "--cors-origins", "localhost", "--host", bind, "--port", strconv.Itoa(port), "--api-key", key, "--alias", "yourlm", "--ctx-size", "2048", "--parallel", "1", "-t", strconv.Itoa(max(1, runtime.NumCPU()/2)), "--jinja"}
+	return engineArgumentsForPlan(modelPath, bind, port, key, addresses, fitReserveMiB, RuntimePlan{
+		ContextSize: 2048,
+		Threads:     max(1, runtime.NumCPU()/2),
+	})
+}
+
+func engineArgumentsForPlan(modelPath, bind string, port int, key string, addresses []string, fitReserveMiB int, plan RuntimePlan) []string {
+	contextSize := plan.ContextSize
+	if contextSize <= 0 {
+		contextSize = 2048
+	}
+	threads := plan.Threads
+	if threads <= 0 {
+		threads = max(1, runtime.NumCPU()/2)
+	}
+	args := []string{"--model", modelPath, "--offline", "--no-webui", "--no-agent", "--no-ui-mcp-proxy", "--cors-origins", "localhost", "--host", bind, "--port", strconv.Itoa(port), "--api-key", key, "--alias", "yourlm", "--ctx-size", strconv.Itoa(contextSize), "--parallel", "1", "-t", strconv.Itoa(threads), "--jinja"}
+	if plan.UseSmol && len(addresses) == 0 {
+		args = append(args,
+			"-tb", strconv.Itoa(threads),
+			"-b", "64",
+			"-ub", "4",
+			"-fa", "on",
+			"-ctk", "q8_0",
+			"-ctv", "q8_0",
+			"-cram", "0",
+		)
+		if plan.ComputeMask != "" {
+			args = append(args, "-C", plan.ComputeMask, "--cpu-strict", "1")
+		}
+	}
 	if len(addresses) == 0 {
 		// Native --fit compares a CPU-only model with physical RAM and rejects it
 		// before Windows can use the GGUF mapping/page file. CPU-only mode must
@@ -216,6 +249,9 @@ func advanceEngineProgress(previous, current EngineProgress) EngineProgress {
 }
 
 func engineFailureMessage(err error, engineLog string) string {
+	if strings.Contains(engineLog, "[YourLM] SMOL_MEMORY_GUARD") {
+		return "YourLM bezpiecznie zatrzymał eksperymentalny pager, ponieważ Android miał mniej niż 400 MiB dostępnej pamięci przez kilka kolejnych pomiarów. Zamknij ciężkie aplikacje, zmniejsz cache ekspertów albo użyj telefonu z większą ilością RAM."
+	}
 	if strings.Contains(engineLog, "Remote RPC server crashed or returned malformed response") {
 		return "Połączenie z workerem RPC zostało przerwane podczas przesyłania wag. Raport poniżej zawiera raport końcowy Redmi albo ostatnią migawkę automatycznie zapisaną przez Windows podczas ładowania: stan procesu, RAM, pamięć telefonu, cache, Wi-Fi, błędy mostu Java i log natywny. Skopiuj całość jednym przyciskiem."
 	}
@@ -235,15 +271,24 @@ func (a *App) start(bind string, port int) error {
 	if !ok || port < 1024 || port > 65535 {
 		return errors.New("Niepoprawny adres lub port API")
 	}
-	exe, e := a.launchPath(false)
-	if e != nil {
-		return e
-	}
 	m, e := inspect(a.model.Path)
 	if e != nil {
 		return e
 	}
 	a.model = m
+	plan := a.modelRuntimePlan(m)
+	if plan.UseSmol {
+		if err := os.MkdirAll(filepath.Dir(plan.cachePrefix), 0700); err != nil {
+			return fmt.Errorf("nie można przygotować prywatnego cache smolmaxxing: %w", err)
+		}
+		if !plan.CacheReady && plan.DiskAvailableBytes > 0 && plan.DiskAvailableBytes < plan.CacheRequiredBytes {
+			return errors.New(plan.Warning)
+		}
+	}
+	exe, e := a.launchModelPath(plan)
+	if e != nil {
+		return e
+	}
 	hasAndroidWorker := false
 	for _, node := range a.nodes {
 		if node.Platform == "android" {
@@ -294,6 +339,7 @@ func (a *App) start(bind string, port int) error {
 		nodes:              append([]Node(nil), a.nodes...),
 		workerReports:      make(map[string]WorkerDiagnosticSnapshot),
 		name:               m.Name,
+		plan:               plan,
 		logPath:            filepath.Join(a.dir, "engine.log"),
 		done:               make(chan struct{}),
 	}
@@ -323,13 +369,13 @@ func (a *App) start(bind string, port int) error {
 		s.listeners = append(s.listeners, l)
 		addresses = append(addresses, l.Addr().String())
 	}
-	args := engineArguments(m.Path, bind, port, s.key, addresses, fitReserveMiB)
+	args := engineArgumentsForPlan(m.Path, bind, port, s.key, addresses, fitReserveMiB, plan)
 	s.cmd = exec.Command(exe, args...)
 	// Runtime-specific environment variables can enable downloads, plugins,
 	// built-in shell/file tools or unauthenticated transports. Only explicit
 	// controller arguments are trusted. RPC peer-to-peer sockets would bypass
 	// the authenticated bridges.
-	s.cmd.Env = childEnv()
+	s.cmd.Env = approvedRuntimeEnvironment(plan)
 	s.cmd.Dir = filepath.Dir(exe)
 	logfile, e := os.OpenFile(s.logPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if e != nil {
@@ -362,6 +408,12 @@ func (a *App) start(bind string, port int) error {
 	go func() {
 		e := s.cmd.Wait()
 		logfile.Close()
+		if s.memoryGuard.Load() {
+			if report, openErr := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0600); openErr == nil {
+				fmt.Fprintf(report, "\n[YourLM] SMOL_MEMORY_GUARD available=%d floor=%d; pager stopped before Android became unresponsive\n", s.guardAvailable.Load(), uint64(400<<20))
+				_ = report.Close()
+			}
+		}
 		engineLog := cleanEngineLog(engineLogTail(s.logPath, 24<<10))
 		for _, l := range s.listeners {
 			l.Close()
@@ -409,6 +461,9 @@ func (a *App) start(bind string, port int) error {
 	}()
 	go a.check(s)
 	go a.monitorNodes(s)
+	if plan.UseSmol {
+		go a.monitorLocalMemory(s)
+	}
 	return nil
 }
 
@@ -456,6 +511,39 @@ func (a *App) check(s *Session) {
 		}
 	}
 }
+func (a *App) monitorLocalMemory(session *Session) {
+	const floor = uint64(400 << 20)
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	lowSamples := 0
+	for {
+		select {
+		case <-session.done:
+			return
+		case <-ticker.C:
+			a.Lock()
+			active := a.s == session && !session.stopping && session.cmd != nil && session.cmd.Process != nil
+			a.Unlock()
+			if !active {
+				return
+			}
+			available := systemMemory().Available
+			if available == 0 || available >= floor {
+				lowSamples = 0
+				continue
+			}
+			lowSamples++
+			if lowSamples < 3 {
+				continue
+			}
+			session.guardAvailable.Store(available)
+			session.memoryGuard.Store(true)
+			_ = session.cmd.Process.Kill()
+			return
+		}
+	}
+}
+
 func (a *App) monitorNodes(session *Session) {
 	if session.workers == 0 {
 		return
@@ -521,7 +609,7 @@ func (a *App) state() map[string]any {
 	models := []string{}
 	entries, _ := os.ReadDir(a.library)
 	for _, d := range entries {
-		if !d.IsDir() && strings.EqualFold(filepath.Ext(d.Name()), ".gguf") {
+		if !d.IsDir() && strings.EqualFold(filepath.Ext(d.Name()), ".gguf") && !strings.HasSuffix(strings.ToLower(d.Name()), ".part.gguf") {
 			models = append(models, filepath.Join(a.library, d.Name()))
 		}
 	}
@@ -533,8 +621,10 @@ func (a *App) state() map[string]any {
 		}
 		engineLog := cleanEngineLog(engineLogTail(s.logPath, 24<<10))
 		elapsed := int(time.Since(s.started).Seconds())
-		mode := "Windows mmap · bez testu fizycznego RAM"
-		if s.workers > 0 {
+		mode := "mmap · bez statycznego limitu planisty"
+		if s.plan.UseSmol {
+			mode = fmt.Sprintf("smolmaxxing · pager ekspertów z UFS · pool %d · bias %s · %d wątki wydajnościowe · kontekst %d", s.plan.ExpertPool, balancedMoEBias, s.plan.Threads, s.plan.ContextSize)
+		} else if s.workers > 0 {
 			mode = fmt.Sprintf("%d workerów · automatyczny podział · rezerwa szczytu ładowania %d MiB · trwała pamięć podręczna RPC", s.workers, s.fitReserveMiB)
 		}
 		lastLogAge, logBytes := -1, int64(0)
@@ -592,8 +682,24 @@ func (a *App) state() map[string]any {
 	if len(a.nodes) > 0 {
 		fitReserveMiB = workerFitTargetMiB(a.model.LargestTensorBytes)
 	}
+	modelPlan := a.modelRuntimePlan(a.model)
+	if a.s != nil {
+		modelPlan = a.s.plan
+	}
 	if a.model.Name != "" && a.s == nil {
-		if len(a.nodes) == 0 {
+		if modelPlan.UseSmol {
+			cache := "Pierwszy start zbuduje prywatny repack-cache na UFS."
+			if modelPlan.CacheReady {
+				cache = "Repack-cache jest gotowy; kolejne starty pominą przebudowę wag."
+			}
+			advice = fmt.Sprintf(
+				"Profil Qwen3.6 Balanced jest gotowy: pager zachowa do %d ekspertów na warstwę w RAM, użyje %d najszybszych rdzeni i kontekstu %d. %s",
+				modelPlan.ExpertPool,
+				modelPlan.Threads,
+				modelPlan.ContextSize,
+				cache,
+			)
+		} else if len(a.nodes) == 0 {
 			advice = fmt.Sprintf(
 				"Model %.1f GiB jest odblokowany. %.1f GiB to cały fizyczny RAM hosta; %.1f GiB zajmują teraz Windows i aplikacje, a %.1f GiB jest natychmiast dostępne. To nie jest limit rozmiaru modelu: cały GGUF zostanie zmapowany z dysku przez mmap, a Windows ma jeszcze %.1f GiB wolnego limitu zatwierdzeń. YourLM nie wykona konserwatywnego odrzucenia.",
 				float64(a.model.Size)/float64(GiB),
@@ -630,7 +736,7 @@ func (a *App) state() map[string]any {
 		"cores": runtime.NumCPU(), "total": hostMemory.Total,
 		"free": hostMemory.Available, "available": available,
 		"physical": physical, "fitReserveMiB": fitReserveMiB, "memory": memoryState,
-		"nodes": a.nodes, "ips": ips(), "model": a.model, "models": models,
+		"nodes": a.nodes, "ips": ips(), "model": a.model, "modelPlan": modelPlan, "models": models,
 		"library": a.library, "runtime": a.hasRuntime(), "session": session,
 		"engine": engine, "usb": a.usb, "update": a.update,
 		"huggingFace": a.hf, "cleanup": a.cleanup, "last": a.last,
@@ -683,7 +789,7 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 		a.updateAPI(w, op)
 		return
 	}
-	if op == "hf-search" || op == "hf-files" || op == "hf-download" || op == "hf-cancel" {
+	if op == "hf-golden" || op == "hf-search" || op == "hf-files" || op == "hf-download" || op == "hf-cancel" {
 		a.huggingFaceAPI(w, r, op, in)
 		return
 	}
@@ -909,10 +1015,12 @@ func main() {
 		runtimeRoot: components.runtimeRoot,
 		adbPath:     components.adbPath,
 		apkPath:     components.apkPath,
+		hf:          HFState{Curated: append([]CuratedModel(nil), curatedModels...)},
 		cleanup:     CleanupState{Supported: cleanupPlatformSupported()},
 	}
 	if runtime.GOOS != "windows" {
 		a.engine = os.Getenv("YOURLM_ENGINE")
+		a.smolEngine = os.Getenv("YOURLM_SMOL_ENGINE")
 	} else {
 		a.usb = USBState{Supported: true, APKReady: a.apkPath != "", Message: "Szukam telefonu przez USB…"}
 		go a.refreshUSB()

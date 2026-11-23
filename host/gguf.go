@@ -25,6 +25,72 @@ func (r headerReader) skip(n uint64) error {
 	return e
 }
 func (r headerReader) read(v any) error { return binary.Read(r.f, binary.LittleEndian, v) }
+func (r headerReader) integer(t uint32) (uint64, bool, error) {
+	var value uint64
+	switch t {
+	case 0, 7:
+		var v uint8
+		if err := r.read(&v); err != nil {
+			return 0, true, err
+		}
+		value = uint64(v)
+	case 1:
+		var v int8
+		if err := r.read(&v); err != nil {
+			return 0, true, err
+		}
+		if v < 0 {
+			return 0, true, errors.New("Ujemna wartość metadanych GGUF")
+		}
+		value = uint64(v)
+	case 2:
+		var v uint16
+		if err := r.read(&v); err != nil {
+			return 0, true, err
+		}
+		value = uint64(v)
+	case 3:
+		var v int16
+		if err := r.read(&v); err != nil {
+			return 0, true, err
+		}
+		if v < 0 {
+			return 0, true, errors.New("Ujemna wartość metadanych GGUF")
+		}
+		value = uint64(v)
+	case 4:
+		var v uint32
+		if err := r.read(&v); err != nil {
+			return 0, true, err
+		}
+		value = uint64(v)
+	case 5:
+		var v int32
+		if err := r.read(&v); err != nil {
+			return 0, true, err
+		}
+		if v < 0 {
+			return 0, true, errors.New("Ujemna wartość metadanych GGUF")
+		}
+		value = uint64(v)
+	case 10:
+		if err := r.read(&value); err != nil {
+			return 0, true, err
+		}
+	case 11:
+		var v int64
+		if err := r.read(&v); err != nil {
+			return 0, true, err
+		}
+		if v < 0 {
+			return 0, true, errors.New("Ujemna wartość metadanych GGUF")
+		}
+		value = uint64(v)
+	default:
+		return 0, false, nil
+	}
+	return value, true, nil
+}
 func (r headerReader) str() (string, error) {
 	var n uint64
 	if r.read(&n) != nil || n > 1024 {
@@ -61,7 +127,13 @@ type Model struct {
 	Path               string `json:"path"`
 	Name               string `json:"name"`
 	Size               uint64 `json:"size"`
+	ModifiedUnixNano   int64  `json:"modifiedUnixNano,omitempty"`
+	Architecture       string `json:"architecture,omitempty"`
+	Recipe             string `json:"recipe,omitempty"`
 	Layers             int    `json:"layers"`
+	ContextLength      int    `json:"contextLength,omitempty"`
+	ExpertCount        int    `json:"expertCount,omitempty"`
+	ExpertUsedCount    int    `json:"expertUsedCount,omitempty"`
 	LargestTensorBytes uint64 `json:"largestTensorBytes"`
 }
 
@@ -100,6 +172,8 @@ func inspect(path string) (Model, error) {
 		return m, errors.New("Niepoprawny nagłówek GGUF v2/v3")
 	}
 	var layers uint32
+	var contextLength, expertCount, expertUsedCount uint64
+	var architecture, recipe string
 	alignment := uint32(32)
 	for i := uint64(0); i < fields; i++ {
 		key, e := r.str()
@@ -117,20 +191,49 @@ func inspect(path string) (Model, error) {
 				return m, io.ErrUnexpectedEOF
 			}
 		}
-		if !isArray && valueType == 4 && (strings.HasSuffix(key, ".block_count") || key == "general.alignment") {
-			var value uint32
-			if r.read(&value) != nil {
-				return m, io.ErrUnexpectedEOF
+		if !isArray && (key == "general.architecture" || key == "yourlm.recipe") && valueType == 8 {
+			value, valueErr := r.str()
+			if valueErr != nil {
+				return m, valueErr
 			}
-			if strings.HasSuffix(key, ".block_count") {
-				if value == 0 || value > 2048 {
-					return m, errors.New("Niepoprawna liczba warstw")
-				}
-				layers = value
+			value = strings.TrimSpace(value)
+			if len(value) > 128 {
+				return m, errors.New("Niepoprawna tożsamość architektury GGUF")
+			}
+			if key == "general.architecture" {
+				architecture = strings.ToLower(value)
 			} else {
-				alignment = value
+				recipe = value
 			}
 			continue
+		}
+		integerKey := !isArray && (strings.HasSuffix(key, ".block_count") || strings.HasSuffix(key, ".context_length") || strings.HasSuffix(key, ".expert_count") || strings.HasSuffix(key, ".expert_used_count") || key == "general.alignment")
+		if integerKey {
+			value, supported, valueErr := r.integer(valueType)
+			if valueErr != nil {
+				return m, valueErr
+			}
+			if supported {
+				switch {
+				case strings.HasSuffix(key, ".block_count"):
+					if value == 0 || value > 2048 {
+						return m, errors.New("Niepoprawna liczba warstw")
+					}
+					layers = uint32(value)
+				case strings.HasSuffix(key, ".context_length"):
+					contextLength = value
+				case strings.HasSuffix(key, ".expert_used_count"):
+					expertUsedCount = value
+				case strings.HasSuffix(key, ".expert_count"):
+					expertCount = value
+				case key == "general.alignment":
+					if value == 0 || value > 1<<20 {
+						return m, errors.New("Niepoprawne wyrównanie GGUF")
+					}
+					alignment = uint32(value)
+				}
+				continue
+			}
 		}
 		if e := r.values(valueType, count); e != nil {
 			return m, e
@@ -138,6 +241,12 @@ func inspect(path string) (Model, error) {
 	}
 	if layers == 0 {
 		return m, errors.New("Brak block_count w metadanych GGUF")
+	}
+	if contextLength > 1<<30 || expertCount > 1<<20 || expertUsedCount > 1<<20 {
+		return m, errors.New("Niepoprawne parametry architektury GGUF")
+	}
+	if expertUsedCount > expertCount && expertCount > 0 {
+		return m, errors.New("Niepoprawna liczba aktywnych ekspertów GGUF")
 	}
 	if _, ok := aligned(0, uint64(alignment)); !ok {
 		return m, errors.New("Niepoprawne wyrównanie GGUF")
@@ -198,7 +307,13 @@ func inspect(path string) (Model, error) {
 		Path:               path,
 		Name:               filepath.Base(path),
 		Size:               uint64(st.Size()),
+		ModifiedUnixNano:   st.ModTime().UnixNano(),
+		Architecture:       architecture,
+		Recipe:             recipe,
 		Layers:             int(layers),
+		ContextLength:      int(contextLength),
+		ExpertCount:        int(expertCount),
+		ExpertUsedCount:    int(expertUsedCount),
 		LargestTensorBytes: largest,
 	}, nil
 }

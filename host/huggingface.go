@@ -57,6 +57,7 @@ type HFFile struct {
 
 type HFDownload struct {
 	Active      bool    `json:"active"`
+	RecipeID    string  `json:"recipeId,omitempty"`
 	Verifying   bool    `json:"verifying"`
 	Complete    bool    `json:"complete"`
 	Canceled    bool    `json:"canceled"`
@@ -69,17 +70,19 @@ type HFDownload struct {
 	ETASeconds  int64   `json:"etaSeconds,omitempty"`
 	Workers     int     `json:"workers,omitempty"`
 	Message     string  `json:"message,omitempty"`
+	SHA256      string  `json:"sha256,omitempty"`
 	Error       string  `json:"error,omitempty"`
 }
 
 type HFState struct {
-	Query     string     `json:"query,omitempty"`
-	Searching bool       `json:"searching"`
-	Repo      string     `json:"repo,omitempty"`
-	Results   []HFModel  `json:"results,omitempty"`
-	Files     []HFFile   `json:"files,omitempty"`
-	Download  HFDownload `json:"download"`
-	Error     string     `json:"error,omitempty"`
+	Query     string         `json:"query,omitempty"`
+	Searching bool           `json:"searching"`
+	Repo      string         `json:"repo,omitempty"`
+	Results   []HFModel      `json:"results,omitempty"`
+	Files     []HFFile       `json:"files,omitempty"`
+	Download  HFDownload     `json:"download"`
+	Curated   []CuratedModel `json:"curated,omitempty"`
+	Error     string         `json:"error,omitempty"`
 }
 
 type hfSearchModel struct {
@@ -796,6 +799,13 @@ func (a *App) huggingFaceStateResponse(w http.ResponseWriter) {
 
 func (a *App) huggingFaceAPI(w http.ResponseWriter, r *http.Request, operation string, in input) {
 	switch operation {
+	case "hf-golden":
+		if strings.TrimSpace(in.Repo) != "" && strings.TrimSpace(in.Repo) != goldenModelID {
+			a.huggingFaceError(w, errors.New("nieznana receptura modelu"), http.StatusBadRequest)
+			return
+		}
+		a.startGoldenDownload(w)
+
 	case "hf-search":
 		query := strings.TrimSpace(in.Query)
 		if len(query) > 120 {

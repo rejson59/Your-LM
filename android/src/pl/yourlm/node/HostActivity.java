@@ -34,8 +34,12 @@ public final class HostActivity extends Activity {
         File libs = new File(getApplicationInfo().nativeLibraryDir);
         File controller = new File(libs, "libylm_host.so");
         File engine = new File(libs, "libylm_server.so");
+        File smolEngine = new File(libs, "libylm_smol.so");
         Worker.requireAndroid64Pie(controller);
         Worker.requireAndroid64Pie(engine);
+        if (smolEngine.isFile() && smolEngine.length() > 0) {
+          Worker.requireAndroid64Pie(smolEngine);
+        }
         File hostLog = new File(getCacheDir(), "host.log");
         if (hostLog.exists()) hostLog.delete();
         ProcessBuilder pb = new ProcessBuilder(
@@ -44,6 +48,9 @@ public final class HostActivity extends Activity {
         );
         pb.environment().put("YOURLM_HOME", getFilesDir().getPath());
         pb.environment().put("YOURLM_ENGINE", engine.getPath());
+        if (smolEngine.isFile() && smolEngine.length() > 0) {
+          pb.environment().put("YOURLM_SMOL_ENGINE", smolEngine.getPath());
+        }
         pb.environment().put("HOME", getFilesDir().getPath());
         pb.environment().put("TMPDIR", getCacheDir().getPath());
         try {

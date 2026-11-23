@@ -389,6 +389,14 @@ h3 { margin: 0 0 5px; font-size: 17px; }
 .advice { padding: 10px 12px; border-radius: 9px; background: #f3f7f4; font-size: 13px; }
 .advice.warn { background: #fff5dc; color: #6f5313; border: 1px solid #ead49a; line-height: 1.45; }
 .pathHint { display: block; margin-top: 10px; color: #7b8980; overflow-wrap: anywhere; }
+.goldenModel { margin: 14px 0; padding: 15px; border: 1px solid #b9d9c6; border-radius: 13px; background: linear-gradient(145deg, #f0faf4, #fbfdfb); }
+.goldenModel > span { color: var(--green-dark); font: 800 10px ui-monospace, monospace; letter-spacing: 1.1px; }
+.goldenModel h3 { margin: 6px 0; font-size: 16px; }
+.goldenModel p, .goldenModel li { font-size: 12px; line-height: 1.45; }
+.goldenModel p { margin: 0; }
+.goldenModel ul { margin: 8px 0 12px; padding-left: 19px; color: var(--muted); }
+.goldenModel button { width: 100%; }
+.goldenModel small { display: block; margin-top: 8px; color: var(--muted); overflow-wrap: anywhere; }
 #library { width: 100%; margin-top: 12px; }
 .hfDownload { margin-top: 12px; padding: 12px; border: 1px solid #c9dfd1; border-radius: 11px; background: #f4faf6; }
 .hfDownload > div:first-child { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -404,6 +412,12 @@ h3 { margin: 0 0 5px; font-size: 17px; }
 .runtimeStatus.bad { background: #fff0ed; }
 .runtimeStatus.bad i { background: var(--danger); }
 .runtimeStatus.bad p { color: #74352d; }
+.profileCard { margin-top: 10px; padding: 12px; border: 1px solid #cbded2; border-radius: 11px; background: #f7faf8; }
+.profileCard b, .profileCard span, .profileCard small { display: block; }
+.profileCard b { color: var(--green-dark); }
+.profileCard span { margin-top: 2px; color: var(--muted); font: 10px ui-monospace, monospace; }
+.profileCard p { margin: 7px 0 0; font-size: 12px; }
+.profileCard small { margin-top: 7px; color: #8a5b0c; }
 .muted { font-size: 12px; }
 .serverCard { margin-top: 14px; }
 .serverIntro { display: flex; gap: 13px; }
@@ -616,6 +630,7 @@ html[data-theme="dark"] .infoStrip.bad { color: #ffb4aa; background: #38201e; }
 html[data-theme="dark"] .advice { background: #18231d; }
 html[data-theme="dark"] .advice.warn { color: #f1d58c; border-color: #665428; background: #2a2415; }
 html[data-theme="dark"] .pathHint { color: #82958a; }
+html[data-theme="dark"] .goldenModel { border-color: #315d47; background: linear-gradient(145deg, #14271d, #111a15); }
 html[data-theme="dark"] .hfDownload { border-color: #315140; background: #14251d; }
 html[data-theme="dark"] .hfProgress { background: #26382f; }
 html[data-theme="dark"] .hfResult, html[data-theme="dark"] .hfFile { border-color: #35443c; background: #111a15; }
@@ -626,6 +641,8 @@ html[data-theme="dark"] .runtimeStatus { background: #172d22; }
 html[data-theme="dark"] .runtimeStatus p { color: #b9d8c8; }
 html[data-theme="dark"] .runtimeStatus.bad { background: #351f1c; }
 html[data-theme="dark"] .runtimeStatus.bad p { color: #f0b3aa; }
+html[data-theme="dark"] .profileCard { border-color: #35483d; background: #141e18; }
+html[data-theme="dark"] .profileCard small { color: #f1d58c; }
 html[data-theme="dark"] .serverFields { background: #161f1a; }
 html[data-theme="dark"] .sessionBox { border-color: #2d533f; background: #13271d; }
 html[data-theme="dark"] .sessionBox.failed { border-color: #663b35; background: #2c1c19; }

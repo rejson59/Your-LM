@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 : "${KS_PASS:?Set keystore password}"
 : "${ANDROID_HOME:?Set ANDROID_HOME}"
 export KS_PASS
-version=0.2.0-rc14
+version=0.2.0-rc15
 abi=${ANDROID_ABI:-arm64-v8a}
 case "$abi" in
   arm64-v8a)
@@ -33,7 +33,12 @@ for tool in aapt d8 zipalign apksigner; do
 done
 [[ -f "$jar" ]] || { echo "Missing Android platform jar: $jar" >&2; exit 1; }
 
-ANDROID_ABI="$abi" "$PWD/scripts/verify-android-elf.sh" "$RPC_BIN" "$SERVER_BIN"
+native_inputs=("$RPC_BIN" "$SERVER_BIN")
+if [[ "$abi" == arm64-v8a ]]; then
+  : "${SMOL_SERVER_BIN:?Android smolmaxxing llama-server required for arm64 release}"
+  native_inputs+=("$SMOL_SERVER_BIN")
+fi
+ANDROID_ABI="$abi" "$PWD/scripts/verify-android-elf.sh" "${native_inputs[@]}"
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
@@ -59,6 +64,9 @@ env "${go_env[@]}" go build \
   -o "$work/lib/$abi/libylm_host.so" ./host
 install -m 0755 "$RPC_BIN" "$work/lib/$abi/libylm_rpc.so"
 install -m 0755 "$SERVER_BIN" "$work/lib/$abi/libylm_server.so"
+if [[ "$abi" == arm64-v8a ]]; then
+  install -m 0755 "$SMOL_SERVER_BIN" "$work/lib/$abi/libylm_smol.so"
+fi
 ANDROID_ABI="$abi" "$PWD/scripts/verify-android-elf.sh" "$work/lib/$abi/"*.so
 
 cp licenses/* "$work/assets/licenses/"
@@ -68,6 +76,8 @@ Source commit: $source_commit
 llama.cpp: b12562 / c0b97be0b297177a88df08e96c01420976bb18d0
 YourLM native patch: bounded streaming RPC cache v1
 RPC compatibility: b12562-ylm-rpc5
+smolmaxxing runtime: commit 8d12bb17fd389c25f3c6167a5b73f93034d6324f patch SHA-256 f0677c48522e1659969998654d83db9ede7652e771e045dbcd35427abd0230bd
+smolmaxxing llama.cpp base: v0.8.0 / 8642541b255bfb5dc39cd351a178be09013a55d6 (arm64 release only)
 Android ABI: $abi
 Minimum Android API: 28
 Native toolchain: Android NDK 27.2.12479018

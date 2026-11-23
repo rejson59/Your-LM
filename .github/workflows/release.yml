@@ -1,4 +1,4 @@
-name: Release RC14 functional gates
+name: Release RC15 balanced-phone gates
 
 on:
   push:
@@ -13,13 +13,36 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc14]') }}
+  PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc15]') }}
   ANDROID_CERT_SHA256: bb2639f3d49a2d7db0845884e76d6bb51152a6e9c0df92fcfe885a26c5de94a6
 
 jobs:
+  host-tests:
+    name: Go, recipe and pinned-patch gates
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: 1.25.5
+          check-latest: true
+          cache: false
+      - name: Test host, automatic profile and streaming recipe
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -mod=vendor ./host
+          node --check host/web/app.js
+          bash -n scripts/apply-smolmaxxing-patch.sh scripts/build-smol-android.sh scripts/package-android.sh
+          echo 'f0677c48522e1659969998654d83db9ede7652e771e045dbcd35427abd0230bd  patches/smolmaxxing-8d12bb1-llama-v0.8.0.patch' | sha256sum -c -
+          grep -Fq 'smolmaxxing expert pager' licenses/components.txt
+          test -s licenses/smolmaxxing.txt
+
   android-arm64:
+    needs: host-tests
     name: Android ARM64 release gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[validate fast]') && !contains(github.event.head_commit.message, '[publish rc14 fast]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[validate fast]') && !contains(github.event.head_commit.message, '[publish rc15 fast]') }}
     # Draft releases containing the split stable-signing backup are visible
     # only to tokens with push-level contents access.
     permissions:
@@ -48,6 +71,10 @@ jobs:
           git -C "$RUNNER_TEMP/llama.cpp" remote add origin https://github.com/ggml-org/llama.cpp
           git -C "$RUNNER_TEMP/llama.cpp" fetch --depth 1 origin c0b97be0b297177a88df08e96c01420976bb18d0
           git -C "$RUNNER_TEMP/llama.cpp" checkout --detach FETCH_HEAD
+          git init "$RUNNER_TEMP/llama-smol.cpp"
+          git -C "$RUNNER_TEMP/llama-smol.cpp" remote add origin https://github.com/ggml-org/llama.cpp
+          git -C "$RUNNER_TEMP/llama-smol.cpp" fetch --depth 1 origin 8642541b255bfb5dc39cd351a178be09013a55d6
+          git -C "$RUNNER_TEMP/llama-smol.cpp" checkout --detach FETCH_HEAD
       - name: Exercise bounded RPC cache miss, hit, and recovery
         shell: bash
         run: |
@@ -63,7 +90,9 @@ jobs:
           export LLAMA_SRC="$RUNNER_TEMP/llama.cpp"
           export JOBS=2
           scripts/build-native.sh build/android-native
-      - name: Assemble the stable-signed RC14 APK
+          export SMOL_LLAMA_SRC="$RUNNER_TEMP/llama-smol.cpp"
+          scripts/build-smol-android.sh build/android-smol-native
+      - name: Assemble the stable-signed RC15 APK
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -75,6 +104,7 @@ jobs:
           export EXPECTED_ANDROID_CERT_SHA256="$ANDROID_CERT_SHA256"
           export RPC_BIN="$PWD/build/android-native/bin/ggml-rpc-server"
           export SERVER_BIN="$PWD/build/android-native/bin/llama-server"
+          export SMOL_SERVER_BIN="$PWD/build/android-smol-native/bin/llama-server"
           scripts/package-android.sh
       - name: Audit the stable-signed release APK and exact native payloads
         shell: bash
@@ -86,13 +116,16 @@ jobs:
           cert=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           [[ "$cert" == "$ANDROID_CERT_SHA256" ]] || { echo "Unexpected Android signing identity" >&2; exit 1; }
           badging=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")
-          grep -Fq "versionCode='17'" <<<"$badging"
-          grep -Fq "versionName='0.2.0-rc14'" <<<"$badging"
+          grep -Fq "versionCode='18'" <<<"$badging"
+          grep -Fq "versionName='0.2.0-rc15'" <<<"$badging"
           unzip -p "$apk" assets/BUILDINFO.txt | grep -Fq 'RPC compatibility: b12562-ylm-rpc5'
+          unzip -p "$apk" assets/BUILDINFO.txt | grep -Fq 'smolmaxxing llama.cpp base: v0.8.0 / 8642541b255bfb5dc39cd351a178be09013a55d6'
+          unzip -p "$apk" assets/licenses/smolmaxxing.txt | grep -Fq 'MIT License'
           mkdir -p "$RUNNER_TEMP/apk-audit"
           unzip -q "$apk" 'lib/arm64-v8a/*.so' -d "$RUNNER_TEMP/apk-audit"
           cmp build/android-native/bin/ggml-rpc-server "$RUNNER_TEMP/apk-audit/lib/arm64-v8a/libylm_rpc.so"
           cmp build/android-native/bin/llama-server "$RUNNER_TEMP/apk-audit/lib/arm64-v8a/libylm_server.so"
+          cmp build/android-smol-native/bin/llama-server "$RUNNER_TEMP/apk-audit/lib/arm64-v8a/libylm_smol.so"
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018"
           ANDROID_ABI=arm64-v8a scripts/verify-android-elf.sh "$RUNNER_TEMP/apk-audit/lib/arm64-v8a/"*.so
           unzip -p "$apk" assets/BUILDINFO.txt
@@ -103,6 +136,7 @@ jobs:
           path: |
             build/android-native/bin/ggml-rpc-server
             build/android-native/bin/llama-server
+            build/android-smol-native/bin/llama-server
             packages/YourLM-Android-arm64.apk
           if-no-files-found: error
           retention-days: 14
@@ -291,7 +325,7 @@ jobs:
           if ($install.ExitCode -ne 0) { throw "Per-user installation exited with $($install.ExitCode)" }
           if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) { throw 'Per-user EXE was not installed' }
           if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) { throw 'Start Menu shortcut was not created' }
-          if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc14') { throw 'Installed Apps version is incorrect' }
+          if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc15') { throw 'Installed Apps version is incorrect' }
 
           $process = Start-Process -FilePath $installed -ArgumentList '--no-browser' -PassThru
           Start-Sleep -Seconds 12
@@ -337,8 +371,8 @@ jobs:
           if (Test-Path -LiteralPath $shortcut) { throw 'Uninstall did not remove the Start Menu shortcut' }
           if (Test-Path -LiteralPath $uninstallKey) { throw 'Uninstall did not remove the Installed Apps entry' }
   publish-rc:
-    name: Publish v0.2.0-rc14 assets
-    if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc14]') }}
+    name: Publish v0.2.0-rc15 assets
+    if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc15]') }}
     needs: [windows-runtime]
     permissions:
       contents: write
@@ -360,14 +394,14 @@ jobs:
         run: |
           set -euo pipefail
           (cd packages && sha256sum -c SHA256SUMS)
-          tag=v0.2.0-rc14
+          tag=v0.2.0-rc15
           assets=(packages/YourLM.exe packages/YourLM-Android-arm64.apk packages/SHA256SUMS)
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc14' \
-              --notes-file windows/RELEASE-NOTES-0.2.0-rc14.md --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc15' \
+              --notes-file windows/RELEASE-NOTES-0.2.0-rc15.md --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$tag" "${assets[@]}" --prerelease --target "$GITHUB_SHA" \
-              --title 'YourLM 0.2.0-rc14' --notes-file windows/RELEASE-NOTES-0.2.0-rc14.md \
+              --title 'YourLM 0.2.0-rc15' --notes-file windows/RELEASE-NOTES-0.2.0-rc15.md \
               --repo "$GITHUB_REPOSITORY"
           fi
