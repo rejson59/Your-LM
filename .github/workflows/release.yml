@@ -547,7 +547,7 @@ jobs:
     if: ${{ contains(github.event.head_commit.message, '[diagnose windows]') }}
     permissions:
       actions: read
-      contents: read
+      contents: write
     runs-on: ubuntu-24.04
     steps:
       - name: Surface inaccessible Windows failure output
@@ -566,4 +566,8 @@ jobs:
           tail_output=${tail_output//$'\r'/'%0D'}
           tail_output=${tail_output//$'\n'/'%0A'}
           echo "::error title=Previous Windows gate output::$tail_output"
-          exit 1
+          decoded=${tail_output//'%0A'/$'\n'}
+          decoded=${decoded//'%0D'/$'\r'}
+          decoded=${decoded//'%25'/'%'}
+          gh api --method POST "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/comments" \
+            -f body="Temporary Windows gate diagnostic (delete after retrieval):\n\n$decoded" >/dev/null
