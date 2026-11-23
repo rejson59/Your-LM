@@ -64,7 +64,8 @@ try {
   if (-not $diagnosticState.diagnostics.host.cpu -or $diagnosticState.diagnostics.host.cpu -eq '0') { throw 'Windows diagnostics did not identify the CPU' }
   if ($diagnosticState.diagnostics.benchmark.cpuHashBps -le 0 -or $diagnosticState.diagnostics.benchmark.diskWriteBps -le 0) { throw 'Windows diagnostics did not measure CPU and managed storage' }
   if ($diagnosticState.diagnostics.recommendation.selectedId -ne 'qwen36-35b-a3b-abliterated-balanced') { throw 'Autopilot selected an unaudited recipe' }
-  if (-not $diagnosticState.diagnostics.recommendation.readyToApply) { throw 'Autopilot did not unlock after diagnostics' }
+  if ($diagnosticState.diagnostics.recommendation.readyToApply) { throw 'Autopilot unlocked while safe D: storage was unavailable' }
+  if ($diagnosticState.diagnostics.recommendation.nextStep -notmatch 'migracj') { throw 'Autopilot did not explain its D: storage prerequisite' }
   if (-not (Test-Path -LiteralPath $diagnosticState.diagnostics.reportPath -PathType Leaf)) { throw 'Diagnostics report was not persisted' }
 
   Stop-Process -Id $process.Id -Force
@@ -132,7 +133,9 @@ try {
   }
   $managedMatch = [regex]::Match($managedText, '(?m)^(http://127\.0\.0\.1:[0-9]+)/#([0-9a-f]+)$')
   if (-not $managedMatch.Success) { throw "Managed controller URL was not emitted: $managedText" }
-  $managedState = Invoke-RestMethod -Uri "$($managedMatch.Groups[1].Value)/api/state" -Headers @{ 'X-YourLM' = $managedMatch.Groups[2].Value }
+  $managedBase = $managedMatch.Groups[1].Value
+  $managedHeaders = @{ 'X-YourLM' = $managedMatch.Groups[2].Value }
+  $managedState = Invoke-RestMethod -Uri "$managedBase/api/state" -Headers $managedHeaders
   if ($managedState.storage.migration.status -ne 'recovered') { throw "Stale part was not reported as recovered: $($managedState.storage.migration.status)" }
   if ($managedState.storage.migration.resumedFiles -ne 1 -or $managedState.storage.migration.resumedBytes -ne 19) { throw 'Resumed migration metrics are incorrect' }
   if ($managedState.storage.dataPath -ne $managedData) { throw 'Published D: storage is not active in application state' }
@@ -146,6 +149,18 @@ try {
   $migrationLock = Join-Path $managedRoot '.yourlm-data-migration.lock'
   if (-not (Test-Path -LiteralPath $migrationLock -PathType Leaf)) { throw 'Migration lock evidence is missing' }
   if ((Get-Item -LiteralPath $migrationLock).Length -ne 0) { throw 'Migration lock remained owned after startup' }
+
+  if ($managedState.diagnostics.recommendation.readyToApply) { throw 'Managed autopilot unlocked before collecting hardware facts' }
+  Invoke-RestMethod -Method Post -Uri "$managedBase/api/diagnostics-start" -Headers $managedHeaders -ContentType 'application/json' -Body '{}' | Out-Null
+  $managedDiagnosticState = $null
+  for ($attempt = 0; $attempt -lt 180; $attempt++) {
+    Start-Sleep -Milliseconds 500
+    $managedDiagnosticState = Invoke-RestMethod -Uri "$managedBase/api/state" -Headers $managedHeaders
+    if (-not $managedDiagnosticState.diagnostics.running) { break }
+  }
+  if (-not $managedDiagnosticState.diagnostics.complete) { throw "Managed-storage diagnostics did not complete: $($managedDiagnosticState.diagnostics.error)" }
+  if ($managedDiagnosticState.diagnostics.recommendation.selectedId -ne 'qwen36-35b-a3b-abliterated-balanced') { throw 'Managed autopilot selected an unaudited recipe' }
+  if (-not $managedDiagnosticState.diagnostics.recommendation.readyToApply) { throw "Autopilot stayed blocked after verified D: publication: $($managedDiagnosticState.diagnostics.recommendation.nextStep)" }
 
   # The session owner keeps its source/destination guard after migration
   # returns. A second instance must fail quickly instead of opening a
