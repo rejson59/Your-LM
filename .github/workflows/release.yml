@@ -557,8 +557,11 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/$GITHUB_REPOSITORY/actions/jobs/137831169002/logs" > "$RUNNER_TEMP/windows-job.log"
-          tail_output=$(tail -n 140 "$RUNNER_TEMP/windows-job.log")
-          tail_output=${tail_output: -30000}
+          tail_output=$(grep -Ei '##\[error\]|exception|throw|failed|did not|missing|incorrect|second instance|YourLM exited|migration|native window' "$RUNNER_TEMP/windows-job.log" | tail -n 80 || true)
+          if [[ -z "$tail_output" ]]; then
+            tail_output=$(tail -n 80 "$RUNNER_TEMP/windows-job.log")
+          fi
+          tail_output=${tail_output: -7000}
           tail_output=${tail_output//'%'/'%25'}
           tail_output=${tail_output//$'\r'/'%0D'}
           tail_output=${tail_output//$'\n'/'%0A'}
