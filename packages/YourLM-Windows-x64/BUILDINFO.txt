@@ -1,0 +1,7 @@
+YourLM: 0.1.2
+YourLM source: 4f9a84c9d6214c143fa23719bca9332972444f9e
+llama.cpp source: c0b97be0b297177a88df08e96c01420976bb18d0 (b12562)
+Go: go version go1.25.5 linux/amd64
+Zig: 0.14.1
+llama-server.exe SHA-256: 621bf8df3ae6e8abbcac13e6f3076478fecdddd98e2097373b757c6184b3583f
+ggml-rpc-server.exe SHA-256: 7099b72497eb72337b4ba4ec0a2709041cfc1fd011a93b1a22c9ca00d4df2f9b

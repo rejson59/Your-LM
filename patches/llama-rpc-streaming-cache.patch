@@ -1,0 +1,241 @@
+diff --git a/ggml/src/ggml-rpc/ggml-rpc.cpp b/ggml/src/ggml-rpc/ggml-rpc.cpp
+index e4a84cb..4bb6fe5 100644
+--- a/ggml/src/ggml-rpc/ggml-rpc.cpp
++++ b/ggml/src/ggml-rpc/ggml-rpc.cpp
+@@ -1467,7 +1467,6 @@ private:
+     void comm_free_device(uint32_t dev_id);
+     static bool comm_allreduce_pairwise(void * comm_ctx_v, ggml_tensor ** tensors);
+     static bool comm_bootstrap_exchange(void * user_data, const void * send_buf, void * recv_buf, size_t size);
+-    bool get_cached_file(uint64_t hash, std::vector<uint8_t> & data);
+     ggml_tensor * deserialize_tensor(struct ggml_context * ctx, const rpc_tensor * tensor);
+     ggml_tensor * create_node(uint64_t id,
+                               struct ggml_context * ctx,
+@@ -1797,25 +1796,28 @@ bool rpc_server::set_tensor(socket_ptr sock, uint64_t input_size) {
+         }
+     }
+
+-    if (cache_dir && cache_flag) {
+-        // the whole data is needed to compute the hash
+-        std::vector<uint8_t> data(size);
+-        if (!sock->recv_data(data.data(), size)) {
+-            return false;
++    // Cache only complete tensors. Receiving the whole tensor into a temporary
++    // vector can double peak memory after --fit has already filled the device,
++    // which is enough for Android's low-memory killer to terminate rpc-server.
++    // Stream through the same bounded buffer used by the non-cache path instead.
++    const size_t tensor_size = ggml_nbytes(tensor);
++    const bool cache_tensor = cache_dir && cache_flag && offset <= tensor_size && size == tensor_size - offset;
++    fs::path cache_temp;
++    std::ofstream cache_out;
++    bool cache_ok = false;
++    uint64_t hash = 0xcbf29ce484222325ULL;
++    if (cache_tensor) {
++        static std::atomic_uint64_t cache_temp_counter { 0 };
++        const uint64_t temp_id = cache_temp_counter.fetch_add(1, std::memory_order_relaxed);
++        cache_temp = fs::path(cache_dir) / (".incoming-" + std::to_string(temp_id) + ".part");
++        cache_out.open(cache_temp, std::ios::binary | std::ios::trunc);
++        cache_ok = cache_out.is_open();
++        if (!cache_ok) {
++            LOG_WARN("[%s] cannot open temporary cache file '%s'; continuing without cache\n",
++                     __func__, cache_temp.string().c_str());
+         }
+-        uint64_t hash = fnv_hash(data.data(), size);
+-        char hash_str[17];
+-        snprintf(hash_str, sizeof(hash_str), "%016" PRIx64, hash);
+-        // save to cache_dir/hash_str
+-        fs::path cache_file = fs::path(cache_dir) / hash_str;
+-        std::ofstream ofs(cache_file, std::ios::binary);
+-        ofs.write((const char *)data.data(), size);
+-        LOG_INFO("[%s] saved to '%s'\n", __func__, cache_file.string().c_str());
+-        ggml_backend_tensor_set(tensor, data.data(), offset, size);
+-        return true;
+     }
+
+-    // a buffer of the tensor size would be allocated and page faulted for every tensor, which is slow
+     const size_t chunk_size = 16*1024*1024;
+     if (set_tensor_buf.size() < std::min(size, chunk_size)) {
+         set_tensor_buf.resize(std::min(size, chunk_size));
+@@ -1823,11 +1825,65 @@ bool rpc_server::set_tensor(socket_ptr sock, uint64_t input_size) {
+     for (size_t done = 0; done < size; ) {
+         const size_t n = std::min(size - done, chunk_size);
+         if (!sock->recv_data(set_tensor_buf.data(), n)) {
++            if (cache_out.is_open()) {
++                cache_out.close();
++            }
++            if (!cache_temp.empty()) {
++                std::error_code ec;
++                fs::remove(cache_temp, ec);
++            }
+             return false;
+         }
+         ggml_backend_tensor_set(tensor, set_tensor_buf.data(), offset + done, n);
++        if (cache_ok) {
++            hash = fnv_hash(set_tensor_buf.data(), n, hash);
++            cache_out.write((const char *) set_tensor_buf.data(), n);
++            if (!cache_out.good()) {
++                LOG_WARN("[%s] cache write failed for '%s'; continuing without cache\n",
++                         __func__, cache_temp.string().c_str());
++                cache_ok = false;
++                cache_out.close();
++                std::error_code ec;
++                fs::remove(cache_temp, ec);
++            }
++        }
+         done += n;
+     }
++
++    if (cache_ok) {
++        cache_out.flush();
++        cache_ok = cache_out.good();
++        cache_out.close();
++        cache_ok = cache_ok && !cache_out.fail();
++    }
++    if (cache_ok) {
++        char hash_str[17];
++        snprintf(hash_str, sizeof(hash_str), "%016" PRIx64, hash);
++        const fs::path cache_file = fs::path(cache_dir) / hash_str;
++        std::error_code ec;
++        bool stored = false;
++        if (fs::exists(cache_file, ec) && !ec && fs::file_size(cache_file, ec) == size && !ec) {
++            fs::remove(cache_temp, ec);
++            stored = true;
++        } else {
++            ec.clear();
++            fs::remove(cache_file, ec);
++            ec.clear();
++            fs::rename(cache_temp, cache_file, ec);
++            stored = !ec;
++        }
++        if (stored) {
++            LOG_INFO("[%s] saved to '%s'\n", __func__, cache_file.string().c_str());
++        } else {
++            LOG_WARN("[%s] cannot publish cache file '%s': %s; tensor remains loaded\n",
++                     __func__, cache_file.string().c_str(), ec.message().c_str());
++            ec.clear();
++            fs::remove(cache_temp, ec);
++        }
++    } else if (!cache_temp.empty()) {
++        std::error_code ec;
++        fs::remove(cache_temp, ec);
++    }
+     return true;
+ }
+
+@@ -1893,26 +1949,6 @@ bool rpc_server::set_tensor_2d(const std::vector<uint8_t> & input) {
+     return true;
+ }
+
+-bool rpc_server::get_cached_file(uint64_t hash, std::vector<uint8_t> & data) {
+-    if (!cache_dir) {
+-        return false;
+-    }
+-    char hash_str[17];
+-    snprintf(hash_str, sizeof(hash_str), "%016" PRIx64, hash);
+-    fs::path cache_file = fs::path(cache_dir) / hash_str;
+-    std::error_code ec;
+-    if (!fs::exists(cache_file, ec)) {
+-        return false;
+-    }
+-    std::ifstream ifs(cache_file, std::ios::binary);
+-    ifs.seekg(0, std::ios::end);
+-    size_t size = ifs.tellg();
+-    ifs.seekg(0, std::ios::beg);
+-    data.resize(size);
+-    ifs.read((char *)data.data(), size);
+-    return true;
+-}
+-
+ bool rpc_server::set_tensor_hash(const rpc_msg_set_tensor_hash_req & request, rpc_msg_set_tensor_hash_rsp & response)
+ {
+     sync_all_backends();
+@@ -1930,32 +1966,72 @@ bool rpc_server::set_tensor_hash(const rpc_msg_set_tensor_hash_req & request, rp
+         return false;
+     }
+
+-    std::vector<uint8_t> cached_file;
+-    if (!get_cached_file(request.hash, cached_file)) {
++    response.result = 0;
++    if (!cache_dir) {
++        return true;
++    }
++    char hash_str[17];
++    snprintf(hash_str, sizeof(hash_str), "%016" PRIx64, request.hash);
++    const fs::path cache_file = fs::path(cache_dir) / hash_str;
++    std::ifstream ifs(cache_file, std::ios::binary);
++    if (!ifs.is_open()) {
+         LOG_DBG2("[%s] tensor: %s, offset: %" PRIu64 ", hash: 0x%" PRIx64 ", cache miss\n",
+-                __func__, rpc_log_format_tensor(tensor).c_str(), request.offset, request.hash);
+-        response.result = 0;
++                 __func__, rpc_log_format_tensor(tensor).c_str(), request.offset, request.hash);
++        return true;
++    }
++    ifs.seekg(0, std::ios::end);
++    const std::streamoff file_end = ifs.tellg();
++    ifs.seekg(0, std::ios::beg);
++    const size_t tensor_size = ggml_nbytes(tensor);
++    if (file_end <= 0 || (uint64_t) file_end > SIZE_MAX || request.offset > tensor_size ||
++            (size_t) file_end != tensor_size - request.offset) {
++        LOG_WARN("[%s] removing incomplete cache file '%s'\n", __func__, cache_file.string().c_str());
++        ifs.close();
++        std::error_code ec;
++        fs::remove(cache_file, ec);
+         return true;
+     }
+-    size_t size = cached_file.size();
++    const size_t size = (size_t) file_end;
+     LOG_DBG2("[%s] tensor: %s, buffer: %p, data: %p, offset: %" PRIu64 ", size: %s, hash: 0x%" PRIx64 ", cache hit\n",
+-            __func__, rpc_log_format_tensor(tensor).c_str(), (void*)tensor->buffer, tensor->data, request.offset,
+-            rpc_log_format_size(size).c_str(), request.hash);
++             __func__, rpc_log_format_tensor(tensor).c_str(), (void*)tensor->buffer, tensor->data, request.offset,
++             rpc_log_format_size(size).c_str(), request.hash);
+
+-    // sanitize tensor->data
+-    {
+-        const size_t p0 = (size_t) ggml_backend_buffer_get_base(tensor->buffer);
+-        const size_t p1 = p0 + ggml_backend_buffer_get_size(tensor->buffer);
++    const size_t p0 = (size_t) ggml_backend_buffer_get_base(tensor->buffer);
++    const size_t p1 = p0 + ggml_backend_buffer_get_size(tensor->buffer);
++    if (request.tensor.data + request.offset < p0
++     || request.tensor.data + request.offset >= p1
++     || size > (p1 - request.tensor.data - request.offset)) {
++        LOG_ERROR("[%s] tensor data region (data=0x%" PRIx64 ", offset=%" PRIu64 ", size=%zu, hash=0x%" PRIx64 ") out of buffer bounds [0x%zx, 0x%zx)\n",
++                  __func__, request.tensor.data, request.offset, size, request.hash, p0, p1);
++        return false;
++    }
+
+-        if (request.tensor.data + request.offset < p0
+-         || request.tensor.data + request.offset >= p1
+-         || size > (p1 - request.tensor.data - request.offset)) {
+-            LOG_ERROR("[%s] tensor data region (data=0x%" PRIx64 ", offset=%" PRIu64 ", size=%zu, hash=0x%" PRIx64 ") out of buffer bounds [0x%zx, 0x%zx)\n",
+-                           __func__, request.tensor.data, request.offset, size, request.hash, p0, p1);
+-            return false;
++    const size_t chunk_size = 16*1024*1024;
++    if (set_tensor_buf.size() < std::min(size, chunk_size)) {
++        set_tensor_buf.resize(std::min(size, chunk_size));
++    }
++    uint64_t actual_hash = 0xcbf29ce484222325ULL;
++    for (size_t done = 0; done < size; ) {
++        const size_t n = std::min(size - done, chunk_size);
++        ifs.read((char *) set_tensor_buf.data(), n);
++        if ((size_t) ifs.gcount() != n) {
++            LOG_WARN("[%s] removing unreadable cache file '%s'\n", __func__, cache_file.string().c_str());
++            ifs.close();
++            std::error_code ec;
++            fs::remove(cache_file, ec);
++            return true;
+         }
++        actual_hash = fnv_hash(set_tensor_buf.data(), n, actual_hash);
++        ggml_backend_tensor_set(tensor, set_tensor_buf.data(), request.offset + done, n);
++        done += n;
++    }
++    if (actual_hash != request.hash) {
++        LOG_WARN("[%s] removing corrupt cache file '%s'\n", __func__, cache_file.string().c_str());
++        ifs.close();
++        std::error_code ec;
++        fs::remove(cache_file, ec);
++        return true;
+     }
+-    ggml_backend_tensor_set(tensor, cached_file.data(), request.offset, size);
+     response.result = 1;
+     return true;
+ }

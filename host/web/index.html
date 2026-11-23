@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f5f7f4" />
+    <title>YourLM · Prywatna AI</title>
+    <script src="/theme.js"></script>
+    <link href="/style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div class="appShell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brandMark">Y</span>
+          <span><b>YourLM</b><small>Prywatna AI</small></span>
+        </div>
+        <nav aria-label="Główna nawigacja">
+          <button data-tab="cluster" class="sel">
+            <span class="navIcon">⌂</span><span>Urządzenia</span>
+          </button>
+          <button data-tab="model">
+            <span class="navIcon">◇</span><span>Model i API</span>
+          </button>
+          <button data-tab="chat">
+            <span class="navIcon">○</span><span>Czat</span>
+          </button>
+          <button data-tab="phone">
+            <span class="navIcon">⌁</span><span>Telefon USB</span>
+          </button>
+          <button data-tab="tests">
+            <span class="navIcon">✓</span><span>Testy</span>
+          </button>
+        </nav>
+        <button class="themeToggle" type="button" aria-pressed="false">
+          <span class="themeIcon" aria-hidden="true">
+            <svg viewBox="0 0 20 20"><path class="themeMoon" d="M17.2 13.2A7.2 7.2 0 0 1 6.8 2.8 7.2 7.2 0 1 0 17.2 13.2Z"/><g class="themeSun"><circle cx="10" cy="10" r="3.2"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16"/></g></svg>
+          </span>
+          <span class="themeLabel">Tryb ciemny</span>
+        </button>
+        <button class="updateShortcut" type="button">
+          <span class="navIcon">↻</span>
+          <span><b>Aktualizacje</b><small class="updateShortcutText">Sprawdź nową wersję</small></span>
+        </button>
+        <div class="privacyCard">
+          <span class="statusDot"></span>
+          <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
+        </div>
+        <div class="sideVersion" id="build">v0.2.0-rc18 · b12562</div>
+      </aside>
+
+      <div class="workspace">
+        <header class="mobileHeader">
+          <div class="brand">
+            <span class="brandMark">Y</span><span><b>YourLM</b></span>
+          </div>
+          <div class="mobileActions">
+            <button class="themeToggle mobileTheme" type="button" aria-pressed="false">
+              <span class="themeIcon" aria-hidden="true"><svg viewBox="0 0 20 20"><path class="themeMoon" d="M17.2 13.2A7.2 7.2 0 0 1 6.8 2.8 7.2 7.2 0 1 0 17.2 13.2Z"/><g class="themeSun"><circle cx="10" cy="10" r="3.2"/><path d="M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2M4 4l1.4 1.4M14.6 14.6 16 16M16 4l-1.4 1.4M5.4 14.6 4 16"/></g></svg></span><span class="themeLabel">Tryb ciemny</span>
+            </button>
+            <button class="updateShortcut mobileUpdate" type="button" aria-label="Sprawdź aktualizacje">↻ <span class="updateShortcutText">Aktualizacje</span></button>
+          </div>
+        </header>
+        <main>
+          <div id="notice" role="status" hidden></div>
+          <article id="updateBar" class="updateBar" hidden>
+            <span class="updateIcon">↻</span>
+            <div><b id="updateTitle">Nowa wersja YourLM</b><small id="updateText"></small></div>
+            <button id="updateAction">Aktualizuj</button>
+          </article>
+
+          <section id="cluster" class="tab">
+            <div class="pageHead">
+              <div>
+                <div class="kicker" id="crumb">URZĄDZENIA</div>
+                <h1 id="title">Twoja lokalna AI</h1>
+                <p id="sub">Laptop uruchamia model. Telefon może pomóc obliczać jego warstwy.</p>
+              </div>
+              <span class="localPill desktopPill"><i></i> PRYWATNIE I LOKALNIE</span>
+            </div>
+
+            <div class="welcomeCard">
+              <div class="welcomeCopy">
+                <span class="eyebrow">AKTUALNA KONFIGURACJA</span>
+                <h2 id="mode">Tylko ten komputer</h2>
+                <p id="topdesc">Możesz od razu wybrać model albo dodać telefon jako worker.</p>
+                <div class="actions">
+                  <button id="next" class="primary">Wybierz model</button>
+                  <button id="add" class="secondary">＋ Dodaj telefon</button>
+                </div>
+              </div>
+              <div class="connectionArt" aria-hidden="true">
+                <div class="device laptop"><span></span><b>Laptop</b><small>HOST</small></div>
+                <div class="link"><i></i><i></i><i></i></div>
+                <div class="device phone"><span></span><b>Telefon</b><small>WORKER</small></div>
+              </div>
+            </div>
+
+            <div class="howItWorks">
+              <div class="step"><span>1</span><div><b>Wybierz model</b><small>GGUF zostaje na hoście</small></div></div>
+              <div class="step"><span>2</span><div><b>Opcjonalnie dodaj telefon</b><small>Ten sam prywatny Wi-Fi</small></div></div>
+              <div class="step"><span>3</span><div><b>Uruchom czat lub API</b><small>OpenAI-compatible /v1</small></div></div>
+            </div>
+
+            <div class="metrics memoryMetrics">
+              <article><span class="metricIcon">●</span><div><small>URZĄDZENIA</small><strong id="count">—</strong><p>host + workery</p></div></article>
+              <article><span class="metricIcon">▤</span><div><small>CAŁY FIZYCZNY RAM</small><strong id="ram">—</strong><p>pełna pula Lenovo + Redmi</p></div></article>
+              <article><span class="metricIcon">◐</span><div><small>SYSTEMY I APLIKACJE</small><strong id="usedRam">—</strong><p>zajęte w tej chwili</p></div></article>
+              <article><span class="metricIcon">◒</span><div><small>DOSTĘPNE NATYCHMIAST</small><strong id="capacity">—</strong><p>to nie limit wielkości GGUF</p></div></article>
+              <article><span class="metricIcon">↔</span><div><small>ZMAPOWANY MODEL</small><strong id="mappedRam">—</strong><p>mmap może czytać strony z dysku</p></div></article>
+              <article><span class="metricIcon">Y</span><div><small>AKTYWNA ALOKACJA YOURLM</small><strong id="processRam">—</strong><p>rzeczywisty RAM procesów silnika</p></div></article>
+            </div>
+            <div class="memoryCommit"><b id="commitTitle">Pamięć mapowana i limit systemu</b><span id="commitRam">—</span><small id="commitHelp">Limit zatwierdzeń nie jest sztucznym budżetem YourLM.</small></div>
+
+            <article id="cleanupCard" class="sectionCard cleanupCard" hidden>
+              <div class="sectionTitle">
+                <div><span class="eyebrow">PRZYGOTUJ WINDOWS</span><h2>Odzyskaj pamięć przed modelem</h2></div>
+                <button id="cleanupScan" class="secondary">Sprawdź aplikacje</button>
+              </div>
+              <p>YourLM pokazuje programy bieżącego użytkownika z widocznymi oknami i wstępnie zaznacza największe bezpieczne pozycje. Odznacz wszystko, czego nie chcesz zamykać. Procesy systemowe, zabezpieczenia, instalatory, terminale, programy administratora oraz YourLM są chronione. Zapisz pracę przed zamknięciem.</p>
+              <div id="cleanupApps" class="cleanupApps"></div>
+              <div id="cleanupActions" class="cleanupActions" hidden>
+                <span id="cleanupSelection">Nic nie zaznaczono.</span>
+                <button id="cleanupClose" disabled>Zamknij wybrane łagodnie</button>
+              </div>
+              <div id="cleanupResult" class="infoStrip" aria-live="polite">Kliknij „Sprawdź aplikacje”, aby zobaczyć przybliżony RAM widocznych programów.</div>
+              <div id="cleanupOutcomes" class="cleanupOutcomes" aria-label="Wyniki zamykania aplikacji"></div>
+              <small>Przycisk wysyła standardowe WM_CLOSE — nie zabija procesów. Program z niezapisanym dokumentem może wyświetlić własne pytanie i pozostać otwarty. Pamięci systemu, sterowników i cache Windows nie da się bezpiecznie wyzerować.</small>
+            </article>
+
+            <article class="sectionCard devicesCard">
+              <div class="sectionTitle">
+                <div><span class="eyebrow">TWOJA SIEĆ</span><h2>Połączone urządzenia</h2></div>
+                <button id="addTop" class="textButton">＋ Dodaj telefon</button>
+              </div>
+              <div id="nodes"></div>
+              <div class="infoStrip">Gdy autoryzowany kabel USB z debugowaniem pozostaje podłączony, YourLM mierzy szyfrowane Wi-Fi i tunel ADB, po czym wybiera szybszy. Pomiar nie przyspiesza CPU telefonu — porównaj też ten sam mały model bez workera i z workerem.</div>
+            </article>
+
+            <details id="offer" class="sectionCard workerOffer">
+              <summary><span>Udostępnij ten komputer innemu hostowi</span><small>TRYB WORKERA WINDOWS</small></summary>
+              <div class="detailsBody">
+                <p>Użyj tylko w zaufanej sieci prywatnej. Wybierz adres Wi-Fi lub Ethernet tego komputera.</p>
+                <div class="inlineFields"><label>Adres sieci<select id="workerIP"></select></label><button id="offerBtn">Uruchom worker</button></div>
+                <div id="offerShare" hidden>
+                  <div class="manualValues">
+                    <label>Adres parowania<input id="offerAddress" readonly /></label>
+                    <label>Kod parowania<input id="offerKey" readonly /></label>
+                  </div>
+                  <button id="copyOffer" class="secondary">Kopiuj adres i kod</button>
+                  <details class="qrDetails"><summary>Pokaż kod QR</summary><div id="winQR"></div></details>
+                  <textarea id="offerCode" readonly hidden aria-label="Pełny prywatny kod workera"></textarea>
+                </div>
+              </div>
+            </details>
+          </section>
+
+          <section id="phone" class="tab" hidden>
+            <div class="pageHead">
+              <div><div class="kicker">TELEFON PRZEZ USB</div><h1>Zainstaluj APK jednym kliknięciem</h1><p>Narzędzie ADB i aktualne APK są wbudowane w YourLM.exe. Nie musisz pobierać Platform Tools ani osobnego pliku APK.</p></div>
+              <span class="localPill desktopPill"><i></i> USB + ADB</span>
+            </div>
+
+            <article class="usbHero sectionCard">
+              <div class="usbVisual" aria-hidden="true"><span>PC</span><i></i><span>TEL</span></div>
+              <div class="usbCopy">
+                <span class="eyebrow">STATUS POŁĄCZENIA</span>
+                <h2 id="usbTitle">Szukam telefonu…</h2>
+                <p id="usbText">Podłącz telefon przewodem i odblokuj ekran.</p>
+                <label id="usbSelectLabel" hidden>Telefon<select id="usbDevice"></select></label>
+                <div class="actions">
+                  <button id="usbInstall" class="primary">Zainstaluj YourLM</button>
+                  <button id="usbRefresh" class="secondary">Odśwież urządzenia</button>
+                </div>
+              </div>
+            </article>
+
+            <div class="usbGrid">
+              <article class="sectionCard usbSteps">
+                <span class="eyebrow">PIERWSZE POŁĄCZENIE</span><h2>Włącz debugowanie USB</h2>
+                <div class="guideStep"><b>1</b><div><strong>Opcje programistyczne</strong><p>W informacjach o telefonie stuknij siedem razy wersję systemu lub MIUI/HyperOS.</p></div></div>
+                <div class="guideStep"><b>2</b><div><strong>Debugowanie USB</strong><p>W Opcjach programistycznych włącz „Debugowanie USB”, podłącz przewód z transmisją danych i wybierz tryb plików.</p></div></div>
+                <div class="guideStep"><b>3</b><div><strong>Zaufaj laptopowi</strong><p>Odblokuj telefon i zaakceptuj odcisk RSA. Potem kliknij „Zainstaluj YourLM”.</p></div></div>
+                <div class="infoStrip">Na Redmi/HyperOS włącz także <b>Instalowanie przez USB</b>, jeśli system blokuje ADB. Gdy Windows nadal nie widzi telefonu, zainstaluj oficjalny sterownik USB Xiaomi.</div>
+              </article>
+              <article class="sectionCard usbDevicesCard">
+                <span class="eyebrow">WYKRYTE URZĄDZENIA</span><h2>Telefony ADB</h2>
+                <div id="usbDevices" class="usbDevices"></div>
+                <div class="infoStrip">Aktualizacja przez ADB używa opcji <b>-r</b>, więc zachowuje ustawienia i modele aplikacji. Po uruchomieniu workera możesz pozostawić kabel: YourLM porówna jego szyfrowany tunel z Wi-Fi. Usunięcie aplikacji z telefonu usuwa jej prywatne kopie modeli.</div>
+              </article>
+            </div>
+
+            <article class="sectionCard updateCenter">
+              <div><span class="eyebrow">AKTUALIZACJE</span><h2>YourLM aktualizuje się bez ponownej konfiguracji</h2><p id="updateCenterText">Program automatycznie sprawdza nowe wydania GitHub. Nowe EXE pobierze w tle, a APK możesz zainstalować przez USB albo bezpośrednio na telefonie.</p></div>
+              <div class="actions"><button id="checkUpdate" class="secondary">Sprawdź teraz</button><a id="releaseLink" target="_blank" rel="noreferrer" hidden>Zobacz wydanie</a></div>
+            </article>
+          </section>
+
+          <section id="tests" class="tab" hidden>
+            <div class="pageHead">
+              <div><div class="kicker">TESTY I AUTOPILOT</div><h1>Sprawdź prawdziwe możliwości Lenovo + Redmi</h1><p>Jeden lokalny test odczyta dokładny sprzęt, zmierzy CPU, dysk D:, pamięć telefonu oraz szyfrowane łącza. Raport nie zawiera kodu parowania, numeru seryjnego USB ani klucza API.</p></div>
+              <span class="localPill desktopPill"><i></i> ZERO CHMURY</span>
+            </div>
+
+            <article class="diagnosticHero sectionCard">
+              <div>
+                <span class="eyebrow">AUTOPILOT DIAGNOSTYCZNY</span>
+                <h2 id="diagTitle">Gotowy do pełnego testu</h2>
+                <p id="diagMessage">Test niczego nie usuwa i nie przegląda prywatnych dokumentów. Tworzy tylko krótkie, tymczasowe próbki wydajności we własnym katalogu YourLM oraz w /data/local/tmp telefonu.</p>
+                <div id="diagProgress" class="diagProgress" role="progressbar" aria-label="Postęp testu urządzeń" aria-valuemin="0" aria-valuemax="6" aria-valuenow="0"><i id="diagProgressFill"></i></div>
+                <small id="diagStep">Nie uruchomiono.</small>
+              </div>
+              <div class="actions diagActions">
+                <button id="diagStart" class="primary">Uruchom pełny test</button>
+                <button id="diagCancel" class="secondary" hidden>Zatrzymaj test</button>
+                <button id="diagCopy" class="secondary" disabled>Kopiuj raport</button>
+              </div>
+            </article>
+
+            <div class="diagnosticGrid">
+              <article class="sectionCard diagnosticCard">
+                <span class="eyebrow">LENOVO / HOST</span><h2>Sprzęt i Windows</h2>
+                <div id="diagHost" class="factList"><p>Uruchom test, aby odczytać producenta, model, CPU, fizyczne rdzenie, RAM i GPU.</p></div>
+              </article>
+              <article class="sectionCard diagnosticCard storageCard">
+                <div class="storageStatusHead">
+                  <span id="storageStateIcon" class="storageStateIcon">D:</span>
+                  <div>
+                    <span class="eyebrow">MAGAZYN YOURLM</span>
+                    <h2 id="storageTitle">Sprawdzam program, modele i dane</h2>
+                  </div>
+                  <span id="storageBadge" class="storageBadge">KONTROLA</span>
+                </div>
+                <p id="storageMessage">Sprawdzam docelową lokalizację…</p>
+                <div id="storageFlow" class="storageFlow" aria-label="Stan migracji magazynu">
+                  <div class="storageFlowNode"><small>ŹRÓDŁO</small><b id="storageSourceLabel">C:</b><span id="storageSourceState">bezpieczne</span></div>
+                  <div class="storageFlowCheck"><i>✓</i><span>SYNC + SHA-256</span></div>
+                  <div class="storageFlowNode destination"><small>CEL</small><b id="storageDestinationLabel">D:</b><span id="storageDestinationState">sprawdzanie</span></div>
+                </div>
+                <div id="storageRecoveryStats" class="storageRecoveryStats" hidden></div>
+                <div id="storageAction" class="storageAction" hidden></div>
+                <details id="storageTechnical" class="storageTechnical" hidden><summary>Szczegóły techniczne</summary><code id="storageError"></code></details>
+                <div id="storagePaths" class="pathBox"></div>
+                <div id="storageDrives" class="driveList"></div>
+              </article>
+            </div>
+
+            <article class="sectionCard diagnosticSection">
+              <div class="sectionTitle"><div><span class="eyebrow">REDMI / ANDROID</span><h2>Telefon, SoC, RAM i UFS</h2></div><span class="diagnosticBadge">USB LUB WORKER</span></div>
+              <div id="diagPhones" class="diagnosticItems"><p>Podłącz odblokowany telefon z zaakceptowanym debugowaniem USB albo sparuj działający worker.</p></div>
+            </article>
+
+            <article class="sectionCard diagnosticSection">
+              <div class="sectionTitle"><div><span class="eyebrow">TRANSPORT</span><h2>Wi-Fi kontra szyfrowany tunel USB</h2></div><span class="diagnosticBadge">POMIAR 2 × 4 MiB</span></div>
+              <div id="diagLinks" class="diagnosticItems"><p>Po sparowaniu Redmi test porówna opóźnienie oraz transfer w obie strony.</p></div>
+            </article>
+
+            <article class="sectionCard modelTestCard">
+              <div><span class="eyebrow">RZECZYWISTY TEST MODELU</span><h2>Tokeny/s i wykonanie ścisłej instrukcji</h2><p id="diagModelText">Po pobraniu i uruchomieniu modelu wykonaj krótką próbę. Nie trafia ona do historii czatu.</p></div>
+              <button id="diagModel" class="secondary">Testuj działający model</button>
+            </article>
+
+            <article class="sectionCard autopilotCard">
+              <span class="eyebrow">JEDEN WYBÓR · BEZ RĘCZNEGO ŻONGLEROWANIA</span>
+              <div class="autopilotHead"><div><h2 id="autoModel">Qwen3.6-35B-A3B Abliterated · Balanced Q2/Q4</h2><p id="autoReason">Pełny test sprzętu doprecyzuje decyzję.</p></div><span>AUTOPILOT</span></div>
+              <div class="maximumCandidate"><b>Kandydat maksimum</b><span id="autoMaximum">Qwen3-Coder-Next 80B-A3B Abliterated · IQ3_XS experts-last</span><p id="autoMaximumStatus">Nie zostanie pobrany w ciemno bez pomiaru urządzeń i audytu receptury pagera.</p></div>
+              <p id="autoNext" class="infoStrip">Najpierw uruchom pełny test.</p>
+              <div class="actions"><button id="autoApply" class="primary">Zastosuj polecany model</button><button id="openModelTab" class="secondary">Przejdź do modeli</button></div>
+              <small class="autopilotBoundary">Autopilot steruje wyłącznie własnymi plikami YourLM, testami i wyborem profilu. Nie wykonuje dowolnych poleceń powłoki, nie czyta dokumentów i nie przejmuje kontroli nad systemem bez osobnego, widocznego działania użytkownika.</small>
+            </article>
+          </section>
+
+          <section id="model" class="tab" hidden>
+            <div class="pageHead">
+              <div><div class="kicker">MODEL I API</div><h1>Uruchom własny GGUF</h1><p>Plik pozostaje na Twoim urządzeniu. Internet jest używany tylko wtedy, gdy jawnie wyszukasz lub pobierzesz wybrany model.</p></div>
+            </div>
+
+            <div class="setupGrid">
+              <article class="sectionCard setupCard">
+                <span class="stepNumber">1</span><span class="eyebrow">PLIK MODELU</span>
+                <h2>Wybierz model GGUF</h2>
+                <p id="selected">Nie wybrano pliku.</p>
+                <p id="advice" class="advice"></p>
+                <div class="goldenModel">
+                  <span>JEDEN POLECANY ŚRODEK</span>
+                  <h3>Qwen3.6-35B-A3B Abliterated · Balanced Q2/Q4</h3>
+                  <p>Pełny head i tensory wspólne Q4_K, eksperci Q2_K oraz układ experts-last dla pagera telefonu. Abliteracja ogranicza wyuczone odmowy — nie zwiększa inteligencji modelu. MTP pozostaje domyślnie wyłączone, bo bez pomiaru na Redmi może spowalniać.</p>
+                  <ul><li>przypięte źródła Huihui z jednego checkpointu</li><li>wznawialne składanie bez dwóch pełnych kopii GGUF</li><li>SHA-256 gotowego pliku po lokalnej walidacji</li></ul>
+                  <button id="goldenDownload" class="primary">Zbuduj i wybierz model Balanced</button>
+                  <small id="goldenStatus">Wagi nie są dołączone do aplikacji. Sprawdź licencję modelu Apache-2.0 przed użyciem.</small>
+                </div>
+                <div class="actions"><button id="hfBrowse" class="secondary">Inny model z Hugging Face</button><button id="pick" class="secondary">Wybierz plik…</button><button id="manual" class="secondary">Podaj ścieżkę</button></div>
+                <select id="library" aria-label="Modele z biblioteki" hidden></select>
+                <div id="hfDownload" class="hfDownload" hidden>
+                  <div><b id="hfDownloadName"></b><span id="hfDownloadPercent"></span></div>
+                  <div class="hfProgress" role="progressbar" aria-label="Pobieranie modelu" aria-valuemin="0" aria-valuemax="100"><i id="hfProgressFill"></i></div>
+                  <small id="hfDownloadMeta"></small>
+                  <div class="actions"><button id="hfCancel" class="secondary">Zatrzymaj — zachowaj części</button><button id="hfRetry">Wznów pobieranie</button></div>
+                </div>
+                <small id="libdir" class="pathHint"></small>
+              </article>
+
+              <article class="sectionCard setupCard">
+                <span class="stepNumber">2</span><span class="eyebrow">SILNIK</span>
+                <h2>Sprawdź gotowość</h2>
+                <div class="runtimeStatus"><i></i><p id="engine"></p></div>
+                <div id="profileCard" class="profileCard" hidden><b id="profileName"></b><span id="profileEngine"></span><p id="profileDescription"></p><small id="profileWarning"></small></div>
+                <p class="muted">Silnik standardowy b12562 obsługuje Windows i RPC. Android ARM64 zawiera osobny, audytowalny runtime v0.8.0 tylko dla profilu Qwen3.6 Balanced; przy braku zgodności automatycznie pozostaje na standardowym silniku.</p>
+              </article>
+            </div>
+
+            <article class="sectionCard serverCard">
+              <div class="serverIntro"><span class="stepNumber">3</span><div><span class="eyebrow">CZAT I OPENAI API · BEZ LIMITU PLANISTY</span><h2>Uruchom model na wszystkich urządzeniach</h2><p>Bez workera Windows ładuje GGUF bez testu dopasowania do fizycznego RAM i może korzystać z mmap. Z workerami llama.cpp dobiera podział automatycznie i wylicza zapas szczytu ładowania z największego tensora (minimum 2048 MiB) na każdym urządzeniu RPC. Na tym urządzeniu wybierz 127.0.0.1.</p></div></div>
+              <div class="inlineFields serverFields">
+                <label>Adres nasłuchu<select id="bind"></select></label>
+                <label>Port<input id="port" type="number" min="1024" max="65535" value="8080" /></label>
+                <button id="run" class="primary">Uruchom model bez limitu</button>
+              </div>
+              <div id="sessionInfo" class="sessionBox" hidden>
+                <div class="engineHeadline"><span class="liveDot"></span><div><b id="runstate"></b><small id="loadMeta"></small><p id="loadHint" class="loadHint" hidden></p></div></div>
+                <div id="loadProgressPanel" class="loadProgressPanel" aria-live="polite" hidden>
+                  <div class="loadProgressHeader"><b id="loadStepLabel">Uruchamianie silnika</b><span id="loadStepCount">Etap 1 z 6</span></div>
+                  <div id="loadProgressTrack" class="loadProgressTrack" role="progressbar" aria-label="Etap uruchamiania modelu" aria-valuemin="1" aria-valuemax="6"><i id="loadProgressFill"></i></div>
+                  <p id="loadActivity" class="loadActivity"></p>
+                  <div class="loadDecision"><small id="loadDecisionText"></small><button id="cancelLoad" class="secondary">Zatrzymaj ładowanie</button></div>
+                </div>
+                <div id="apiDetails">
+                  <label>Adres API</label><pre id="endpoint"></pre>
+                  <div class="actions"><button id="copyKey">Kopiuj klucz API</button><button class="secondary" id="copyCfg">Kopiuj konfigurację Continue</button></div>
+                </div>
+                <details id="engineDiagnostics">
+                  <summary>Postęp ładowania i log silnika</summary>
+                  <small id="engineLogPath"></small>
+                  <pre id="engineLog">Oczekiwanie na pierwszy komunikat llama.cpp…</pre>
+                  <button id="copyEngineLog" class="secondary">Kopiuj diagnostykę</button>
+                </details>
+              </div>
+            </article>
+
+            <article class="sectionCard recommendation">
+              <span class="recommendIcon">i</span>
+              <div><h3>Balanced wybiera jedną praktyczną konfigurację automatycznie</h3><p>Na telefonie z lokalnym Qwen3.6 MoE YourLM dobiera pulę ekspertów, kontekst i najszybsze rdzenie, a wagi ekspertów stronicuje z prywatnego cache UFS. Windows i połączenia RPC zachowują stabilny silnik b12562. Nie zmieniamy headu ani nie usuwamy ekspertów.</p></div>
+            </article>
+          </section>
+
+          <section id="chat" class="tab" hidden>
+            <div class="pageHead chatHead">
+              <div><div class="kicker">CZAT LOKALNY</div><h1>Rozmowa prywatna</h1><p id="chatstatus">Najpierw uruchom model.</p></div>
+              <button class="secondary" id="clear">Wyczyść rozmowę</button>
+            </div>
+            <article class="chatCard">
+              <div id="messages" aria-live="polite">
+                <div class="emptyChat"><span>Y</span><h2>Gotowy, gdy model będzie działać</h2><p>Historia pozostaje tylko w pamięci tej karty.</p></div>
+              </div>
+              <small id="speed"></small>
+              <form id="send">
+                <div class="composerMain">
+                  <textarea id="prompt" placeholder="Napisz wiadomość…" rows="3" required></textarea>
+                  <div class="composerMeta"><label>Limit odpowiedzi<select id="maxTokens"><option value="64" selected>64 tokeny · szybka próba</option><option value="128">128 tokenów · standard</option><option value="256">256 tokenów · długo</option><option value="512">512 tokenów · bardzo długo</option></select></label><span>Ctrl+Enter wysyła</span></div>
+                </div>
+                <button aria-label="Wyślij">Wyślij ↑</button>
+              </form>
+            </article>
+          </section>
+
+          <footer><span>YourLM 0.2.0-rc18</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+        </main>
+      </div>
+    </div>
+
+    <dialog id="pair">
+      <button class="close iconButton" aria-label="Zamknij">×</button>
+      <span class="eyebrow">DODAJ WORKER</span>
+      <h2>Połącz telefon z hostem</h2>
+      <p class="dialogLead">Na telefonie wybierz <b>Pomóż laptopowi</b> i uruchom worker. Telefon niczego nie skanuje — to tutaj wpisujesz pokazane dane. Autoryzowany kabel ADB może pozostać podłączony; po sparowaniu porównamy go z Wi-Fi.</p>
+      <div class="pairSteps"><span><i>1</i>Ten sam Wi-Fi</span><span><i>2</i>Worker włączony</span><span><i>3</i>Adres i kod</span></div>
+      <div class="manualPair">
+        <label>Adres parowania z telefonu<input id="pairAddress" inputmode="decimal" autocomplete="off" placeholder="192.168.1.42:45123" /></label>
+        <label>Kod parowania<input id="pairKey" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCDE-FGHJK-LMNPQ-RSTVW" /></label>
+        <button id="pairManualBtn" class="primary full">Połącz telefon</button>
+      </div>
+      <div class="or"><span>lub użyj kamery laptopa</span></div>
+      <button id="scan" class="secondary full">Zeskanuj QR</button>
+      <video id="video" autoplay playsinline muted hidden></video>
+      <details class="advancedPair"><summary>Mam pełny kod sesji</summary><textarea id="code" placeholder="YLM1|…" aria-label="Pełny kod sesji"></textarea><button id="pairBtn" class="secondary full">Połącz pełnym kodem</button></details>
+      <p class="error" role="alert"></p>
+    </dialog>
+
+    <dialog id="hfDlg" class="hfDialog">
+      <button class="close iconButton" aria-label="Zamknij">×</button>
+      <span class="eyebrow">HUGGING FACE · PUBLICZNE GGUF</span>
+      <h2>Znajdź i pobierz model</h2>
+      <p class="dialogLead">To przeglądarka innych publicznych modeli. Główny profil Balanced jest dostępny bez wyszukiwania na ekranie „Model”. YourLM pokaże jednoplikowe warianty GGUF i pobierze wybrany plik równolegle z możliwością wznowienia.</p>
+      <div class="hfSearchBar"><input id="hfQuery" placeholder="np. Gemma 4B instruct, Qwen 7B" autocomplete="off"/><button id="hfSearch">Szukaj</button></div>
+      <small class="hfPrivacy">Internet jest używany tylko do wyszukania i pobrania wybranego pliku. Inferencja pozostaje lokalna. Sprawdź licencję modelu na Hugging Face.</small>
+      <div id="hfStatus" class="hfStatus"></div>
+      <div id="hfResults" class="hfResults"></div>
+      <div id="hfFiles" class="hfFiles"></div>
+      <p class="error" role="alert"></p>
+    </dialog>
+
+    <dialog id="pathDlg">
+      <button class="close iconButton" aria-label="Zamknij">×</button>
+      <span class="eyebrow">BIBLIOTEKA MODELU</span>
+      <h2>Podaj lokalną ścieżkę</h2>
+      <p class="dialogLead">Plik GGUF pozostanie dokładnie w tym miejscu na dysku.</p>
+      <label>Ścieżka do pliku<input id="path" placeholder="D:\Modele\model.gguf" /></label>
+      <button id="choose" class="primary full">Wczytaj metadane</button>
+      <p class="error" role="alert"></p>
+    </dialog>
+
+    <script src="/jsQR.js"></script>
+    <script src="/qrcode.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

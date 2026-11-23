@@ -1,0 +1,7 @@
+build/
+*.gguf
+*.jks
+*.keystore
+*.idsig
+node_modules/
+host/embedded/

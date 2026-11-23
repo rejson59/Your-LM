@@ -1,0 +1,20 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="pl.yourlm.node" android:versionCode="21" android:versionName="0.2.0-rc18">
+ <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34"/>
+ <uses-permission android:name="android.permission.INTERNET"/>
+ <uses-permission android:name="android.permission.CAMERA"/>
+ <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+ <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+ <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE"/>
+ <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+ <uses-permission android:name="android.permission.WAKE_LOCK"/>
+ <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+ <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+ <uses-permission android:name="android.permission.CHANGE_WIFI_STATE"/>
+ <uses-feature android:name="android.hardware.camera" android:required="false"/>
+ <application android:label="YourLM" android:icon="@drawable/ic_launcher" android:roundIcon="@drawable/ic_launcher" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:networkSecurityConfig="@xml/network_security" android:allowBackup="false" android:extractNativeLibs="true">
+  <provider android:name=".ApkProvider" android:authorities="pl.yourlm.node.updates" android:exported="false" android:grantUriPermissions="true"/>
+  <service android:name=".WorkerService" android:exported="false" android:stopWithTask="false" android:foregroundServiceType="connectedDevice"/>
+  <activity android:name=".HostActivity" android:label="Konsola YourLM" android:exported="false" android:configChanges="keyboardHidden|orientation|screenSize"/>
+  <activity android:name=".NodeActivity" android:label="YourLM" android:exported="true" android:configChanges="keyboardHidden|orientation|screenSize"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+ </application>
+</manifest>

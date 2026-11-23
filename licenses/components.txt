@@ -1,0 +1,10 @@
+llama.cpp and ggml — ggml-org/llama.cpp b12562, c0b97be0b297177a88df08e96c01420976bb18d0 (MIT).
+Additional licenses for the linked upstream server are available via llama-server --version or in upstream sources.
+Static ARM executables: Zig 0.14.1 distribution of musl and libc++.
+Go runtime and standard library — Go Authors, BSD-3-Clause.
+go-webview2 56598839c808 — John Chadwick / Serge Zaitsev, MIT; go-winloader, ISC; embedded Microsoft WebView2Loader SDK, BSD-3-Clause (webview2.txt).
+golang.org/x/sys — Go Authors, BSD-3-Clause (go.txt).
+jsQR 1.4.0 — Cozmo, Apache-2.0 (host/web/jsQR.LICENSE).
+Java QR encoder — Project Nayuki, MIT, QR-Code-generator v1.8.0.
+JavaScript QR encoder — Kazuhiko Arase, MIT, qrcode-generator 1.4.4.
+smolmaxxing expert pager and ARM kernels — hyperionaidev/smolmaxxing 8d12bb17fd389c25f3c6167a5b73f93034d6324f (MIT); isolated Android runtime patch based on llama.cpp v0.8.0.
