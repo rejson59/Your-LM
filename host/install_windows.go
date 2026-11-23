@@ -36,7 +36,11 @@ func desktopInstallPaths() (string, string, error) {
 			return "", "", err
 		}
 	}
-	return filepath.Join(local, "Programs", "YourLM", "YourLM.exe"),
+	installDirectory := filepath.Join(local, "Programs", "YourLM")
+	if root := preferredWindowsStorageRoot(); root != "" {
+		installDirectory = filepath.Join(root, "App")
+	}
+	return filepath.Join(installDirectory, "YourLM.exe"),
 		filepath.Join(roaming, "Microsoft", "Windows", "Start Menu", "Programs", "YourLM.lnk"), nil
 }
 
@@ -108,6 +112,28 @@ func installedVersion() string {
 	return value
 }
 
+func registeredDesktopTarget() string {
+	key, err := registry.OpenKey(registry.CURRENT_USER, uninstallRegistryPath, registry.QUERY_VALUE)
+	if err != nil {
+		return ""
+	}
+	defer key.Close()
+	location, _, err := key.GetStringValue("InstallLocation")
+	if err != nil || !filepath.IsAbs(location) {
+		return ""
+	}
+	return filepath.Join(location, "YourLM.exe")
+}
+
+func legacyDesktopTarget(path string) bool {
+	local := os.Getenv("LOCALAPPDATA")
+	if local == "" {
+		return false
+	}
+	wanted := filepath.Join(local, "Programs", "YourLM", "YourLM.exe")
+	return sameExecutablePath(path, wanted) || strings.EqualFold(filepath.Clean(path), filepath.Clean(wanted))
+}
+
 func replaceInstalledExecutable(source, target string) error {
 	if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
 		return err
@@ -158,10 +184,10 @@ func createStartMenuShortcut(shortcut, target string) error {
 }
 
 func registerDesktopInstall(target, shortcut, version string) error {
-	if !regularFile(shortcut) {
-		if err := createStartMenuShortcut(shortcut, target); err != nil {
-			return err
-		}
+	// Recreate the shortcut even when it already exists: RC16 can move the
+	// installed executable from LocalAppData on C: to the managed D: root.
+	if err := createStartMenuShortcut(shortcut, target); err != nil {
+		return err
 	}
 	key, _, err := registry.CreateKey(
 		registry.CURRENT_USER,
@@ -211,6 +237,23 @@ func launchInstalled(target string, args []string) error {
 	return command.Start()
 }
 
+func retireLegacyDesktopInstall(oldTarget, newTarget string) error {
+	if oldTarget == "" || sameExecutablePath(oldTarget, newTarget) || !legacyDesktopTarget(oldTarget) {
+		return nil
+	}
+	const script = `$pidToWait=[int]$env:YOURLM_MIGRATION_PID; Wait-Process -Id $pidToWait -Timeout 30 -ErrorAction SilentlyContinue; Remove-Item -LiteralPath $env:YOURLM_OLD_INSTALL_DIRECTORY -Recurse -Force -ErrorAction SilentlyContinue`
+	command := exec.Command(
+		windowsPowerShell(), "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
+		"-Command", script,
+	)
+	command.Env = append(os.Environ(),
+		"YOURLM_MIGRATION_PID="+strconv.Itoa(os.Getpid()),
+		"YOURLM_OLD_INSTALL_DIRECTORY="+filepath.Dir(oldTarget),
+	)
+	command.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
+	return command.Start()
+}
+
 func uninstallDesktop(target, shortcut string) error {
 	_ = os.Remove(shortcut)
 	_ = registry.DeleteKey(registry.CURRENT_USER, uninstallRegistryPath)
@@ -235,6 +278,7 @@ func ensureDesktopInstall(args []string) (bool, error) {
 	if argumentPresent(args, "--portable") || buildVersion == "development" {
 		return false, nil
 	}
+	oldTarget := registeredDesktopTarget()
 	target, shortcut, err := desktopInstallPaths()
 	if err != nil {
 		return argumentPresent(args, "--install-only") || argumentPresent(args, "--uninstall"), err
@@ -274,10 +318,19 @@ func ensureDesktopInstall(args []string) (bool, error) {
 		return false, err
 	}
 	if argumentPresent(args, "--install-only") {
+		if err := retireLegacyDesktopInstall(oldTarget, target); err != nil {
+			return true, err
+		}
 		return true, nil
 	}
 	if installed {
 		return false, nil
 	}
-	return true, launchInstalled(target, args)
+	if err := launchInstalled(target, args); err != nil {
+		return true, err
+	}
+	if err := retireLegacyDesktopInstall(oldTarget, target); err != nil {
+		return true, err
+	}
+	return true, nil
 }

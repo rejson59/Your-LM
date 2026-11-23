@@ -460,6 +460,49 @@ h3 { margin: 0 0 5px; font-size: 17px; }
 .recommendIcon { display: grid; width: 32px; height: 32px; place-items: center; flex: 0 0 auto; border-radius: 50%; color: #7a5b17; background: #f5e7bd; font-weight: 800; }
 .recommendation p { margin: 0; font-size: 13px; }
 
+.diagnosticHero { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 24px; align-items: center; border-color: #9fcdb4; background: linear-gradient(135deg, #f0faf4, #fbfdfb); }
+.diagnosticHero h2 { font-size: 27px; }
+.diagnosticHero p { max-width: 760px; margin: 5px 0 13px; }
+.diagActions { min-width: 210px; flex-direction: column; }
+.diagActions button { width: 100%; }
+.diagProgress { height: 12px; overflow: hidden; border-radius: 99px; background: #dbe8df; }
+.diagProgress i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #176b4b, #5bcf95); transition: width .35s ease; }
+#diagStep { display: block; margin-top: 7px; color: var(--muted); font: 11px ui-monospace, monospace; }
+.diagnosticGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+.diagnosticCard { min-width: 0; }
+.diagnosticCard > p.bad { padding: 10px 12px; border-radius: 9px; color: #8b342a; background: #fff0ed; }
+.factList, .diagnosticItems { display: grid; gap: 8px; }
+.factList p, .diagnosticItems > p { margin: 0; color: var(--muted); }
+.factRow, .diagnosticItem { display: grid; grid-template-columns: minmax(105px, .34fr) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-top: 1px solid #edf1ed; }
+.factRow:first-child, .diagnosticItem:first-child { border-top: 0; }
+.factRow b, .diagnosticItem b { font-size: 12px; }
+.factRow span, .diagnosticItem span, .diagnosticItem small { color: var(--muted); overflow-wrap: anywhere; }
+.diagnosticItem { grid-template-columns: minmax(180px, .38fr) minmax(0, 1fr); }
+.diagnosticItem div b, .diagnosticItem div span, .diagnosticItem div small { display: block; }
+.pathBox { display: grid; gap: 5px; margin: 11px 0; padding: 11px; border-radius: 10px; background: #f3f7f4; font: 11px/1.45 ui-monospace, monospace; overflow-wrap: anywhere; }
+.driveList { display: grid; gap: 7px; }
+.driveRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.driveRow.selected { border-color: #70bd91; background: #f0faf4; }
+.driveLetter { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 10px; color: var(--green-dark); background: var(--mint); font: 800 11px ui-monospace, monospace; }
+.driveRow b, .driveRow small { display: block; }
+.driveRow small { color: var(--muted); }
+.driveRow em { color: var(--green); font: normal 800 9px ui-monospace, monospace; }
+.diagnosticSection, .modelTestCard, .autopilotCard { margin-top: 14px; }
+.diagnosticBadge { padding: 5px 9px; border-radius: 99px; color: var(--green-dark); background: var(--mint); font: 750 9px ui-monospace, monospace; }
+.modelTestCard { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.modelTestCard p { margin: 4px 0 0; }
+.modelTestCard button { flex: 0 0 auto; }
+.autopilotCard { border-color: #83c9a3; background: linear-gradient(145deg, #effaf3, #fff); }
+.autopilotHead { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-top: 7px; }
+.autopilotHead h2 { margin-top: 0; }
+.autopilotHead p { margin: 3px 0; }
+.autopilotHead > span { flex: 0 0 auto; padding: 7px 10px; border-radius: 9px; color: #fff; background: var(--green); font: 800 10px ui-monospace, monospace; letter-spacing: .7px; }
+.maximumCandidate { margin: 14px 0; padding: 13px; border: 1px solid #d9e3dc; border-radius: 11px; background: rgba(255,255,255,.7); }
+.maximumCandidate b, .maximumCandidate span { display: block; }
+.maximumCandidate span { margin-top: 3px; color: var(--green-dark); font-weight: 750; }
+.maximumCandidate p { margin: 5px 0 0; font-size: 12px; }
+.autopilotBoundary { display: block; max-width: 850px; margin-top: 13px; color: var(--muted); }
+
 label { display: block; color: #5f7066; font-size: 12px; font-weight: 700; }
 input, textarea, select {
   border: 1px solid #cdd9d0;
@@ -659,6 +702,16 @@ html[data-theme="dark"] .loadProgressPanel.stalled { border-color: #7d453e; back
 html[data-theme="dark"] .loadProgressPanel.stalled .loadDecision small { color: #ffaaa0; }
 html[data-theme="dark"] .recommendation { border-color: #554b2d; background: #241f14; }
 html[data-theme="dark"] .recommendIcon { color: #f1d58c; background: #4b3c1c; }
+html[data-theme="dark"] .diagnosticHero { border-color: #315d47; background: linear-gradient(135deg, #14271d, #111a15); }
+html[data-theme="dark"] .diagProgress { background: #26382f; }
+html[data-theme="dark"] .factRow, html[data-theme="dark"] .diagnosticItem { border-color: #25322b; }
+html[data-theme="dark"] .pathBox { background: #18231d; }
+html[data-theme="dark"] .diagnosticCard > p.bad { color: #ffb4aa; background: #38201e; }
+html[data-theme="dark"] .driveRow { border-color: #35443c; }
+html[data-theme="dark"] .driveRow.selected { border-color: #3f8d65; background: #14281e; }
+html[data-theme="dark"] .driveLetter, html[data-theme="dark"] .diagnosticBadge { color: #a6ebc8; background: #193a2c; }
+html[data-theme="dark"] .autopilotCard { border-color: #315d47; background: linear-gradient(145deg, #14271d, #111a15); }
+html[data-theme="dark"] .maximumCandidate { border-color: #35443c; background: rgba(7, 14, 10, .46); }
 html[data-theme="dark"] label { color: #adbbb3; }
 html[data-theme="dark"] input, html[data-theme="dark"] textarea, html[data-theme="dark"] select {
   color: var(--ink);
@@ -689,8 +742,10 @@ html[data-theme="dark"] .mobileHeader { background: rgba(15, 23, 19, .95); }
   main { width: min(100% - 32px, 900px); padding-top: 34px; }
   .welcomeCard { grid-template-columns: 1fr; }
   .connectionArt { display: none; }
-  .setupGrid, .usbGrid { grid-template-columns: 1fr; }
+  .setupGrid, .usbGrid, .diagnosticGrid { grid-template-columns: 1fr; }
   .usbHero { grid-template-columns: 220px minmax(0, 1fr); }
+  .diagnosticHero { grid-template-columns: 1fr; }
+  .diagActions { min-width: 0; flex-direction: row; }
   .metrics article { padding: 14px; }
 }
 
@@ -706,7 +761,7 @@ html[data-theme="dark"] .mobileHeader { background: rgba(15, 23, 19, .95); }
     box-shadow: 0 -7px 25px rgba(20, 50, 38, .08);
   }
   .sidebar > .brand, .sidebar > .themeToggle, .sidebar > .updateShortcut, .privacyCard, .sideVersion { display: none; }
-  .sidebar nav { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin: 0; }
+  .sidebar nav { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin: 0; }
   .sidebar nav button { flex-direction: column; justify-content: center; gap: 1px; min-height: 55px; padding: 3px; font-size: 10px; text-align: center; }
   .navIcon { width: 25px; height: 25px; background: transparent; }
   .workspace { margin-left: 0; }
@@ -744,8 +799,15 @@ html[data-theme="dark"] .mobileHeader { background: rgba(15, 23, 19, .95); }
   .node button { grid-column: 2 / 4; justify-self: start; }
   .workerOffer > summary small { display: none; }
   .manualValues { grid-template-columns: 1fr; }
-  .setupGrid, .usbGrid { gap: 10px; }
+  .setupGrid, .usbGrid, .diagnosticGrid { gap: 10px; }
   .usbHero { grid-template-columns: 1fr; padding: 22px 18px; }
+  .diagActions, .modelTestCard, .autopilotHead { align-items: stretch; flex-direction: column; }
+  .diagActions button, .modelTestCard button { width: 100%; }
+  .factRow, .diagnosticItem { grid-template-columns: 1fr; gap: 3px; }
+  .driveRow { grid-template-columns: auto minmax(0, 1fr); }
+  .driveRow em { grid-column: 2; }
+  .diagnosticSection .sectionTitle { flex-direction: column; }
+  .diagnosticBadge { align-self: flex-start; }
   .usbVisual { min-height: 105px; }
   .usbVisual span { width: 65px; height: 65px; border-radius: 18px; }
   .usbVisual i { width: 48px; }

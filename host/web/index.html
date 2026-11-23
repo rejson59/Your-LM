@@ -29,6 +29,9 @@
           <button data-tab="phone">
             <span class="navIcon">⌁</span><span>Telefon USB</span>
           </button>
+          <button data-tab="tests">
+            <span class="navIcon">✓</span><span>Testy</span>
+          </button>
         </nav>
         <button class="themeToggle" type="button" aria-pressed="false">
           <span class="themeIcon" aria-hidden="true">
@@ -44,7 +47,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc15 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc16 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -194,6 +197,65 @@
             </article>
           </section>
 
+          <section id="tests" class="tab" hidden>
+            <div class="pageHead">
+              <div><div class="kicker">TESTY I AUTOPILOT</div><h1>Sprawdź prawdziwe możliwości Lenovo + Redmi</h1><p>Jeden lokalny test odczyta dokładny sprzęt, zmierzy CPU, dysk D:, pamięć telefonu oraz szyfrowane łącza. Raport nie zawiera kodu parowania, numeru seryjnego USB ani klucza API.</p></div>
+              <span class="localPill desktopPill"><i></i> ZERO CHMURY</span>
+            </div>
+
+            <article class="diagnosticHero sectionCard">
+              <div>
+                <span class="eyebrow">AUTOPILOT DIAGNOSTYCZNY</span>
+                <h2 id="diagTitle">Gotowy do pełnego testu</h2>
+                <p id="diagMessage">Test niczego nie usuwa i nie przegląda prywatnych dokumentów. Tworzy tylko krótkie, tymczasowe próbki wydajności we własnym katalogu YourLM oraz w /data/local/tmp telefonu.</p>
+                <div id="diagProgress" class="diagProgress" role="progressbar" aria-label="Postęp testu urządzeń" aria-valuemin="0" aria-valuemax="6" aria-valuenow="0"><i id="diagProgressFill"></i></div>
+                <small id="diagStep">Nie uruchomiono.</small>
+              </div>
+              <div class="actions diagActions">
+                <button id="diagStart" class="primary">Uruchom pełny test</button>
+                <button id="diagCancel" class="secondary" hidden>Zatrzymaj test</button>
+                <button id="diagCopy" class="secondary" disabled>Kopiuj raport</button>
+              </div>
+            </article>
+
+            <div class="diagnosticGrid">
+              <article class="sectionCard diagnosticCard">
+                <span class="eyebrow">LENOVO / HOST</span><h2>Sprzęt i Windows</h2>
+                <div id="diagHost" class="factList"><p>Uruchom test, aby odczytać producenta, model, CPU, fizyczne rdzenie, RAM i GPU.</p></div>
+              </article>
+              <article class="sectionCard diagnosticCard">
+                <span class="eyebrow">MAGAZYN YOURLM</span><h2>Program, modele i dane</h2>
+                <p id="storageMessage">Sprawdzam docelową lokalizację…</p>
+                <div id="storagePaths" class="pathBox"></div>
+                <div id="storageDrives" class="driveList"></div>
+              </article>
+            </div>
+
+            <article class="sectionCard diagnosticSection">
+              <div class="sectionTitle"><div><span class="eyebrow">REDMI / ANDROID</span><h2>Telefon, SoC, RAM i UFS</h2></div><span class="diagnosticBadge">USB LUB WORKER</span></div>
+              <div id="diagPhones" class="diagnosticItems"><p>Podłącz odblokowany telefon z zaakceptowanym debugowaniem USB albo sparuj działający worker.</p></div>
+            </article>
+
+            <article class="sectionCard diagnosticSection">
+              <div class="sectionTitle"><div><span class="eyebrow">TRANSPORT</span><h2>Wi-Fi kontra szyfrowany tunel USB</h2></div><span class="diagnosticBadge">POMIAR 2 × 4 MiB</span></div>
+              <div id="diagLinks" class="diagnosticItems"><p>Po sparowaniu Redmi test porówna opóźnienie oraz transfer w obie strony.</p></div>
+            </article>
+
+            <article class="sectionCard modelTestCard">
+              <div><span class="eyebrow">RZECZYWISTY TEST MODELU</span><h2>Tokeny/s i wykonanie ścisłej instrukcji</h2><p id="diagModelText">Po pobraniu i uruchomieniu modelu wykonaj krótką próbę. Nie trafia ona do historii czatu.</p></div>
+              <button id="diagModel" class="secondary">Testuj działający model</button>
+            </article>
+
+            <article class="sectionCard autopilotCard">
+              <span class="eyebrow">JEDEN WYBÓR · BEZ RĘCZNEGO ŻONGLEROWANIA</span>
+              <div class="autopilotHead"><div><h2 id="autoModel">Qwen3.6-35B-A3B Abliterated · Balanced Q2/Q4</h2><p id="autoReason">Pełny test sprzętu doprecyzuje decyzję.</p></div><span>AUTOPILOT</span></div>
+              <div class="maximumCandidate"><b>Kandydat maksimum</b><span id="autoMaximum">Qwen3-Coder-Next 80B-A3B Abliterated · IQ3_XS experts-last</span><p id="autoMaximumStatus">Nie zostanie pobrany w ciemno bez pomiaru urządzeń i audytu receptury pagera.</p></div>
+              <p id="autoNext" class="infoStrip">Najpierw uruchom pełny test.</p>
+              <div class="actions"><button id="autoApply" class="primary">Zastosuj polecany model</button><button id="openModelTab" class="secondary">Przejdź do modeli</button></div>
+              <small class="autopilotBoundary">Autopilot steruje wyłącznie własnymi plikami YourLM, testami i wyborem profilu. Nie wykonuje dowolnych poleceń powłoki, nie czyta dokumentów i nie przejmuje kontroli nad systemem bez osobnego, widocznego działania użytkownika.</small>
+            </article>
+          </section>
+
           <section id="model" class="tab" hidden>
             <div class="pageHead">
               <div><div class="kicker">MODEL I API</div><h1>Uruchom własny GGUF</h1><p>Plik pozostaje na Twoim urządzeniu. Internet jest używany tylko wtedy, gdy jawnie wyszukasz lub pobierzesz wybrany model.</p></div>
@@ -287,7 +349,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc15</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc16</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>

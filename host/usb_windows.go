@@ -15,8 +15,8 @@ import (
 	"time"
 )
 
-func runADB(timeout time.Duration, adb string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func runADBContext(parent context.Context, timeout time.Duration, adb string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, adb, args...)
 	cmd.Dir = filepath.Dir(adb)
@@ -26,6 +26,9 @@ func runADB(timeout time.Duration, adb string, args ...string) (string, error) {
 	if ctx.Err() == context.DeadlineExceeded {
 		return text, errors.New("ADB nie odpowiedział w wyznaczonym czasie")
 	}
+	if ctx.Err() == context.Canceled {
+		return text, context.Canceled
+	}
 	if err != nil {
 		if text == "" {
 			text = err.Error()
@@ -33,6 +36,10 @@ func runADB(timeout time.Duration, adb string, args ...string) (string, error) {
 		return text, fmt.Errorf("ADB: %s", text)
 	}
 	return text, nil
+}
+
+func runADB(timeout time.Duration, adb string, args ...string) (string, error) {
+	return runADBContext(context.Background(), timeout, adb, args...)
 }
 
 func parseADBDevices(output string) []USBDevice {

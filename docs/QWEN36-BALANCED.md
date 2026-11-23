@@ -1,8 +1,9 @@
 # Qwen3.6-35B-A3B Abliterated — YourLM Balanced Phone
 
-YourLM RC15 exposes one recommended middle ground instead of asking the user to
-choose between a small fast model and a larger slow model. Model weights are
-**not** bundled with YourLM.
+YourLM RC15 introduced, and RC16 retains, one recommended middle ground instead
+of asking the user to choose between a small fast model and a larger slow model.
+Model weights are **not** bundled with YourLM. RC16 adds local hardware tests;
+it does not silently replace this audited recipe with an unmeasured 80B model.
 
 ## Reproducible source identity
 

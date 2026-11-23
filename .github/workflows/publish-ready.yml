@@ -1,8 +1,8 @@
 name: Archived RC14 fast path
 
-# RC15 adds a separately built smolmaxxing Android runtime, so reusing RC14
+# RC15+ adds a separately built smolmaxxing Android runtime, so reusing RC14
 # native artifacts is no longer valid. Keep this manual workflow only as an
-# explicit audit marker; use release.yml for every RC15 validation/publication.
+# explicit audit marker; use release.yml for every RC16 validation/publication.
 on:
   workflow_dispatch:
 
@@ -18,4 +18,4 @@ jobs:
         shell: bash
         run: |
           echo 'RC14 fast publication is archived.'
-          echo 'Run Release RC15 balanced-phone gates; it rebuilds and audits all three Android native payloads.'
+          echo 'Run Release RC16 balanced-phone gates; it rebuilds and audits all three Android native payloads.'

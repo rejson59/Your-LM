@@ -493,6 +493,142 @@ function renderCleanup(cleanup = {}, session) {
   updateCleanupSelection(cleanup, session);
 }
 
+function diagnosticFact(label, value) {
+  const row = el("div", "");
+  row.className = "factRow";
+  row.append(el("b", label), el("span", value || "—"));
+  return row;
+}
+
+function renderStorage(storage = {}) {
+  $("storageMessage").textContent = storage.warning || storage.message || "Magazyn nie został jeszcze rozpoznany.";
+  $("storageMessage").classList.toggle("bad", Boolean(storage.warning));
+  const paths = [];
+  if (storage.installPath) paths.push(`Program: ${storage.installPath}`);
+  if (storage.dataPath) paths.push(`Modele i dane: ${storage.dataPath}`);
+  $("storagePaths").replaceChildren(...paths.map((value) => el("span", value)));
+  const rows = (storage.drives || []).map((drive) => {
+    const row = el("div", "");
+    row.className = `driveRow${drive.selected ? " selected" : ""}`;
+    const letter = el("span", drive.letter || "DYSK");
+    letter.className = "driveLetter";
+    const detail = el("div", "");
+    detail.append(
+      el("b", [drive.label, drive.fileSystem, drive.type].filter(Boolean).join(" · ") || "Dysk lokalny"),
+      el("small", `${humanBytes(drive.free)} wolne z ${humanBytes(drive.total)}${drive.system ? " · dysk systemowy" : ""}`),
+    );
+    row.append(letter, detail, el("em", drive.selected ? "TU DZIAŁA YOURLM" : drive.recommended ? "POLECANY" : "DOSTĘPNY"));
+    return row;
+  });
+  $("storageDrives").replaceChildren(...rows);
+}
+
+function phoneDiagnosticRow(phone) {
+  const row = el("div", "");
+  row.className = "diagnosticItem";
+  const heading = el("div", "");
+  heading.append(el("b", phone.name || phone.model || "Telefon Android"), el("small", phone.source || "lokalny pomiar"));
+  const facts = el("div", "");
+  const frequencies = phone.maxFrequenciesKHz || [];
+  const maxFrequency = frequencies.length ? Math.max(...frequencies.map(Number)) / 1000000 : 0;
+  const soc = [phone.soc, phone.logicalCores ? `${phone.logicalCores} rdzeni` : "", maxFrequency ? `${maxFrequency.toLocaleString("pl-PL", { maximumFractionDigits: 2 })} GHz` : ""].filter(Boolean).join(" · ");
+  facts.append(
+    el("b", `${phone.android ? `Android ${phone.android}` : "Android"}${phone.sdk ? ` · SDK ${phone.sdk}` : ""}`),
+    el("span", soc || "SoC nie został jeszcze odczytany"),
+    el("span", `RAM: ${humanBytes(phone.ramTotal)} fizyczne · ${humanBytes(phone.ramAvailable)} dostępne`),
+    el("span", `Pamięć: ${humanBytes(phone.storageFree)} wolne z ${humanBytes(phone.storageTotal)} · zapis ${phone.diskWriteBps ? linkRate(phone.diskWriteBps) : "—"} · odczyt ${phone.diskReadBps ? linkRate(phone.diskReadBps) : "—"}`),
+    el("span", `ARM dot-product: ${phone.dotProduct ? "potwierdzone" : "niepotwierdzone"}${phone.batteryLevel ? ` · bateria ${phone.batteryLevel}%` : ""}${phone.batteryTempC ? ` · ${Number(phone.batteryTempC).toLocaleString("pl-PL", { maximumFractionDigits: 1 })}°C` : ""}`),
+  );
+  if (phone.warning) facts.append(el("small", `Uwaga: ${phone.warning}`));
+  row.append(heading, facts);
+  return row;
+}
+
+function diagnosticLinkRow(link) {
+  const row = el("div", "");
+  row.className = "diagnosticItem";
+  const heading = el("div", "");
+  heading.append(el("b", link.name || "Worker"), el("small", `Wybrany transport: ${link.transport === "usb" ? "USB/ADB" : "Wi-Fi/LAN"}`));
+  const facts = el("div", "");
+  const describe = (name, value) => value
+    ? `${name}: ↑ ${linkRate(value.uploadBps)} · ↓ ${linkRate(value.downloadBps)} · ping ${(Number(value.latencyMicros || 0) / 1000).toLocaleString("pl-PL", { maximumFractionDigits: 1 })} ms`
+    : `${name}: brak pomiaru`;
+  facts.append(el("span", describe("Wi-Fi", link.wifi)), el("span", describe("USB", link.usb)));
+  if (link.warning) facts.append(el("small", link.warning));
+  row.append(heading, facts);
+  return row;
+}
+
+function renderDiagnostics(diagnostics = {}, storage = {}, session, hf = {}) {
+  renderStorage(storage);
+  const running = Boolean(diagnostics.running);
+  const complete = Boolean(diagnostics.complete);
+  const steps = Math.max(1, Number(diagnostics.steps || 6));
+  const step = Math.max(0, Math.min(steps, Number(diagnostics.step || 0)));
+  const progress = complete ? 100 : running ? Math.max(4, ((step - 1) / steps) * 100) : 0;
+  const hasPhone = Boolean(diagnostics.phones?.length);
+  $("diagTitle").textContent = running ? "Test urządzeń trwa" : complete ? hasPhone ? "Raport Lenovo + Redmi jest gotowy" : "Raport Lenovo gotowy — Redmi nie wykryto" : diagnostics.error ? "Test wymaga uwagi" : "Gotowy do pełnego testu";
+  $("diagMessage").textContent = diagnostics.error || diagnostics.message || "Uruchom lokalny test urządzeń.";
+  $("diagProgressFill").style.width = `${progress}%`;
+  $("diagProgress").setAttribute("aria-valuenow", String(step));
+  $("diagStep").textContent = running || complete ? `Etap ${step} z ${steps}${complete ? " · zakończono" : ""}` : "Nie uruchomiono.";
+  $("diagStart").disabled = running || Boolean(session) || Boolean(hf.download?.active);
+  $("diagStart").textContent = complete ? "Uruchom test ponownie" : "Uruchom pełny test";
+  $("diagCancel").hidden = !running;
+  $("diagCancel").disabled = !running;
+  $("diagCopy").disabled = !diagnostics.report;
+
+  const host = diagnostics.host || {};
+  const hostFacts = [];
+  if (host.cpu || host.ramTotal) {
+    hostFacts.push(
+      diagnosticFact("Urządzenie", [host.manufacturer, host.model].filter(Boolean).join(" ") || "Lenovo / host"),
+      diagnosticFact("System", [host.os, host.osVersion, host.architecture].filter(Boolean).join(" · ")),
+      diagnosticFact("CPU", `${host.cpu || "—"}${host.physicalCores ? ` · ${host.physicalCores} fizyczne` : ""} · ${host.logicalCores || 0} logiczne${host.maxMHz ? ` · ${host.maxMHz} MHz` : ""}`),
+      diagnosticFact("RAM", `${humanBytes(host.ramTotal)} fizyczne · ${humanBytes(host.ramAvailable)} dostępne podczas testu`),
+    );
+    for (const gpu of host.gpus || []) {
+      hostFacts.push(diagnosticFact("GPU", `${gpu.name}${gpu.memoryBytes ? ` · ${humanBytes(gpu.memoryBytes)}` : ""}${gpu.driverVersion ? ` · sterownik ${gpu.driverVersion}` : ""}`));
+    }
+    for (const disk of host.disks || []) {
+      hostFacts.push(diagnosticFact("Dysk fizyczny", `${disk.model}${disk.mediaType ? ` · ${disk.mediaType}` : ""}${disk.interface ? ` · ${disk.interface}` : ""}${disk.size ? ` · ${humanBytes(disk.size)}` : ""}`));
+    }
+    const benchmark = diagnostics.benchmark || {};
+    hostFacts.push(
+      diagnosticFact("CPU test", benchmark.cpuHashBps ? `${linkRate(benchmark.cpuHashBps)} SHA-256 · ${benchmark.cpuWorkers} wątków` : "oczekuje"),
+      diagnosticFact("Dysk YourLM", benchmark.diskWriteBps ? `zapis ${linkRate(benchmark.diskWriteBps)} · odczyt ciepły ${linkRate(benchmark.diskReadBps)} · próbka ${humanBytes(benchmark.diskBytes)}` : benchmark.warning || "oczekuje"),
+    );
+    if (host.warning) hostFacts.push(diagnosticFact("Uwaga", host.warning));
+  } else {
+    hostFacts.push(el("p", "Uruchom test, aby odczytać producenta, model, CPU, fizyczne rdzenie, RAM i GPU."));
+  }
+  $("diagHost").replaceChildren(...hostFacts);
+
+  const phones = diagnostics.phones || [];
+  $("diagPhones").replaceChildren(...(phones.length ? phones.map(phoneDiagnosticRow) : [el("p", running ? "Oczekiwanie na Redmi…" : "Podłącz odblokowany telefon z zaakceptowanym debugowaniem USB albo sparuj działający worker.")]));
+  const links = diagnostics.links || [];
+  $("diagLinks").replaceChildren(...(links.length ? links.map(diagnosticLinkRow) : [el("p", running ? "Oczekiwanie na test łącza…" : "Po sparowaniu Redmi test porówna opóźnienie oraz transfer w obie strony.")]));
+
+  const model = diagnostics.modelBenchmark || {};
+  $("diagModel").disabled = Boolean(model.running || running || !session?.ready);
+  $("diagModel").textContent = model.running ? "Test modelu trwa…" : model.complete ? "Powtórz test modelu" : "Testuj działający model";
+  $("diagModelText").textContent = model.error
+    ? `Test nie powiódł się: ${model.error}`
+    : model.complete
+      ? `${model.model} · ${Number(model.tokensPerSecond || 0).toLocaleString("pl-PL", { maximumFractionDigits: 2 })} tokena/s · prompt ${Number(model.promptTokensPerSecond || 0).toLocaleString("pl-PL", { maximumFractionDigits: 2 })} tokena/s · ścisła instrukcja: ${model.instructionOK ? "wykonana" : "niewykonana"}.`
+      : session?.ready
+        ? "Model jest gotowy. Próba nie trafi do historii czatu."
+        : "Po pobraniu i uruchomieniu modelu wykonaj krótką próbę. Nie trafia ona do historii czatu.";
+
+  const recommendation = diagnostics.recommendation || {};
+  $("autoModel").textContent = recommendation.selectedName || "Qwen3.6-35B-A3B Abliterated · Balanced Q2/Q4";
+  $("autoReason").textContent = recommendation.reason || "Pełny test sprzętu doprecyzuje decyzję.";
+  $("autoMaximum").textContent = recommendation.maximumCandidate || "Qwen3-Coder-Next 80B-A3B Abliterated · IQ3_XS experts-last";
+  $("autoMaximumStatus").textContent = recommendation.maximumStatus || "Czeka na pomiar urządzeń.";
+  $("autoNext").textContent = recommendation.nextStep || "Najpierw uruchom pełny test.";
+  $("autoApply").disabled = !recommendation.readyToApply || Boolean(session || hf.download?.active);
+}
+
 function render(nextState) {
   state = nextState;
   $("build").textContent = `v${state.version} · b12562`;
@@ -569,6 +705,7 @@ function render(nextState) {
   const session = state.session;
   const engineState = state.engine || {};
   const memory = state.memory || {};
+  renderDiagnostics(state.diagnostics || {}, state.storage || {}, session, state.huggingFace || {});
   const loadTelemetry = loadingTelemetry(session, engineState);
   const totalRam = Number(memory.physical ?? workers.reduce((sum, node) => sum + node.total, state.total));
   const availableRam = Number(memory.available ?? workers.reduce((sum, node) => sum + node.free, state.free));
@@ -798,7 +935,7 @@ async function act(op, data = {}, dialog, closeDialog = true) {
 function openTab(name) {
   for (const tab of document.querySelectorAll(".tab")) tab.hidden = tab.id !== name;
   for (const button of document.querySelectorAll("nav button")) button.classList.toggle("sel", button.dataset.tab === name);
-  document.title = `YourLM · ${{ cluster: "Urządzenia", model: "Model i API", chat: "Czat", phone: "Telefon USB" }[name]}`;
+  document.title = `YourLM · ${{ cluster: "Urządzenia", model: "Model i API", chat: "Czat", phone: "Telefon USB", tests: "Testy i autopilot" }[name]}`;
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -824,6 +961,21 @@ $("updateAction").onclick = () => act(updateOperation());
 document.querySelectorAll(".updateShortcut").forEach((button) => {
   button.onclick = () => act(updateOperation());
 });
+$("diagStart").onclick = () => act("diagnostics-start");
+$("diagCancel").onclick = () => act("diagnostics-cancel");
+$("diagModel").onclick = () => act("diagnostics-model");
+$("diagCopy").onclick = () => copy(state?.diagnostics?.report || "Raport nie jest jeszcze gotowy.");
+$("openModelTab").onclick = () => openTab("model");
+$("autoApply").onclick = async () => {
+  const recommendation = state?.diagnostics?.recommendation || {};
+  if (recommendation.selectedId && recommendation.selectedId !== "qwen36-35b-a3b-abliterated-balanced") {
+    note("Ta receptura wymaga jeszcze aktualizacji silnika. Raport zachowano do następnego audytu.");
+    return;
+  }
+  if (!confirm("Autopilot pobierze potrzebne zakresy przypiętych wag i zbuduje jeden model Balanced w zarządzanym magazynie YourLM (na dysku D:, gdy spełnia warunki). Pobrane dane pozostaną lokalne. Kontynuować?")) return;
+  const ok = await act("hf-golden", { repo: "qwen36-35b-a3b-abliterated-balanced" });
+  if (ok) openTab("model");
+};
 function openPairing() {
   $("pair").showModal();
   $("pair").querySelector(".error").textContent = "";
@@ -1148,7 +1300,7 @@ async function refresh() {
   } catch (error) {
     note(error.message);
   } finally {
-    setTimeout(refresh, state?.huggingFace?.download?.active ? 500 : state?.session && !state.session.ready ? 1000 : 2500);
+    setTimeout(refresh, state?.huggingFace?.download?.active || state?.diagnostics?.running || state?.diagnostics?.modelBenchmark?.running ? 500 : state?.session && !state.session.ready ? 1000 : 2500);
   }
 }
 

@@ -116,6 +116,9 @@ type App struct {
 	hfCancel                      func()
 	cleanup                       CleanupState
 	cleanupBusy                   bool
+	storage                       StorageState
+	diagnostics                   DiagnosticsState
+	diagnosticsCancel             func()
 }
 
 func (a *App) binary() string {
@@ -739,7 +742,8 @@ func (a *App) state() map[string]any {
 		"nodes": a.nodes, "ips": ips(), "model": a.model, "modelPlan": modelPlan, "models": models,
 		"library": a.library, "runtime": a.hasRuntime(), "session": session,
 		"engine": engine, "usb": a.usb, "update": a.update,
-		"huggingFace": a.hf, "cleanup": a.cleanup, "last": a.last,
+		"huggingFace": a.hf, "cleanup": a.cleanup, "storage": a.storage,
+		"diagnostics": a.diagnostics, "last": a.last,
 	}
 }
 
@@ -795,6 +799,10 @@ func (a *App) api(w http.ResponseWriter, r *http.Request) {
 	}
 	if op == "cleanup-scan" || op == "cleanup-close" {
 		a.cleanupAPI(w, op, in)
+		return
+	}
+	if op == "diagnostics-start" || op == "diagnostics-cancel" || op == "diagnostics-model" {
+		a.diagnosticsAPI(w, op)
 		return
 	}
 	a.Lock()
@@ -997,13 +1005,9 @@ func main() {
 	nobrowser := flag.Bool("no-browser", false, "do not launch the browser")
 	flag.Bool("portable", false, "run without per-user Windows installation")
 	flag.Parse()
-	dir, _ := os.UserConfigDir()
-	dir = filepath.Join(dir, "YourLM")
-	if d := os.Getenv("YOURLM_HOME"); runtime.GOOS != "windows" && d != "" {
-		dir = d
-	}
-	if e := os.MkdirAll(dir, 0700); e != nil {
-		log.Fatal(e)
+	dir, storage, e := prepareStorage()
+	if e != nil {
+		log.Fatal("Nie udało się przygotować prywatnego magazynu YourLM: ", e)
 	}
 	components, e := prepareBundledAssets(dir)
 	if e != nil {
@@ -1017,6 +1021,8 @@ func main() {
 		apkPath:     components.apkPath,
 		hf:          HFState{Curated: append([]CuratedModel(nil), curatedModels...)},
 		cleanup:     CleanupState{Supported: cleanupPlatformSupported()},
+		storage:     storage,
+		diagnostics: newDiagnosticsState(),
 	}
 	if runtime.GOOS != "windows" {
 		a.engine = os.Getenv("YOURLM_ENGINE")
@@ -1053,6 +1059,9 @@ func main() {
 	shutdown := func() {
 		stopOnce.Do(func() {
 			a.Lock()
+			if a.diagnosticsCancel != nil {
+				a.diagnosticsCancel()
+			}
 			for i := range a.nodes {
 				releaseNodeADB(a.adbPath, &a.nodes[i])
 			}
