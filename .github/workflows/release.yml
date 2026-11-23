@@ -32,7 +32,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          TEST_HF_GOLDEN=1 go test -mod=vendor ./host
+          set +e
+          TEST_HF_GOLDEN=1 go test -mod=vendor ./host 2>&1 | tee "$RUNNER_TEMP/host-tests.log"
+          test_status=${PIPESTATUS[0]}
+          set -e
+          if (( test_status != 0 )); then
+            tail_output=$(tail -n 100 "$RUNNER_TEMP/host-tests.log")
+            tail_output=${tail_output//'%'/'%25'}
+            tail_output=${tail_output//$'\r'/'%0D'}
+            tail_output=${tail_output//$'\n'/'%0A'}
+            echo "::error title=Go host tests failed::$tail_output"
+            exit "$test_status"
+          fi
           node --check host/web/app.js
           bash -n scripts/apply-smolmaxxing-patch.sh scripts/build-smol-android.sh scripts/package-android.sh
           echo 'f0677c48522e1659969998654d83db9ede7652e771e045dbcd35427abd0230bd  patches/smolmaxxing-8d12bb1-llama-v0.8.0.patch' | sha256sum -c -

@@ -135,14 +135,13 @@ func TestMigrationRejectsCorruptPartThenRestartsIt(t *testing.T) {
 	}
 }
 
-func TestUnsafeStagingPartNeverBecomesPublishedData(t *testing.T) {
+func TestUnsafeStagingMarkerNeverBecomesPublishedData(t *testing.T) {
 	source, destination, model, _ := storageMigrationFixture(t)
 	staging := destination + ".migrating"
-	part := filepath.Join(staging, model) + storageMigrationPartSuffix
-	if err := os.MkdirAll(part, 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(staging, storageMarker), []byte("YourLM storage v1\n"), 0600); err != nil {
+	// A marker is trusted only after final SHA-256 verification and must be a
+	// regular synced file. A directory at that control path is never removed or
+	// interpreted as evidence that staging is ready.
+	if err := os.MkdirAll(filepath.Join(staging, storageMarker), 0700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -159,8 +158,8 @@ func TestUnsafeStagingPartNeverBecomesPublishedData(t *testing.T) {
 	if _, destinationErr := os.Stat(destination); !errors.Is(destinationErr, os.ErrNotExist) {
 		t.Fatalf("unverified destination became visible: %v", destinationErr)
 	}
-	if _, markerErr := os.Stat(filepath.Join(staging, storageMarker)); !errors.Is(markerErr, os.ErrNotExist) {
-		t.Fatalf("premature staging marker remained trusted: %v", markerErr)
+	if markerInfo, markerErr := os.Stat(filepath.Join(staging, storageMarker)); markerErr != nil || !markerInfo.IsDir() {
+		t.Fatalf("unsafe control entry was unexpectedly trusted or changed: info=%v err=%v", markerInfo, markerErr)
 	}
 }
 
