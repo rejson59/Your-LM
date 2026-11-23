@@ -29,6 +29,12 @@ func prepareStorage() (string, StorageState, error) {
 		Supported: runtime.GOOS == "android",
 		DataPath:  root,
 		Message:   message,
+		Migration: StorageMigrationState{
+			Status:          "local",
+			Title:           "Prywatny magazyn lokalny",
+			Detail:          message,
+			DestinationPath: root,
+		},
 	}
 	state.InstallPath, _ = os.Executable()
 	return root, state, nil

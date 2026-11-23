@@ -1007,6 +1007,9 @@ func main() {
 	flag.Parse()
 	dir, storage, e := prepareStorage()
 	if e != nil {
+		if errors.Is(e, errStorageMigrationBusy) && !*nobrowser {
+			showStorageStartupError("Migrację prowadzi już inne okno YourLM.\n\nPoczekaj, aż pierwsze okno zakończy weryfikację i otworzy interfejs. Druga kopia została zatrzymana, aby nie zapisywała danych na C: podczas kopiowania. Nie usuwaj katalogów C: ani Data.migrating.\n\nSzczegóły: " + e.Error())
+		}
 		log.Fatal("Nie udało się przygotować prywatnego magazynu YourLM: ", e)
 	}
 	components, e := prepareBundledAssets(dir)

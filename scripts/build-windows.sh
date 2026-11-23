@@ -7,7 +7,7 @@ cd "$(dirname "$0")/.."
 : "${LLAMA_SRC:?Checkout ggml-org/llama.cpp at the pinned commit}"
 src=$(cd "$LLAMA_SRC" && pwd)
 commit=c0b97be0b297177a88df08e96c01420976bb18d0
-version=0.2.0-rc16
+version=0.2.0-rc17
 if [[ $(git -C "$src" rev-parse HEAD) != "$commit" ]]; then
   echo "Expected llama.cpp b12562 ($commit)" >&2
   exit 1

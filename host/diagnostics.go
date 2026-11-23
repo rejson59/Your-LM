@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
 )
 
 const (
@@ -374,25 +375,74 @@ func phoneFromWorker(node Node, report []byte) PhoneDiagnostic {
 	}
 }
 
+func normalizedPhoneIdentity(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.Map(func(character rune) rune {
+		if unicode.IsLetter(character) || unicode.IsDigit(character) {
+			return character
+		}
+		return -1
+	}, value)
+	for _, prefix := range []string{"xiaomiredmi", "xiaomi", "redmi", "poco"} {
+		if strings.HasPrefix(value, prefix) && len(value) > len(prefix) {
+			return strings.TrimPrefix(value, prefix)
+		}
+	}
+	return value
+}
+
+func phoneIdentities(phone PhoneDiagnostic) []string {
+	values := []string{
+		phone.Model,
+		phone.Device,
+		phone.Name,
+		strings.TrimSpace(phone.Manufacturer + " " + phone.Model),
+	}
+	seen := make(map[string]bool)
+	identities := make([]string, 0, len(values))
+	for _, value := range values {
+		identity := normalizedPhoneIdentity(value)
+		if identity != "" && !seen[identity] {
+			seen[identity] = true
+			identities = append(identities, identity)
+		}
+	}
+	return identities
+}
+
 func samePhone(first, second PhoneDiagnostic) bool {
-	firstModel := strings.TrimSpace(first.Model)
-	secondModel := strings.TrimSpace(second.Model)
-	if firstModel != "" && secondModel != "" && strings.EqualFold(firstModel, secondModel) {
-		return true
+	left := phoneIdentities(first)
+	right := phoneIdentities(second)
+	for _, firstIdentity := range left {
+		for _, secondIdentity := range right {
+			if firstIdentity == secondIdentity {
+				return true
+			}
+			// Real Xiaomi worker snapshots sometimes prefix the exact regulatory
+			// model with a vendor string while getprop returns only the model. A
+			// sufficiently long suffix match avoids duplicating that same phone
+			// without merging generic names such as "Android".
+			if min(len(firstIdentity), len(secondIdentity)) >= 8 &&
+				(strings.HasSuffix(firstIdentity, secondIdentity) || strings.HasSuffix(secondIdentity, firstIdentity)) {
+				return true
+			}
+		}
 	}
-	left := strings.TrimSpace(first.Manufacturer + " " + first.Model)
-	right := strings.TrimSpace(second.Manufacturer + " " + second.Model)
-	if left != "" && right != "" && strings.EqualFold(left, right) {
-		return true
-	}
-	firstName := strings.TrimSpace(first.Name)
-	secondName := strings.TrimSpace(second.Name)
-	return firstName != "" && secondName != "" && strings.EqualFold(firstName, secondName)
+	return false
 }
 
 func mergePhone(existing *PhoneDiagnostic, extra PhoneDiagnostic) {
-	if existing.Name == "" {
+	if existing.Name == "" || len(strings.TrimSpace(extra.Name)) > len(strings.TrimSpace(existing.Name)) {
 		existing.Name = extra.Name
+	}
+	if existing.Manufacturer == "" {
+		existing.Manufacturer = extra.Manufacturer
+	}
+	if existing.Model == "" {
+		existing.Model = extra.Model
+	}
+	if existing.Device == "" {
+		existing.Device = extra.Device
 	}
 	if existing.Android == "" {
 		existing.Android = extra.Android
@@ -400,17 +450,43 @@ func mergePhone(existing *PhoneDiagnostic, extra PhoneDiagnostic) {
 	if existing.SDK == 0 {
 		existing.SDK = extra.SDK
 	}
+	if existing.SoC == "" {
+		existing.SoC = extra.SoC
+	}
+	if existing.Board == "" {
+		existing.Board = extra.Board
+	}
+	if existing.ABIs == "" {
+		existing.ABIs = extra.ABIs
+	}
 	if existing.LogicalCores == 0 {
 		existing.LogicalCores = extra.LogicalCores
 	}
+	if len(extra.MaxFrequenciesKHz) > len(existing.MaxFrequenciesKHz) {
+		existing.MaxFrequenciesKHz = append([]uint64(nil), extra.MaxFrequenciesKHz...)
+	}
+	existing.DotProduct = existing.DotProduct || extra.DotProduct
 	existing.RAMTotal = max(existing.RAMTotal, extra.RAMTotal)
 	existing.RAMAvailable = max(existing.RAMAvailable, extra.RAMAvailable)
 	existing.StorageTotal = max(existing.StorageTotal, extra.StorageTotal)
 	existing.StorageFree = max(existing.StorageFree, extra.StorageFree)
+	existing.DiskWriteBps = max(existing.DiskWriteBps, extra.DiskWriteBps)
+	existing.DiskReadBps = max(existing.DiskReadBps, extra.DiskReadBps)
+	if existing.BatteryLevel <= 0 && extra.BatteryLevel > 0 {
+		existing.BatteryLevel = extra.BatteryLevel
+	}
+	if existing.BatteryTempC <= 0 && extra.BatteryTempC > 0 {
+		existing.BatteryTempC = extra.BatteryTempC
+	}
 	if existing.Source == "" {
 		existing.Source = extra.Source
 	} else if extra.Source != "" && !strings.Contains(existing.Source, extra.Source) {
 		existing.Source += " + " + extra.Source
+	}
+	if existing.Warning == "" {
+		existing.Warning = extra.Warning
+	} else if extra.Warning != "" && !strings.Contains(existing.Warning, extra.Warning) {
+		existing.Warning += " " + extra.Warning
 	}
 }
 
@@ -479,6 +555,10 @@ func recommendAutopilot(storage StorageState, host HardwareDiagnostic, phones []
 	} else {
 		recommendation.NextStep = "Zastosuj profil 35B, uruchom model, a potem wykonaj test modelu w tej zakładce."
 	}
+	if storage.Migration.Status == "fallback" || storage.Migration.Status == "unavailable" {
+		recommendation.ReadyToApply = false
+		recommendation.NextStep = "Najpierw dokończ bezpieczną migrację na D: zgodnie z komunikatem magazynu, a dopiero potem pobierz profil 35B."
+	}
 	return recommendation
 }
 
@@ -518,6 +598,27 @@ func diagnosticsReport(state DiagnosticsState, storage StorageState) string {
 	fmt.Fprintf(&out, "MAGAZYN YOURLM\n")
 	fmt.Fprintf(&out, "Dane: %s\n", sanitizeDiagnosticPath(storage.DataPath))
 	fmt.Fprintf(&out, "Program: %s\n", sanitizeDiagnosticPath(storage.InstallPath))
+	if storage.Migration.Status != "" {
+		fmt.Fprintf(&out, "Migracja: %s · status=%s\n", storage.Migration.Title, storage.Migration.Status)
+		if storage.Migration.Detail != "" {
+			fmt.Fprintf(&out, "Stan: %s\n", storage.Migration.Detail)
+		}
+		if storage.Migration.ResumedFiles > 0 || storage.Migration.ReusedFiles > 0 || storage.Migration.RecoveredParts > 0 {
+			fmt.Fprintf(&out, "Odzyskiwanie: wznowiono %d plików / %.2f GiB; użyto %d gotowych; odrzucono %d uszkodzonych części\n", storage.Migration.ResumedFiles, float64(storage.Migration.ResumedBytes)/float64(GiB), storage.Migration.ReusedFiles, storage.Migration.RecoveredParts)
+		}
+		if storage.Migration.VerifiedFiles > 0 {
+			fmt.Fprintf(&out, "Weryfikacja: %d plików / %.2f GiB · SHA-256\n", storage.Migration.VerifiedFiles, float64(storage.Migration.VerifiedBytes)/float64(GiB))
+		}
+		if storage.Migration.SourceRetained {
+			fmt.Fprintf(&out, "Źródło zachowane: %s\n", sanitizeDiagnosticPath(storage.Migration.RetainedPath))
+		}
+		if storage.Migration.Action != "" {
+			fmt.Fprintf(&out, "Działanie: %s\n", storage.Migration.Action)
+		}
+		if storage.Migration.Error != "" {
+			fmt.Fprintf(&out, "Szczegóły techniczne: %s\n", storage.Migration.Error)
+		}
+	}
 	for _, drive := range storage.Drives {
 		fmt.Fprintf(&out, "%s %s: %.1f / %.1f GiB wolne%s%s\n", drive.Letter, drive.Label, float64(drive.Free)/float64(GiB), float64(drive.Total)/float64(GiB), map[bool]string{true: " · WYBRANY"}[drive.Selected], map[bool]string{true: " · SYSTEMOWY"}[drive.System])
 	}

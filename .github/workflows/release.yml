@@ -1,4 +1,4 @@
-name: Release RC16 balanced-phone gates
+name: Release RC17 balanced-phone gates
 
 on:
   push:
@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc16]') }}
+  PUBLISH_RELEASE: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc17]') }}
   ANDROID_CERT_SHA256: bb2639f3d49a2d7db0845884e76d6bb51152a6e9c0df92fcfe885a26c5de94a6
 
 jobs:
@@ -42,7 +42,7 @@ jobs:
   android-arm64:
     needs: host-tests
     name: Android ARM64 release gate
-    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[validate fast]') && !contains(github.event.head_commit.message, '[publish rc16 fast]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[publish ready]') && !contains(github.event.head_commit.message, '[validate fast]') && !contains(github.event.head_commit.message, '[publish rc17 fast]') }}
     # Draft releases containing the split stable-signing backup are visible
     # only to tokens with push-level contents access.
     permissions:
@@ -92,7 +92,7 @@ jobs:
           scripts/build-native.sh build/android-native
           export SMOL_LLAMA_SRC="$RUNNER_TEMP/llama-smol.cpp"
           scripts/build-smol-android.sh build/android-smol-native
-      - name: Assemble the stable-signed RC16 APK
+      - name: Assemble the stable-signed RC17 APK
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -116,8 +116,8 @@ jobs:
           cert=$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
           [[ "$cert" == "$ANDROID_CERT_SHA256" ]] || { echo "Unexpected Android signing identity" >&2; exit 1; }
           badging=$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")
-          grep -Fq "versionCode='19'" <<<"$badging"
-          grep -Fq "versionName='0.2.0-rc16'" <<<"$badging"
+          grep -Fq "versionCode='20'" <<<"$badging"
+          grep -Fq "versionName='0.2.0-rc17'" <<<"$badging"
           unzip -p "$apk" assets/BUILDINFO.txt | grep -Fq 'RPC compatibility: b12562-ylm-rpc5'
           unzip -p "$apk" assets/BUILDINFO.txt | grep -Fq 'smolmaxxing llama.cpp base: v0.8.0 / 8642541b255bfb5dc39cd351a178be09013a55d6'
           unzip -p "$apk" assets/licenses/smolmaxxing.txt | grep -Fq 'MIT License'
@@ -341,7 +341,7 @@ jobs:
           if ($install.ExitCode -ne 0) { throw "Per-user installation exited with $($install.ExitCode)" }
           if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) { throw 'Per-user EXE was not installed' }
           if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) { throw 'Start Menu shortcut was not created' }
-          if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc16') { throw 'Installed Apps version is incorrect' }
+          if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc17') { throw 'Installed Apps version is incorrect' }
 
           $controllerOut = Join-Path $root 'controller.out'
           $controllerErr = Join-Path $root 'controller.err'
@@ -417,7 +417,7 @@ jobs:
           if (Test-Path -LiteralPath $shortcut) { throw 'Uninstall did not remove the Start Menu shortcut' }
           if (Test-Path -LiteralPath $uninstallKey) { throw 'Uninstall did not remove the Installed Apps entry' }
 
-          # Exercise the RC16 managed-drive path and verified migration using a
+          # Exercise the RC17 managed-drive path and verified migration using a
           # fixed-volume directory override. This keeps the hosted runner
           # deterministic even though its real D: scratch disk varies.
           Remove-Item Env:YOURLM_DISABLE_DRIVE_MIGRATION
@@ -427,9 +427,16 @@ jobs:
           $shortcut = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\YourLM.lnk'
           $legacyData = Join-Path $env:APPDATA 'YourLM'
           New-Item -ItemType Directory -Force (Join-Path $legacyData 'models') | Out-Null
-          [IO.File]::WriteAllText((Join-Path $legacyData 'models\resume.gguf.part'), 'verified migration fixture')
+          $migrationFixture = 'verified migration fixture with a resumable prefix'
+          [IO.File]::WriteAllText((Join-Path $legacyData 'models\resume.gguf.part'), $migrationFixture)
           $managedExe = Join-Path $managedRoot 'App\YourLM.exe'
           $managedData = Join-Path $managedRoot 'Data'
+          # Reproduce the field failure exactly: RC16 left a valid prefix at
+          # Data.migrating\...migrating-part. RC17 must validate and append it,
+          # not delete the source and not fail with ERROR_FILE_EXISTS.
+          $stagingModel = Join-Path $managedRoot 'Data.migrating\models\resume.gguf.part.migrating-part'
+          New-Item -ItemType Directory -Force (Split-Path -Parent $stagingModel) | Out-Null
+          [IO.File]::WriteAllText($stagingModel, $migrationFixture.Substring(0, 19))
 
           $managedInstall = Start-Process -FilePath $source -ArgumentList '--install-only' -Wait -PassThru
           if ($managedInstall.ExitCode -ne 0) { throw "Managed-drive installation exited with $($managedInstall.ExitCode)" }
@@ -438,14 +445,33 @@ jobs:
           $link = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
           if ($link.TargetPath -ne $managedExe) { throw 'Start Menu shortcut did not move to the managed drive root' }
 
-          $managedProcess = Start-Process -FilePath $managedExe -ArgumentList '--no-browser' -PassThru
-          for ($attempt = 0; $attempt -lt 60 -and -not (Test-Path -LiteralPath (Join-Path $managedData '.yourlm-storage-v1')); $attempt++) { Start-Sleep -Milliseconds 500 }
-          if ($managedProcess.HasExited) { throw "Managed-drive first run exited with $($managedProcess.ExitCode)" }
+          $managedOut = Join-Path $root 'managed-controller.out'
+          $managedErr = Join-Path $root 'managed-controller.err'
+          $managedProcess = Start-Process -FilePath $managedExe -ArgumentList '--no-browser' -RedirectStandardOutput $managedOut -RedirectStandardError $managedErr -PassThru
+          $managedText = ''
+          for ($attempt = 0; $attempt -lt 60; $attempt++) {
+            Start-Sleep -Milliseconds 500
+            $managedProcess.Refresh()
+            if ($managedProcess.HasExited) { throw "Managed-drive first run exited with $($managedProcess.ExitCode): $(Get-Content -Raw -ErrorAction SilentlyContinue $managedErr)" }
+            if (Test-Path -LiteralPath $managedOut) { $managedText = Get-Content -Raw -LiteralPath $managedOut }
+            if ((Test-Path -LiteralPath (Join-Path $managedData '.yourlm-storage-v1')) -and $managedText -match '(?m)^http://127\.0\.0\.1:[0-9]+/#[0-9a-f]+$') { break }
+          }
+          $managedMatch = [regex]::Match($managedText, '(?m)^(http://127\.0\.0\.1:[0-9]+)/#([0-9a-f]+)$')
+          if (-not $managedMatch.Success) { throw "Managed controller URL was not emitted: $managedText" }
+          $managedState = Invoke-RestMethod -Uri "$($managedMatch.Groups[1].Value)/api/state" -Headers @{ 'X-YourLM' = $managedMatch.Groups[2].Value }
+          if ($managedState.storage.migration.status -ne 'recovered') { throw "Stale part was not reported as recovered: $($managedState.storage.migration.status)" }
+          if ($managedState.storage.migration.resumedFiles -ne 1 -or $managedState.storage.migration.resumedBytes -ne 19) { throw 'Resumed migration metrics are incorrect' }
+          if ($managedState.storage.dataPath -ne $managedData) { throw 'Published D: storage is not active in application state' }
           $storageKey = 'HKCU:\Software\YourLM'
           if ((Get-ItemProperty -LiteralPath $storageKey).StorageRoot -ne $managedRoot) { throw 'Managed storage root was not persisted for future updates' }
           if (-not (Test-Path -LiteralPath (Join-Path $managedData 'models\resume.gguf.part') -PathType Leaf)) { throw 'Existing model fragment was not migrated to managed storage' }
-          if ((Get-Content -Raw -LiteralPath (Join-Path $managedData 'models\resume.gguf.part')) -ne 'verified migration fixture') { throw 'Migrated model fragment changed' }
+          if ((Get-Content -Raw -LiteralPath (Join-Path $managedData 'models\resume.gguf.part')) -ne $migrationFixture) { throw 'Resumed model fragment changed' }
+          if (Test-Path -LiteralPath $stagingModel) { throw 'The .migrating-part file leaked into published storage' }
+          if (Test-Path -LiteralPath (Join-Path $managedRoot 'Data.migrating')) { throw 'Staging directory remained after atomic publication' }
           if (Test-Path -LiteralPath $legacyData) { throw 'Verified legacy data was not retired after migration' }
+          $migrationLock = Join-Path $managedRoot '.yourlm-data-migration.lock'
+          if (-not (Test-Path -LiteralPath $migrationLock -PathType Leaf)) { throw 'Migration lock evidence is missing' }
+          if ((Get-Item -LiteralPath $migrationLock).Length -ne 0) { throw 'Migration lock remained owned after startup' }
           Stop-Process -Id $managedProcess.Id -Force
 
           $managedRemove = Start-Process -FilePath $managedExe -ArgumentList '--uninstall' -Wait -PassThru
@@ -454,8 +480,8 @@ jobs:
           if (Test-Path -LiteralPath $managedExe) { throw 'Managed uninstall did not remove the EXE' }
           if (-not (Test-Path -LiteralPath $managedData)) { throw 'Managed uninstall removed the private model library' }
   publish-rc:
-    name: Publish v0.2.0-rc16 assets
-    if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc16]') }}
+    name: Publish v0.2.0-rc17 assets
+    if: ${{ contains(github.event.head_commit.message, '[publish v0.2.0-rc17]') }}
     needs: [windows-runtime]
     permissions:
       contents: write
@@ -477,14 +503,14 @@ jobs:
         run: |
           set -euo pipefail
           (cd packages && sha256sum -c SHA256SUMS)
-          tag=v0.2.0-rc16
+          tag=v0.2.0-rc17
           assets=(packages/YourLM.exe packages/YourLM-Android-arm64.apk packages/SHA256SUMS)
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc16' \
-              --notes-file windows/RELEASE-NOTES-0.2.0-rc16.md --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --prerelease --title 'YourLM 0.2.0-rc17' \
+              --notes-file windows/RELEASE-NOTES-0.2.0-rc17.md --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$tag" "${assets[@]}" --prerelease --target "$GITHUB_SHA" \
-              --title 'YourLM 0.2.0-rc16' --notes-file windows/RELEASE-NOTES-0.2.0-rc16.md \
+              --title 'YourLM 0.2.0-rc17' --notes-file windows/RELEASE-NOTES-0.2.0-rc17.md \
               --repo "$GITHUB_REPOSITORY"
           fi

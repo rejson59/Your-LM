@@ -47,7 +47,7 @@
           <span class="statusDot"></span>
           <div><b>Tryb lokalny</b><small>Bez konta i bez chmury</small></div>
         </div>
-        <div class="sideVersion" id="build">v0.2.0-rc16 · b12562</div>
+        <div class="sideVersion" id="build">v0.2.0-rc17 · b12562</div>
       </aside>
 
       <div class="workspace">
@@ -223,9 +223,24 @@
                 <span class="eyebrow">LENOVO / HOST</span><h2>Sprzęt i Windows</h2>
                 <div id="diagHost" class="factList"><p>Uruchom test, aby odczytać producenta, model, CPU, fizyczne rdzenie, RAM i GPU.</p></div>
               </article>
-              <article class="sectionCard diagnosticCard">
-                <span class="eyebrow">MAGAZYN YOURLM</span><h2>Program, modele i dane</h2>
+              <article class="sectionCard diagnosticCard storageCard">
+                <div class="storageStatusHead">
+                  <span id="storageStateIcon" class="storageStateIcon">D:</span>
+                  <div>
+                    <span class="eyebrow">MAGAZYN YOURLM</span>
+                    <h2 id="storageTitle">Sprawdzam program, modele i dane</h2>
+                  </div>
+                  <span id="storageBadge" class="storageBadge">KONTROLA</span>
+                </div>
                 <p id="storageMessage">Sprawdzam docelową lokalizację…</p>
+                <div id="storageFlow" class="storageFlow" aria-label="Stan migracji magazynu">
+                  <div class="storageFlowNode"><small>ŹRÓDŁO</small><b id="storageSourceLabel">C:</b><span id="storageSourceState">bezpieczne</span></div>
+                  <div class="storageFlowCheck"><i>✓</i><span>SYNC + SHA-256</span></div>
+                  <div class="storageFlowNode destination"><small>CEL</small><b id="storageDestinationLabel">D:</b><span id="storageDestinationState">sprawdzanie</span></div>
+                </div>
+                <div id="storageRecoveryStats" class="storageRecoveryStats" hidden></div>
+                <div id="storageAction" class="storageAction" hidden></div>
+                <details id="storageTechnical" class="storageTechnical" hidden><summary>Szczegóły techniczne</summary><code id="storageError"></code></details>
                 <div id="storagePaths" class="pathBox"></div>
                 <div id="storageDrives" class="driveList"></div>
               </article>
@@ -349,7 +364,7 @@
             </article>
           </section>
 
-          <footer><span>YourLM 0.2.0-rc16</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
+          <footer><span>YourLM 0.2.0-rc17</span><span>NATYWNE OKNO · WORKER W TLE · JEDEN EXE · SZYBKIE AKTUALIZACJE</span></footer>
         </main>
       </div>
     </div>

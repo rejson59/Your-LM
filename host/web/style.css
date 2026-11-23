@@ -479,13 +479,56 @@ h3 { margin: 0 0 5px; font-size: 17px; }
 .factRow span, .diagnosticItem span, .diagnosticItem small { color: var(--muted); overflow-wrap: anywhere; }
 .diagnosticItem { grid-template-columns: minmax(180px, .38fr) minmax(0, 1fr); }
 .diagnosticItem div b, .diagnosticItem div span, .diagnosticItem div small { display: block; }
+.storageCard { position: relative; overflow: hidden; }
+.storageCard::before { content: ""; position: absolute; inset: 0 0 auto; height: 4px; background: linear-gradient(90deg, #1a7653, #66d39c); }
+.storageCard[data-state="warning"]::before { background: linear-gradient(90deg, #ad5a25, #efb052); }
+.storageCard[data-state="notice"]::before { background: linear-gradient(90deg, #8b6b20, #ddba54); }
+.storageStatusHead { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 12px; align-items: center; }
+.storageStatusHead h2 { margin: 3px 0 0; }
+.storageStateIcon { display: grid; width: 48px; height: 48px; place-items: center; border-radius: 14px; color: #fff; background: linear-gradient(145deg, #1d805a, #0d5339); box-shadow: 0 8px 20px rgba(23, 107, 75, .2); font: 850 13px ui-monospace, monospace; }
+.storageCard[data-state="warning"] .storageStateIcon { background: linear-gradient(145deg, #c36b2e, #8a3e1e); box-shadow: 0 8px 20px rgba(154, 73, 28, .2); }
+.storageBadge { padding: 6px 9px; border-radius: 999px; color: #376451; background: #e7f4ec; font: 800 9px ui-monospace, monospace; letter-spacing: .65px; white-space: nowrap; }
+.storageBadge.warning { color: #8a431e; background: #fff0da; }
+.storageBadge.notice { color: #785c18; background: #fff3cc; }
+.storageBadge.working { color: #295d77; background: #e4f3fa; }
+.storageBadge.neutral { color: #596b61; background: #edf1ee; }
+.storageCard > #storageMessage { margin: 13px 0 12px; }
+.storageFlow { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch; gap: 8px; margin: 11px 0; }
+.storageFlowNode { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; padding: 11px 12px; border: 1px solid #d9e4dc; border-radius: 12px; background: #f8faf8; }
+.storageFlowNode small { grid-column: 1 / -1; color: var(--muted); font: 750 8px ui-monospace, monospace; letter-spacing: .9px; }
+.storageFlowNode b { font: 850 16px ui-monospace, monospace; }
+.storageFlowNode span { align-self: center; color: var(--muted); font-size: 10px; text-align: right; }
+.storageFlowNode.destination { border-color: #9fd0b4; background: #eef9f2; }
+.storageFlowCheck { display: grid; min-width: 68px; place-content: center; justify-items: center; color: #53816a; }
+.storageFlowCheck i { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; color: #fff; background: var(--green); font-style: normal; font-weight: 900; }
+.storageFlowCheck span { margin-top: 4px; font: 700 7px ui-monospace, monospace; letter-spacing: .35px; }
+.storageFlow.warning .storageFlowNode.destination { border-color: #edc89a; background: #fff8ed; }
+.storageFlow.warning .storageFlowCheck { color: #9a6a2b; }
+.storageFlow.warning .storageFlowCheck i { background: #b8612b; }
+.storageFlow.warning .storageFlowCheck i::before { content: "!"; }
+.storageFlow.warning .storageFlowCheck i { font-size: 0; }
+.storageFlow.warning .storageFlowCheck i::before { font-size: 13px; }
+.storageRecoveryStats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; margin: 10px 0; }
+.storageRecoveryStats > div { min-width: 0; padding: 9px 10px; border: 1px solid #d9e5dd; border-radius: 10px; background: #fbfcfb; }
+.storageRecoveryStats small, .storageRecoveryStats b { display: block; }
+.storageRecoveryStats small { color: var(--muted); font: 750 8px ui-monospace, monospace; letter-spacing: .7px; }
+.storageRecoveryStats b { margin-top: 2px; overflow-wrap: anywhere; font-size: 11px; }
+.storageAction { margin: 11px 0; padding: 11px 12px 11px 38px; border: 1px solid #eac999; border-radius: 11px; color: #7b4b19; background: #fff8ea; font-size: 12px; }
+.storageAction::before { content: "→"; float: left; margin-left: -25px; font-weight: 900; }
+.storageTechnical { margin: 9px 0; color: var(--muted); font-size: 11px; }
+.storageTechnical summary { color: var(--green-dark); font-weight: 750; }
+.storageTechnical code { display: block; max-height: 115px; margin-top: 7px; padding: 9px; overflow: auto; border-radius: 8px; color: #754139; background: #fff1ef; font: 10px/1.45 ui-monospace, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
 .pathBox { display: grid; gap: 5px; margin: 11px 0; padding: 11px; border-radius: 10px; background: #f3f7f4; font: 11px/1.45 ui-monospace, monospace; overflow-wrap: anywhere; }
 .driveList { display: grid; gap: 7px; }
 .driveRow { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
 .driveRow.selected { border-color: #70bd91; background: #f0faf4; }
+.driveRow.recommended:not(.selected) { border-style: dashed; border-color: #a5cdb6; }
 .driveLetter { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 10px; color: var(--green-dark); background: var(--mint); font: 800 11px ui-monospace, monospace; }
+.driveRow > div { min-width: 0; }
 .driveRow b, .driveRow small { display: block; }
 .driveRow small { color: var(--muted); }
+.driveMeter { display: block; height: 4px; margin-top: 6px; overflow: hidden; border-radius: 99px; background: #dfe7e1; }
+.driveMeter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #40a976, #80d5a6); }
 .driveRow em { color: var(--green); font: normal 800 9px ui-monospace, monospace; }
 .diagnosticSection, .modelTestCard, .autopilotCard { margin-top: 14px; }
 .diagnosticBadge { padding: 5px 9px; border-radius: 99px; color: var(--green-dark); background: var(--mint); font: 750 9px ui-monospace, monospace; }
@@ -623,6 +666,48 @@ dialog > label { margin: 13px 0; }
 .hfBadge.warn { color: #825719; background: #fff0c9; }
 .hfBack { justify-self: start; margin-bottom: 8px; }
 
+/* RC17 visual refresh: a calmer workspace with a high-contrast application
+   rail, clearer elevation and storage/recovery as a first-class system state. */
+body {
+  background:
+    radial-gradient(circle at 78% -8%, rgba(88, 190, 137, .10), transparent 31rem),
+    radial-gradient(circle at 18% 105%, rgba(119, 161, 137, .08), transparent 34rem),
+    var(--bg);
+}
+.sidebar {
+  width: 256px;
+  color: #effaf3;
+  border-right-color: rgba(255,255,255,.08);
+  background: linear-gradient(175deg, #12382a 0%, #0c261c 58%, #091b14 100%);
+  box-shadow: 12px 0 36px rgba(12, 40, 29, .10);
+}
+.workspace { margin-left: 256px; }
+.sidebar > .brand b { color: #fff; }
+.sidebar > .brand small { color: #9fc3af; }
+.sidebar nav button { color: #b7cfc1; }
+.sidebar nav button:hover:not(:disabled) { color: #fff; background: rgba(255,255,255,.07); }
+.sidebar nav button.sel { color: #123d2d; background: #ccefd9; box-shadow: 0 8px 18px rgba(0,0,0,.13); }
+.sidebar .navIcon { background: rgba(255,255,255,.07); }
+.sidebar nav button.sel .navIcon { background: rgba(255,255,255,.5); }
+.sidebar > .themeToggle { color: #c1d6ca; border-color: rgba(255,255,255,.14); background: rgba(255,255,255,.035); }
+.sidebar > .themeToggle:hover:not(:disabled) { color: #fff; background: rgba(255,255,255,.08); }
+.sidebar > .themeToggle .themeIcon { color: #c9f2d9; background: rgba(112,213,158,.13); }
+.sidebar > .updateShortcut { color: #d9eee2; border-color: rgba(255,255,255,.14); background: rgba(255,255,255,.055); }
+.sidebar > .updateShortcut:hover:not(:disabled) { background: rgba(255,255,255,.1); }
+.sidebar .privacyCard { border-color: rgba(151,224,184,.2); background: rgba(117,201,153,.08); }
+.sidebar .privacyCard small { color: #9fc3af; }
+.sidebar .sideVersion { color: #789b88; }
+.sectionCard { border-color: rgba(202, 215, 205, .92); box-shadow: 0 8px 26px rgba(24, 58, 43, .045); }
+.pageHead { padding: 0 2px; }
+.pageHead h1 { text-wrap: balance; }
+.diagnosticGrid { align-items: start; }
+
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(circle at 78% -8%, rgba(60, 165, 111, .08), transparent 31rem),
+    radial-gradient(circle at 18% 105%, rgba(80, 126, 99, .06), transparent 34rem),
+    var(--bg);
+}
 html[data-theme="dark"] button { color: #f4fff8; background: #1c7651; }
 html[data-theme="dark"] button:hover:not(:disabled) { background: #248b61; }
 html[data-theme="dark"] button.secondary {
@@ -706,9 +791,22 @@ html[data-theme="dark"] .diagnosticHero { border-color: #315d47; background: lin
 html[data-theme="dark"] .diagProgress { background: #26382f; }
 html[data-theme="dark"] .factRow, html[data-theme="dark"] .diagnosticItem { border-color: #25322b; }
 html[data-theme="dark"] .pathBox { background: #18231d; }
+html[data-theme="dark"] .storageFlowNode { border-color: #35443c; background: #111a15; }
+html[data-theme="dark"] .storageFlowNode.destination { border-color: #315d47; background: #14281e; }
+html[data-theme="dark"] .storageFlow.warning .storageFlowNode.destination { border-color: #684b29; background: #2b2114; }
+html[data-theme="dark"] .storageBadge { color: #b9edcf; background: #193a2c; }
+html[data-theme="dark"] .storageBadge.warning { color: #f1c985; background: #4b351c; }
+html[data-theme="dark"] .storageBadge.notice { color: #f0d883; background: #403719; }
+html[data-theme="dark"] .storageBadge.working { color: #b5dff4; background: #183545; }
+html[data-theme="dark"] .storageBadge.neutral { color: #bdc8c1; background: #26302a; }
+html[data-theme="dark"] .storageRecoveryStats > div { border-color: #35443c; background: #111a15; }
+html[data-theme="dark"] .storageAction { color: #efca91; border-color: #65482a; background: #2b2114; }
+html[data-theme="dark"] .storageTechnical code { color: #ffb4aa; background: #38201e; }
 html[data-theme="dark"] .diagnosticCard > p.bad { color: #ffb4aa; background: #38201e; }
 html[data-theme="dark"] .driveRow { border-color: #35443c; }
 html[data-theme="dark"] .driveRow.selected { border-color: #3f8d65; background: #14281e; }
+html[data-theme="dark"] .driveRow.recommended:not(.selected) { border-color: #3b684f; }
+html[data-theme="dark"] .driveMeter { background: #29372f; }
 html[data-theme="dark"] .driveLetter, html[data-theme="dark"] .diagnosticBadge { color: #a6ebc8; background: #193a2c; }
 html[data-theme="dark"] .autopilotCard { border-color: #315d47; background: linear-gradient(145deg, #14271d, #111a15); }
 html[data-theme="dark"] .maximumCandidate { border-color: #35443c; background: rgba(7, 14, 10, .46); }
@@ -804,6 +902,12 @@ html[data-theme="dark"] .mobileHeader { background: rgba(15, 23, 19, .95); }
   .diagActions, .modelTestCard, .autopilotHead { align-items: stretch; flex-direction: column; }
   .diagActions button, .modelTestCard button { width: 100%; }
   .factRow, .diagnosticItem { grid-template-columns: 1fr; gap: 3px; }
+  .storageStatusHead { grid-template-columns: auto minmax(0, 1fr); }
+  .storageBadge { grid-column: 2; justify-self: start; }
+  .storageFlow { grid-template-columns: 1fr; }
+  .storageFlowCheck { min-height: 43px; transform: rotate(90deg); }
+  .storageFlowCheck span { display: none; }
+  .storageRecoveryStats { grid-template-columns: 1fr; }
   .driveRow { grid-template-columns: auto minmax(0, 1fr); }
   .driveRow em { grid-column: 2; }
   .diagnosticSection .sectionTitle { flex-direction: column; }

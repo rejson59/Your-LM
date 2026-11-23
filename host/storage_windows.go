@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -211,6 +212,12 @@ func prepareStorage() (string, StorageState, error) {
 			return "", StorageState{}, err
 		}
 		state := StorageState{Supported: true, DataPath: filepath.Clean(explicit), Message: "Używam jawnie wskazanego katalogu YOURLM_HOME."}
+		state.Migration = StorageMigrationState{
+			Status:          "custom",
+			Title:           "Jawnie wskazany magazyn",
+			Detail:          "YOURLM_HOME wyłącza automatyczny wybór D: dla tego uruchomienia.",
+			DestinationPath: state.DataPath,
+		}
 		state.InstallPath, _ = os.Executable()
 		state.Drives = windowsStorageDrives(state.DataPath, "")
 		return state.DataPath, state, nil
@@ -233,31 +240,48 @@ func prepareStorage() (string, StorageState, error) {
 		}
 		state.DataPath = legacy
 		state.Message = "Dysk D: nie spełnia bezpiecznych warunków migracji; dane pozostają w profilu Windows."
+		state.Migration = StorageMigrationState{
+			Status:         "unavailable",
+			Title:          "D: nie spełnia warunków bezpieczeństwa",
+			Detail:         "YourLM używa profilu Windows i nie rozpoczyna kopiowania na dysk o niepewnych parametrach.",
+			Action:         "Podłącz lub napraw stały, lokalny dysk D: z co najmniej 64 GiB wolnego miejsca, a następnie uruchom YourLM ponownie.",
+			SourcePath:     legacy,
+			SourceRetained: true,
+			RetainedPath:   legacy,
+		}
 		state.Drives = windowsStorageDrives(state.DataPath, "")
 		return legacy, state, nil
 	}
 	destination := filepath.Join(root, "Data")
-	migrated, warning, err := migrateDataDirectory(legacy, destination)
+	migration, err := migrateDataDirectoryDetailed(legacy, destination)
+	state.Migration = migration.state
 	if err != nil {
+		// A second RC17 process must never fall back to the live C: source while
+		// the first process is taking its verified snapshot. Abort that second
+		// startup instead; the first window remains responsible for migration.
+		if errors.Is(err, errStorageMigrationBusy) {
+			return "", state, fmt.Errorf("%s: %w", state.Migration.Action, err)
+		}
 		if mkdirErr := os.MkdirAll(legacy, 0700); mkdirErr != nil {
 			return "", state, fmt.Errorf("migracja na D: %v; powrót do danych C: %w", err, mkdirErr)
 		}
 		state.DataPath = legacy
-		state.Warning = "Automatyczne przenoszenie na D: nie powiodło się; oryginalne dane na C: pozostały nietknięte. " + err.Error()
+		state.Warning = "Migracja na D: została bezpiecznie zatrzymana. YourLM nadal używa oryginalnej biblioteki na C:; katalog Data.migrating nie jest aktywny."
 		state.Drives = windowsStorageDrives(state.DataPath, root)
 		return legacy, state, nil
 	}
+	warning := migration.warning
 	if err := saveWindowsStorageRoot(root); err != nil {
 		warning = strings.TrimSpace(warning + " Nie udało się zapisać wyboru dysku w profilu Windows: " + err.Error())
 	}
 	state.DataPath = destination
-	state.Migrated = migrated
+	state.Migrated = migration.migrated
 	state.MigrationSource = legacy
 	state.Warning = warning
-	if migrated {
-		state.Message = "YourLM, modele, komponenty, cache, logi i aktualizacje zostały bezpiecznie przeniesione na dysk D:."
+	if migration.migrated {
+		state.Message = "YourLM, modele, komponenty, cache, logi, diagnostyka i aktualizacje działają ze zweryfikowanej biblioteki na D:."
 	} else {
-		state.Message = "YourLM zapisuje modele, komponenty, cache, logi i aktualizacje na dysku D:."
+		state.Message = "YourLM zapisuje modele, komponenty, cache, logi, diagnostykę i aktualizacje na dysku D:."
 	}
 	state.Drives = windowsStorageDrives(state.DataPath, root)
 	return destination, state, nil

@@ -501,23 +501,84 @@ function diagnosticFact(label, value) {
 }
 
 function renderStorage(storage = {}) {
-  $("storageMessage").textContent = storage.warning || storage.message || "Magazyn nie został jeszcze rozpoznany.";
-  $("storageMessage").classList.toggle("bad", Boolean(storage.warning));
+  const migration = storage.migration || {};
+  const status = migration.status || (storage.warning ? "fallback" : "ready");
+  const states = {
+    checking: { badge: "KONTROLA", tone: "working", source: "chronione", destination: "sprawdzanie" },
+    copying: { badge: "WZNAWIANIE", tone: "working", source: "aktywne i chronione", destination: "kopia etapowa" },
+    recovered: { badge: "ODZYSKANO", tone: "success", source: "zweryfikowane", destination: "aktywne" },
+    completed: { badge: "GOTOWE", tone: "success", source: "zweryfikowane", destination: "aktywne" },
+    ready: { badge: "D: AKTYWNE", tone: "success", source: migration.sourceRetained ? "kopia zachowana" : "przeniesione", destination: "aktywne" },
+    retained: { badge: "D: AKTYWNE", tone: "notice", source: "kopia zachowana", destination: "aktywne" },
+    fallback: { badge: "C: BEZPIECZNE", tone: "warning", source: "aktywne i nietknięte", destination: "nieopublikowane" },
+    busy: { badge: "DRUGIE OKNO", tone: "warning", source: "zablokowane bezpiecznie", destination: "migracja trwa" },
+    unavailable: { badge: "C: AKTYWNE", tone: "warning", source: "aktywne", destination: "niedostępne" },
+    custom: { badge: "WŁASNA ŚCIEŻKA", tone: "neutral", source: "bez migracji", destination: "aktywne" },
+    local: { badge: "LOKALNIE", tone: "neutral", source: "prywatne", destination: "aktywne" },
+  };
+  const view = states[status] || states.ready;
+  const pathVolume = (path, fallback) => {
+    const match = String(path || "").match(/^[a-z]:/i);
+    return match ? match[0].toUpperCase() : fallback;
+  };
+  const sourceLabel = pathVolume(migration.sourcePath, status === "fallback" ? "C:" : "ŹRÓDŁO");
+  const destinationLabel = pathVolume(migration.destinationPath || storage.dataPath, "D:");
+  const card = document.querySelector(".storageCard");
+  card.dataset.state = view.tone;
+  $("storageStateIcon").textContent = status === "fallback" || status === "unavailable" ? sourceLabel : destinationLabel;
+  $("storageBadge").textContent = view.badge;
+  $("storageBadge").className = `storageBadge ${view.tone}`;
+  $("storageTitle").textContent = migration.title || "Program, modele i dane";
+  $("storageMessage").textContent = storage.warning || migration.detail || storage.message || "Magazyn nie został jeszcze rozpoznany.";
+  $("storageMessage").classList.toggle("bad", view.tone === "warning");
+  $("storageSourceLabel").textContent = sourceLabel;
+  $("storageSourceState").textContent = view.source;
+  $("storageDestinationLabel").textContent = destinationLabel;
+  $("storageDestinationState").textContent = view.destination;
+  $("storageFlow").className = `storageFlow ${view.tone}`;
+
+  const stats = [];
+  if (migration.resumedFiles) stats.push(["WZNOWIONO", `${migration.resumedFiles} plik · ${humanBytes(migration.resumedBytes)}`]);
+  if (migration.reusedFiles) stats.push(["UŻYTO PONOWNIE", `${migration.reusedFiles} plik · ${humanBytes(migration.reusedBytes)}`]);
+  if (migration.recoveredParts) stats.push(["ODRZUCONO", `${migration.recoveredParts} uszkodzona część`]);
+  if (migration.verifiedFiles) stats.push(["SHA-256", `${migration.verifiedFiles} plik · ${humanBytes(migration.verifiedBytes)}`]);
+  if (migration.recoveredLock) stats.push(["BLOKADA", "odzyskana po przerwaniu"]);
+  $("storageRecoveryStats").hidden = !stats.length;
+  $("storageRecoveryStats").replaceChildren(...stats.map(([label, value]) => {
+    const item = el("div", "");
+    item.append(el("small", label), el("b", value));
+    return item;
+  }));
+  $("storageAction").hidden = !migration.action;
+  $("storageAction").textContent = migration.action || "";
+  $("storageTechnical").hidden = !migration.error;
+  $("storageError").textContent = migration.error || "";
+
   const paths = [];
   if (storage.installPath) paths.push(`Program: ${storage.installPath}`);
-  if (storage.dataPath) paths.push(`Modele i dane: ${storage.dataPath}`);
+  if (storage.dataPath) paths.push(`Aktywne modele i dane: ${storage.dataPath}`);
+  if (migration.stagingPath && (status === "fallback" || status === "copying")) paths.push(`Etap (nieaktywny): ${migration.stagingPath}`);
+  if (migration.sourceRetained && migration.retainedPath && migration.retainedPath !== storage.dataPath) paths.push(`Zachowana kopia: ${migration.retainedPath}`);
   $("storagePaths").replaceChildren(...paths.map((value) => el("span", value)));
   const rows = (storage.drives || []).map((drive) => {
     const row = el("div", "");
-    row.className = `driveRow${drive.selected ? " selected" : ""}`;
+    row.className = `driveRow${drive.selected ? " selected" : ""}${drive.recommended ? " recommended" : ""}`;
     const letter = el("span", drive.letter || "DYSK");
     letter.className = "driveLetter";
     const detail = el("div", "");
-    detail.append(
+    const text = el("div", "");
+    text.append(
       el("b", [drive.label, drive.fileSystem, drive.type].filter(Boolean).join(" · ") || "Dysk lokalny"),
-      el("small", `${humanBytes(drive.free)} wolne z ${humanBytes(drive.total)}${drive.system ? " · dysk systemowy" : ""}`),
+      el("small", `${humanBytes(drive.free)} wolne z ${humanBytes(drive.total)}${drive.system ? " · systemowy" : ""}`),
     );
-    row.append(letter, detail, el("em", drive.selected ? "TU DZIAŁA YOURLM" : drive.recommended ? "POLECANY" : "DOSTĘPNY"));
+    const meter = el("span", "");
+    meter.className = "driveMeter";
+    const fill = el("i", "");
+    fill.style.width = `${drive.total ? Math.max(2, Math.min(100, Number(drive.free) / Number(drive.total) * 100)) : 0}%`;
+    meter.append(fill);
+    detail.append(text, meter);
+    const role = drive.selected ? "AKTYWNY" : drive.recommended ? (status === "fallback" ? "CEL PO NAPRAWIE" : "ZALECANY") : "DOSTĘPNY";
+    row.append(letter, detail, el("em", role));
     return row;
   });
   $("storageDrives").replaceChildren(...rows);

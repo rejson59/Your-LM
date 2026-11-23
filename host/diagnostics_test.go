@@ -58,6 +58,39 @@ func TestSamePhoneMergesUSBAndWorkerInventory(t *testing.T) {
 	}
 }
 
+func TestSamePhoneMergesVendorPrefixedWorkerSnapshot(t *testing.T) {
+	usb := PhoneDiagnostic{
+		Name:              "24090RA29G",
+		Model:             "24090RA29G",
+		SoC:               "Mediatek MT6878",
+		LogicalCores:      8,
+		MaxFrequenciesKHz: []uint64{2500000},
+		DotProduct:        true,
+		RAMTotal:          7784628224,
+		BatteryLevel:      63,
+		Source:            "USB/ADB",
+	}
+	worker := PhoneDiagnostic{
+		Name:         "Xiaomi 24090RA29G",
+		Model:        "Xiaomi 24090RA29G",
+		Android:      "16",
+		SDK:          36,
+		RAMTotal:     7784628224,
+		StorageTotal: 243739713536,
+		Source:       "sparowany worker",
+	}
+	if !samePhone(usb, worker) {
+		t.Fatal("vendor-prefixed worker snapshot duplicated the physical Redmi")
+	}
+	mergePhone(&usb, worker)
+	if usb.Name != "Xiaomi 24090RA29G" || usb.SoC != "Mediatek MT6878" || !usb.DotProduct {
+		t.Fatalf("merged phone lost its richest identity or ADB CPU facts: %+v", usb)
+	}
+	if !strings.Contains(usb.Source, "USB/ADB") || !strings.Contains(usb.Source, "sparowany worker") {
+		t.Fatalf("merged phone did not retain both local sources: %+v", usb)
+	}
+}
+
 func TestAutopilotKeepsOneAuditedPracticalChoice(t *testing.T) {
 	if newDiagnosticsState().Recommendation.ReadyToApply {
 		t.Fatal("autopilot must collect a hardware run before applying the recipe")
