@@ -135,6 +135,36 @@ func TestMigrationRejectsCorruptPartThenRestartsIt(t *testing.T) {
 	}
 }
 
+func TestStructuredMarkerDoesNotBypassRetainedSourceVerification(t *testing.T) {
+	source, destination, model, payload := storageMigrationFixture(t)
+	first, err := migrateDataDirectoryDetailed(source, destination)
+	if err != nil || !first.migrated {
+		t.Fatalf("fixture migration failed: result=%+v err=%v", first, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(source, model)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, model), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := bytes.Repeat([]byte{0x5a}, len(payload))
+	if err := os.WriteFile(filepath.Join(destination, model), corrupt, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := migrateDataDirectoryDetailed(source, destination)
+	if err == nil || result.migrated {
+		t.Fatalf("structured marker bypassed source verification: result=%+v err=%v", result, err)
+	}
+	if result.state.Status != "fallback" || !result.state.SourceRetained {
+		t.Fatalf("corrupt published data did not select safe source fallback: %+v", result.state)
+	}
+	got, readErr := os.ReadFile(filepath.Join(source, model))
+	if readErr != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("retained source changed after failed re-verification: bytes=%d err=%v", len(got), readErr)
+	}
+}
+
 func TestUnsafeStagingMarkerNeverBecomesPublishedData(t *testing.T) {
 	source, destination, model, _ := storageMigrationFixture(t)
 	staging := destination + ".migrating"
@@ -161,6 +191,36 @@ func TestUnsafeStagingMarkerNeverBecomesPublishedData(t *testing.T) {
 	if markerInfo, markerErr := os.Stat(filepath.Join(staging, storageMarker)); markerErr != nil || !markerInfo.IsDir() {
 		t.Fatalf("unsafe control entry was unexpectedly trusted or changed: info=%v err=%v", markerInfo, markerErr)
 	}
+}
+
+func TestStorageProcessLockRejectsConcurrentOwnerAndReleases(t *testing.T) {
+	if storageProcessLock != nil {
+		releaseStorageProcessLock()
+	}
+	t.Cleanup(releaseStorageProcessLock)
+
+	root := t.TempDir()
+	path := filepath.Join(root, storageInstanceLockName)
+	if err := acquireStorageProcessLock(path, "source", "destination"); err != nil {
+		t.Fatal(err)
+	}
+	owner := storageProcessLock
+	if err := acquireStorageProcessLock(path, "source", "destination"); err != nil {
+		t.Fatalf("same process should reuse its process lock: %v", err)
+	}
+	if storageProcessLock != owner {
+		t.Fatal("same process replaced its active process lock")
+	}
+	if _, _, err := acquireStorageFileLock(path, "source", "destination"); !errors.Is(err, errStorageMigrationBusy) {
+		t.Fatalf("second owner was not rejected: %v", err)
+	}
+
+	releaseStorageProcessLock()
+	lock, _, err := acquireStorageFileLock(path, "source", "destination")
+	if err != nil {
+		t.Fatalf("lock was not released with the process session: %v", err)
+	}
+	lock.release()
 }
 
 func TestConcurrentMigrationIsBlockedWithoutUsingStaging(t *testing.T) {

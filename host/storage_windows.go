@@ -211,6 +211,9 @@ func prepareStorage() (string, StorageState, error) {
 		if err := os.MkdirAll(explicit, 0700); err != nil {
 			return "", StorageState{}, err
 		}
+		if err := acquireStorageProcessLock(filepath.Join(explicit, storageInstanceLockName), explicit, explicit); err != nil {
+			return "", StorageState{}, err
+		}
 		state := StorageState{Supported: true, DataPath: filepath.Clean(explicit), Message: "Używam jawnie wskazanego katalogu YOURLM_HOME."}
 		state.Migration = StorageMigrationState{
 			Status:          "custom",
@@ -232,6 +235,9 @@ func prepareStorage() (string, StorageState, error) {
 	}
 	legacy := filepath.Join(roaming, "YourLM")
 	root := preferredWindowsStorageRoot()
+	if err := acquireStorageProcessLock(filepath.Join(roaming, storageInstanceLockName), legacy, filepath.Join(root, "Data")); err != nil {
+		return "", StorageState{}, err
+	}
 	state := StorageState{Supported: true, PreferredRoot: root, Automatic: root != ""}
 	state.InstallPath, _ = os.Executable()
 	if root == "" {

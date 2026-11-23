@@ -11,11 +11,11 @@ RC17 naprawia rzeczywisty błąd pierwszej migracji Lenovo z C: na D:, w którym
 - Ukończony plik stagingu, który nie odpowiada już źródłu, jest zastępowany pojedynczo. Zwykły osierocony wpis nieobecny w źródle jest usuwany wyłącznie ze stagingu; dowiązanie, specjalny typ albo wpis, którego nie można bezpiecznie odczytać/usunąć, zatrzymuje operację.
 - Gotowe pliki są porównywane SHA-256, a następnie RC17 ponownie sprawdza dokładne drzewo źródło → staging. Brakujący, nieprawidłowy lub nadal tymczasowy wpis uniemożliwia publikację.
 - Znacznik `.yourlm-storage-v1` jest zapisywany i synchronizowany dopiero po pełnej kontroli. Jedyną publikacją jest atomowa zmiana nazwy `Data.migrating` na `Data`.
-- Oryginał na C: jest atomowo odkładany i usuwany dopiero po publikacji D:. Jeśli Windows nie pozwoli go odłożyć, D: pozostaje aktywne, a interfejs wyraźnie pokazuje zachowaną nieaktywną kopię.
+- Oryginał na C: jest atomowo odkładany i usuwany dopiero po publikacji D:. Jeśli pozostaje po wcześniejszej próbie sprzątania, kolejny start ponownie porównuje każdy jego plik z aktywnym D: — nawet przy prawidłowym strukturalnym znaczniku — zanim spróbuje go usunąć. Jeśli Windows nie pozwoli go odłożyć, D: pozostaje aktywne, a interfejs wyraźnie pokazuje zachowaną nieaktywną kopię.
 
 ## Ochrona przed drugim oknem i awarią
 
-Migrację chroni wyłączna blokada pliku systemu operacyjnego w `D:\YourLM`. Dwie instancje nie mogą jednocześnie dopisywać stagingu ani publikować D:. Druga instancja kończy start z instrukcją, zamiast wracać do zapisywalnego C: podczas snapshotu pierwszej. Blokada jest własnością otwartego uchwytu, więc po awarii procesu system zwalnia ją automatycznie; pozostawione metadane są rozpoznawane jako odzyskanie po przerwaniu, a nie permanentna blokada.
+Migrację chroni wyłączna blokada pliku systemu operacyjnego w `D:\YourLM`, a całą sesję dodatkowa blokada instancji w profilu użytkownika. Dwie instancje nie mogą jednocześnie dopisywać stagingu ani publikować D:. Po bezpiecznym fallbacku pierwsze okno trzyma blokadę sesji tak długo, jak zapisuje aktywną bibliotekę C:, więc drugie nie rozpocznie pod nim nowego snapshotu. Druga instancja kończy start z natywnym komunikatem i instrukcją użycia istniejącego okna. Blokady są własnością otwartych uchwytów, więc po awarii procesu system zwalnia je automatycznie; pozostawione metadane są rozpoznawane jako odzyskanie po przerwaniu, a nie permanentna blokada.
 
 ## Czytelny stan zamiast jednego długiego błędu
 

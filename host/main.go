@@ -1008,10 +1008,11 @@ func main() {
 	dir, storage, e := prepareStorage()
 	if e != nil {
 		if errors.Is(e, errStorageMigrationBusy) && !*nobrowser {
-			showStorageStartupError("Migrację prowadzi już inne okno YourLM.\n\nPoczekaj, aż pierwsze okno zakończy weryfikację i otworzy interfejs. Druga kopia została zatrzymana, aby nie zapisywała danych na C: podczas kopiowania. Nie usuwaj katalogów C: ani Data.migrating.\n\nSzczegóły: " + e.Error())
+			showStorageStartupError("Inne okno YourLM nadal zarządza tą biblioteką.\n\nUżyj już otwartego okna albo zamknij je przed ponownym uruchomieniem. Druga kopia została zatrzymana, aby nie zapisywała danych na C: podczas migracji ani po bezpiecznym fallbacku. Nie usuwaj katalogów C: ani Data.migrating.\n\nSzczegóły: " + e.Error())
 		}
 		log.Fatal("Nie udało się przygotować prywatnego magazynu YourLM: ", e)
 	}
+	defer releaseStorageProcessLock()
 	components, e := prepareBundledAssets(dir)
 	if e != nil {
 		log.Fatal("Nie udało się przygotować składników aplikacji: ", e)

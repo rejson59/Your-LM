@@ -483,6 +483,22 @@ jobs:
           $migrationLock = Join-Path $managedRoot '.yourlm-data-migration.lock'
           if (-not (Test-Path -LiteralPath $migrationLock -PathType Leaf)) { throw 'Migration lock evidence is missing' }
           if ((Get-Item -LiteralPath $migrationLock).Length -ne 0) { throw 'Migration lock remained owned after startup' }
+
+          # The session owner keeps its source/destination guard after migration
+          # returns. A second instance must fail quickly instead of opening a
+          # second writer or starting another snapshot under the active app.
+          $secondOut = Join-Path $root 'second-instance.out'
+          $secondErr = Join-Path $root 'second-instance.err'
+          $second = Start-Process -FilePath $managedExe -ArgumentList '--no-browser' -RedirectStandardOutput $secondOut -RedirectStandardError $secondErr -PassThru
+          if (-not $second.WaitForExit(10000)) {
+            Stop-Process -Id $second.Id -Force
+            throw 'Second managed instance did not stop at the session lock'
+          }
+          if ($second.ExitCode -eq 0) { throw 'Second managed instance bypassed the session lock' }
+          $secondError = Get-Content -Raw -ErrorAction SilentlyContinue $secondErr
+          if ($secondError -notmatch 'inne okno YourLM') { throw "Second instance did not report the active owner: $secondError" }
+          $managedProcess.Refresh()
+          if ($managedProcess.HasExited) { throw 'Second instance disturbed the active managed owner' }
           Stop-Process -Id $managedProcess.Id -Force
 
           $managedRemove = Start-Process -FilePath $managedExe -ArgumentList '--uninstall' -Wait -PassThru

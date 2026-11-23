@@ -18,6 +18,7 @@ const (
 	storageMarker              = ".yourlm-storage-v1"
 	storageMigrationPartSuffix = ".migrating-part"
 	storageMigrationLockName   = ".yourlm-data-migration.lock"
+	storageInstanceLockName    = ".yourlm-instance.lock"
 )
 
 var errStorageMigrationBusy = errors.New("migracja magazynu działa w innym procesie YourLM")
@@ -80,13 +81,13 @@ type storageVerification struct {
 }
 
 type storageMarkerDocument struct {
-	Format       string `json:"format"`
-	VerifiedAt   string `json:"verifiedAt"`
-	Source       string `json:"source,omitempty"`
-	Files        int    `json:"files"`
-	Bytes        uint64 `json:"bytes"`
-	TreeSHA256   string `json:"treeSha256"`
-	YourLM       string `json:"yourlm,omitempty"`
+	Format     string `json:"format"`
+	VerifiedAt string `json:"verifiedAt"`
+	Source     string `json:"source,omitempty"`
+	Files      int    `json:"files"`
+	Bytes      uint64 `json:"bytes"`
+	TreeSHA256 string `json:"treeSha256"`
+	YourLM     string `json:"yourlm,omitempty"`
 }
 
 type storageMigrationResult struct {
@@ -167,8 +168,7 @@ func writeSyncedFile(path string, data []byte, mode os.FileMode) error {
 	return closeErr
 }
 
-func acquireStorageMigrationLock(source, destination string) (*storageMigrationLock, bool, error) {
-	path := filepath.Join(filepath.Dir(destination), storageMigrationLockName)
+func acquireStorageFileLock(path, source, destination string) (*storageMigrationLock, bool, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, false, err
 	}
@@ -179,7 +179,7 @@ func acquireStorageMigrationLock(source, destination string) (*storageMigrationL
 	if err := tryLockStorageFile(file); err != nil {
 		_ = file.Close()
 		if storageLockIsBusy(err) {
-			return nil, false, fmt.Errorf("%w; poczekaj, aż pierwsze okno zakończy kopiowanie", errStorageMigrationBusy)
+			return nil, false, fmt.Errorf("%w; blokada systemowa jest aktywna", errStorageMigrationBusy)
 		}
 		return nil, false, fmt.Errorf("blokada migracji: %w", err)
 	}
@@ -206,6 +206,39 @@ func acquireStorageMigrationLock(source, destination string) (*storageMigrationL
 		return nil, false, fmt.Errorf("zapis blokady migracji: %w", err)
 	}
 	return &storageMigrationLock{file: file, path: path}, recovered, nil
+}
+
+func acquireStorageMigrationLock(source, destination string) (*storageMigrationLock, bool, error) {
+	path := filepath.Join(filepath.Dir(destination), storageMigrationLockName)
+	lock, recovered, err := acquireStorageFileLock(path, source, destination)
+	if errors.Is(err, errStorageMigrationBusy) {
+		return nil, false, fmt.Errorf("%w; poczekaj, aż pierwsze okno zakończy kopiowanie", errStorageMigrationBusy)
+	}
+	return lock, recovered, err
+}
+
+var storageProcessLock *storageMigrationLock
+
+func acquireStorageProcessLock(path, source, destination string) error {
+	if storageProcessLock != nil {
+		return nil
+	}
+	lock, _, err := acquireStorageFileLock(path, source, destination)
+	if err != nil {
+		if errors.Is(err, errStorageMigrationBusy) {
+			return fmt.Errorf("%w; inne okno YourLM nadal zarządza tą biblioteką", errStorageMigrationBusy)
+		}
+		return fmt.Errorf("blokada instancji YourLM: %w", err)
+	}
+	storageProcessLock = lock
+	return nil
+}
+
+func releaseStorageProcessLock() {
+	if storageProcessLock != nil {
+		storageProcessLock.release()
+		storageProcessLock = nil
+	}
 }
 
 func (lock *storageMigrationLock) release() {
@@ -823,13 +856,19 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 		result.state.Title = "Magazyn D: jest aktywny"
 		result.state.Detail = "Znacznik opublikowanej biblioteki jest prawidłowy; katalog Data.migrating nie jest używany."
 		if sourceExists {
+			// A marker proves that staging was verified before publication, but it
+			// must never become a permanent exemption from checking the retained
+			// source. If cleanup previously failed, compare every source file with
+			// active D: again before the next attempt can retire C:. This also
+			// detects post-publication corruption or a forged structured marker.
+			verified, verifyErr := verifyStorageTreeDetailed(source, destination, false)
+			if verifyErr != nil {
+				return result, fmt.Errorf("istniejąca biblioteka docelowa nie odpowiada źródłu; stary katalog pozostaje nietknięty: %w", verifyErr)
+			}
+			result.state.VerifiedFiles = verified.Files
+			result.state.VerifiedBytes = verified.Bytes
 			if !markerStructured {
-				verified, verifyErr := verifyStorageTreeDetailed(source, destination, false)
-				if verifyErr != nil {
-					return result, fmt.Errorf("istniejąca biblioteka docelowa nie odpowiada źródłu; stary katalog pozostaje nietknięty: %w", verifyErr)
-				}
-				result.state.VerifiedFiles = verified.Files
-				result.state.VerifiedBytes = verified.Bytes
+				result.state.Detail = "Starszy znacznik biblioteki został ponownie zweryfikowany i uaktualniony przed wycofaniem źródła."
 				if err = writeStorageMarker(destination, source, verified); err != nil {
 					return result, fmt.Errorf("aktualizacja znacznika zweryfikowanej biblioteki: %w", err)
 				}
