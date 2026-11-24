@@ -9,7 +9,9 @@ The patch replaces full-tensor temporary allocations in the RPC file cache
 with a shared 16 MiB streaming buffer. Cache files are published by rename only
 after a complete write; cache hits are streamed and checked for exact size and
 FNV-1a hash. A cache write failure no longer aborts an otherwise valid tensor
-transfer.
+transfer. It also makes the Linux/Android CPU backend report `/proc/meminfo`'s
+`MemAvailable` to `--fit`; upstream b12562 otherwise reports all physical RAM as
+free and can overcommit a phone by the memory already used by Android.
 
 Run the functional gate with:
 
@@ -17,8 +19,9 @@ Run the functional gate with:
 LLAMA_SRC=/path/to/pinned/llama.cpp tests/rpc-cache-smoke.sh
 ```
 
-It exercises a cache miss and hit, then verifies automatic recovery from both
-a truncated file and a same-sized file with corrupted contents.
+It first asserts that the remote Linux CPU backend reports available memory
+below physical total, then exercises a cache miss and hit and verifies automatic
+recovery from both a truncated file and a same-sized file with corrupted contents.
 
 ## Isolated smolmaxxing Android runtime
 

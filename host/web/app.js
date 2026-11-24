@@ -777,12 +777,15 @@ function render(nextState) {
   const osUsed = Number(memory.osUsed ?? Math.max(0, totalRam - availableRam));
   const mappedModel = Number(memory.mappedModel || 0);
   const actualAllocation = Number(memory.actualAllocation || 0);
+  const workerSwap = Number(memory.workerSwap || 0);
   $("count").textContent = 1 + workers.length;
   $("ram").textContent = gib(totalRam) + " GiB";
   $("usedRam").textContent = gib(osUsed) + " GiB";
   $("capacity").textContent = gib(availableRam) + " GiB";
   $("mappedRam").textContent = mappedModel ? gib(mappedModel) + " GiB" : "—";
-  $("processRam").textContent = actualAllocation ? gib(actualAllocation) + " GiB" : session ? "pomiar…" : "0 GiB";
+  $("processRam").textContent = actualAllocation
+    ? `${gib(actualAllocation)} GiB RAM${workerSwap ? ` + ${gib(workerSwap)} GiB swap` : ""}`
+    : session ? "pomiar…" : "0 GiB";
   $("capacity").title = "Pamięć natychmiast dostępna według systemów. Nie jest limitem rozmiaru mapowanego modelu.";
   const commitAvailable = Number(memory.commitAvailable || 0);
   const pageFile = Number(memory.pageFile || 0);
@@ -820,7 +823,7 @@ function render(nextState) {
       device(
         worker.name,
         worker.recovering ? "ODTWARZANIE" : worker.recoveryError ? "BŁĄD" : "WORKER",
-        `${worker.recovering ? `ODTWARZANIE SILNIKA (próba ${worker.restartAttempts || 1}) · ` : worker.recoveryError ? "ODZYSKANIE NIEUDANE · " : ""}${workerTransport(worker)} · ${worker.transportReason || "Szyfrowany kanał z przypiętym certyfikatem."} · ${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB fizyczne · ${gib(worker.used || Math.max(0, worker.total - worker.free))} GiB system i aplikacje · ${gib(worker.free)} GiB dostępne teraz · ${gib(worker.allocation || 0)} GiB silnik · pamięć RPC włączona`,
+        `${worker.recovering ? `ODTWARZANIE SILNIKA (próba ${worker.restartAttempts || 1}) · ` : worker.recoveryError ? "ODZYSKANIE NIEUDANE · " : ""}${workerTransport(worker)} · ${worker.transportReason || "Szyfrowany kanał z przypiętym certyfikatem."} · ${worker.address} · ${worker.cores} wątków · ${gib(worker.total)} GiB fizyczne · ${gib(worker.used || Math.max(0, worker.total - worker.free))} GiB system i aplikacje · ${gib(worker.free)} GiB dostępne teraz · ${gib(worker.allocation || 0)} GiB RAM silnika${worker.swapBytes ? ` + ${gib(worker.swapBytes)} GiB swap` : ""} · pamięć RPC włączona`,
         worker.address,
       ),
     ),
@@ -1229,7 +1232,10 @@ async function copy(value) {
 
 $("copyOffer").onclick = () => copy(`Adres: ${state.offerAddress}\nKod: ${state.offerKey}`);
 $("copyEngineLog").onclick = () => copy(
-  `YourLM ${state.version}\n${state.engine?.phase || "Diagnostyka silnika"}\n${state.engine?.path || ""}\n\n${state.engine?.log || "Brak komunikatów w logu."}`,
+  `YourLM ${state.version}\nCommit: ${state.commit || "brak"}\n${state.engine?.phase || "Diagnostyka silnika"}\n\n${state.engine?.supportLog || "Brak skróconego raportu."}`,
+);
+$("copyEngineLogFull").onclick = () => copy(
+  `YourLM ${state.version}\nCommit: ${state.commit || "brak"}\n${state.engine?.phase || "Diagnostyka silnika"}\n${state.engine?.path || ""}\n\n${state.engine?.log || "Brak komunikatów w logu."}`,
 );
 $("copyKey").onclick = () => copy(state.session.key);
 $("copyCfg").onclick = () =>

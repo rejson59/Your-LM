@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 : "${KS_PASS:?Set keystore password}"
 : "${ANDROID_HOME:?Set ANDROID_HOME}"
 export KS_PASS
-version=0.2.0-rc18
+version=0.2.0-rc19
 abi=${ANDROID_ABI:-arm64-v8a}
 case "$abi" in
   arm64-v8a)
@@ -74,8 +74,8 @@ cat > "$work/assets/BUILDINFO.txt" <<EOF
 YourLM: $version
 Source commit: $source_commit
 llama.cpp: b12562 / c0b97be0b297177a88df08e96c01420976bb18d0
-YourLM native patch: bounded streaming RPC cache v1
-RPC compatibility: b12562-ylm-rpc5
+YourLM native patch: bounded streaming RPC cache + MemAvailable fit v2
+RPC compatibility: b12562-ylm-rpc6
 smolmaxxing runtime: commit 8d12bb17fd389c25f3c6167a5b73f93034d6324f patch SHA-256 f0677c48522e1659969998654d83db9ede7652e771e045dbcd35427abd0230bd
 smolmaxxing llama.cpp base: v0.8.0 / 8642541b255bfb5dc39cd351a178be09013a55d6 (arm64 release only)
 Android ABI: $abi

@@ -1,10 +1,11 @@
 # Qwen3.6-35B-A3B Abliterated — YourLM Balanced Phone
 
-YourLM RC15 introduced, and RC18 retains, one recommended middle ground instead
+YourLM RC15 introduced, and RC19 retains, one recommended middle ground instead
 of asking the user to choose between a small fast model and a larger slow model.
 Model weights are **not** bundled with YourLM. RC16 added local hardware tests;
-RC18 keeps their measured recommendation behind a verified D: migration and
-does not silently replace this audited recipe with an unmeasured 80B model.
+RC19 keeps their measured recommendation behind a verified D: migration,
+reports Android's real `MemAvailable` to RPC placement, and does not silently
+replace this audited recipe with an unmeasured 80B model.
 
 ## Reproducible source identity
 

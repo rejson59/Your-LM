@@ -669,7 +669,7 @@ func reconcilePublishedStorage(source, destination, staging string, state *Stora
 	var verified storageVerification
 	state.Status = "copying"
 	state.Title = "Scalanie zachowanego C: z D:"
-	state.Detail = "RC18 buduje nieaktywną sumę obu bibliotek; pliki C: mają pierwszeństwo, a wpisy istniejące tylko na D: pozostają zachowane."
+	state.Detail = "RC19 buduje nieaktywną sumę obu bibliotek; pliki C: mają pierwszeństwo, a wpisy istniejące tylko na D: pozostają zachowane."
 	if err := prepareReconciliationStaging(source, destination, staging, state); err != nil {
 		return verified, "", err
 	}

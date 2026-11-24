@@ -27,4 +27,4 @@ repozytorium. Sumy SHA-256 pakietu znajdują się w SHA256SUMS.txt.
 
 Kod źródłowy i opis bezpieczeństwa:
 https://github.com/rejson59/Your-LM
-https://github.com/rejson59/Your-LM/blob/arena/395e51e3-your-lm/SECURITY.md
+https://github.com/rejson59/Your-LM/blob/main/SECURITY.md

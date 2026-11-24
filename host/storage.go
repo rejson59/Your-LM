@@ -789,7 +789,7 @@ func migrationAction(err error) string {
 	text := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(text, strings.ToLower(storageMigrationPartSuffix)), strings.Contains(text, "plik etapowy"):
-		return "Zamknij inne okna YourLM oraz program, który może skanować lub blokować ten plik, a następnie uruchom RC18 ponownie. Zweryfikowana część zostanie wznowiona; danych z C: nie usuwaj."
+		return "Zamknij inne okna YourLM oraz program, który może skanować lub blokować ten plik, a następnie uruchom RC19 ponownie. Zweryfikowana część zostanie wznowiona; danych z C: nie usuwaj."
 	case strings.Contains(text, "za mało"), strings.Contains(text, "not enough space"), strings.Contains(text, "disk full"):
 		return "Zwolnij miejsce na D: i uruchom YourLM ponownie. Oryginał na C: pozostaje bezpieczny."
 	case strings.Contains(text, "access is denied"), strings.Contains(text, "permission denied"), strings.Contains(text, "odmowa dostępu"):
@@ -883,10 +883,10 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 		if swapFinalized {
 			result.state.Status = "reconciled"
 			result.state.Title = "Przerwane scalanie odzyskane i zweryfikowane"
-			result.state.Detail = "RC18 ponownie sprawdził opublikowaną sumę SHA-256 i bezpiecznie dokończył transakcyjną podmianę biblioteki D:."
+			result.state.Detail = "RC19 ponownie sprawdził opublikowaną sumę SHA-256 i bezpiecznie dokończył transakcyjną podmianę biblioteki D:."
 		} else if swapRestored {
 			result.state.Title = "Poprzednia biblioteka D: bezpiecznie przywrócona"
-			result.state.Detail = "RC18 wykrył przerwanie przed publikacją scalonej wersji i przywrócił wcześniejsze opublikowane D:."
+			result.state.Detail = "RC19 wykrył przerwanie przed publikacją scalonej wersji i przywrócił wcześniejsze opublikowane D:."
 		}
 		var markerDocument storageMarkerDocument
 		if markerStructured {
@@ -919,13 +919,13 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 			if retained != "" {
 				result.state.Status = "retained"
 				result.state.Title = "D: działa; nieaktywna kopia C: nadal jest zablokowana"
-				result.state.Detail = "RC18 rozpoznał C: jako kopię pozostałą po wcześniejszej zweryfikowanej publikacji i nie nałoży jej ponownie na aktywne D:."
+				result.state.Detail = "RC19 rozpoznał C: jako kopię pozostałą po wcześniejszej zweryfikowanej publikacji i nie nałoży jej ponownie na aktywne D:."
 				result.state.SourceRetained = true
 				result.state.RetainedPath = retained
 				result.state.Action = "Zamknij program blokujący starą kopię C: i uruchom YourLM ponownie. Nie usuwaj aktywnego D:\\YourLM\\Data."
 			} else {
 				result.state.Title = "Nieaktywna kopia C: bezpiecznie wycofana"
-				result.state.Detail = "Aktywna biblioteka D: pozostała bez zmian; RC18 dokończył tylko zaległe sprzątanie wcześniej zweryfikowanego źródła."
+				result.state.Detail = "Aktywna biblioteka D: pozostała bez zmian; RC19 dokończył tylko zaległe sprzątanie wcześniej zweryfikowanego źródła."
 			}
 			return result, nil
 		}
@@ -949,7 +949,7 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 				result.state.VerifiedBytes = verified.Bytes
 				result.state.Status = "reconciled"
 				result.state.Title = "C: i D: scalone oraz zweryfikowane"
-				result.state.Detail = "RC18 zachował wpisy istniejące tylko na D:, nałożył aktywne pliki C:, sprawdził całą sumę SHA-256 i atomowo opublikował nową bibliotekę."
+				result.state.Detail = "RC19 zachował wpisy istniejące tylko na D:, nałożył aktywne pliki C:, sprawdził całą sumę SHA-256 i atomowo opublikował nową bibliotekę."
 				result.migrated = true
 				retained, retireWarning := retireStorageSource(source)
 				result.warning = strings.TrimSpace(reconcileWarning + " " + retireWarning)
@@ -1071,7 +1071,7 @@ func migrateDataDirectoryDetailed(source, destination string) (result storageMig
 	if recovered {
 		result.state.Status = "recovered"
 		result.state.Title = "Migracja odzyskana i zweryfikowana"
-		result.state.Detail = "RC18 bezpiecznie wykorzystał prawidłowe dane etapowe, porównał całość SHA-256 i dopiero wtedy aktywował D:."
+		result.state.Detail = "RC19 bezpiecznie wykorzystał prawidłowe dane etapowe, porównał całość SHA-256 i dopiero wtedy aktywował D:."
 	} else {
 		result.state.Status = "completed"
 		result.state.Title = "Migracja zakończona i zweryfikowana"

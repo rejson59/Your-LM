@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 func copyExecutable(source, target string) error {
@@ -53,8 +55,44 @@ func helperArguments(args []string) (string, int, bool) {
 	return target, pid, target != ""
 }
 
+func waitForUpdateParent(pid int, timeout time.Duration) error {
+	if pid <= 0 || uint64(pid) > uint64(^uint32(0)) {
+		return errors.New("brak prawidłowego PID poprzedniej wersji")
+	}
+	if pid == os.Getpid() {
+		return errors.New("helper aktualizacji nie może czekać na własny proces")
+	}
+	handle, err := windows.OpenProcess(windows.SYNCHRONIZE, false, uint32(pid))
+	if err != nil {
+		// The parent can finish between launching this helper and OpenProcess.
+		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
+			return nil
+		}
+		return fmt.Errorf("otwarcie poprzedniego procesu: %w", err)
+	}
+	defer windows.CloseHandle(handle)
+	milliseconds := timeout.Milliseconds()
+	if milliseconds <= 0 {
+		milliseconds = 1
+	}
+	if milliseconds > int64(^uint32(0)-1) {
+		milliseconds = int64(^uint32(0) - 1)
+	}
+	result, err := windows.WaitForSingleObject(handle, uint32(milliseconds))
+	if err != nil {
+		return fmt.Errorf("oczekiwanie na poprzednią wersję: %w", err)
+	}
+	if result == uint32(windows.WAIT_TIMEOUT) {
+		return fmt.Errorf("poprzednia wersja nie zakończyła pracy w ciągu %s", timeout.Round(time.Millisecond))
+	}
+	if result != windows.WAIT_OBJECT_0 {
+		return fmt.Errorf("oczekiwanie na poprzednią wersję zwróciło kod %d", result)
+	}
+	return nil
+}
+
 func handleUpdateHelper(args []string) (bool, error) {
-	target, _, active := helperArguments(args)
+	target, pid, active := helperArguments(args)
 	if !active {
 		return false, nil
 	}
@@ -64,6 +102,13 @@ func handleUpdateHelper(args []string) (bool, error) {
 	}
 	self, err := os.Executable()
 	if err != nil {
+		return true, err
+	}
+	// The old process owns the storage instance lock until Windows has fully
+	// terminated it. Waiting here (rather than merely retrying the EXE rename)
+	// prevents the freshly installed process from racing into the migration
+	// lock dialog during a normal in-app update.
+	if err := waitForUpdateParent(pid, 30*time.Second); err != nil {
 		return true, err
 	}
 	next := absolute + ".next"

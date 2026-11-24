@@ -34,6 +34,7 @@ type Node struct {
 	Free               uint64         `json:"free"`
 	Used               uint64         `json:"used"`
 	Allocation         uint64         `json:"allocation"`
+	SwapBytes          uint64         `json:"swapBytes,omitempty"`
 	Cores              int            `json:"cores"`
 	Build              string         `json:"build"`
 	Alive              bool           `json:"alive"`
@@ -109,17 +110,21 @@ func (n Node) dialAt(address, mode string, timeout time.Duration) (net.Conn, err
 	return c, nil
 }
 
-func (n Node) dialEndpoint(mode string) (net.Conn, string, error) {
+func (n Node) endpointAddresses() []string {
 	addresses := []string{n.Address}
-	if n.usbAddress != "" {
+	if n.usbAddress != "" && n.usbAddress != n.Address {
 		if n.Transport == "usb" {
 			addresses = []string{n.usbAddress, n.Address}
 		} else {
 			addresses = append(addresses, n.usbAddress)
 		}
 	}
+	return addresses
+}
+
+func (n Node) dialEndpoint(mode string) (net.Conn, string, error) {
 	var last error
-	for _, address := range addresses {
+	for _, address := range n.endpointAddresses() {
 		c, err := n.dialAt(address, mode, 6*time.Second)
 		if err == nil {
 			return c, address, nil
@@ -224,7 +229,7 @@ func (n Node) benchmarkAt(address string) (LinkBenchmark, error) {
 
 const (
 	GiB            uint64 = 1 << 30
-	rpcWorkerBuild        = "b12562-ylm-rpc5"
+	rpcWorkerBuild        = "b12562-ylm-rpc6"
 )
 
 func validateWorkerMetadata(info Node) error {
@@ -292,8 +297,8 @@ func (n *Node) refresh() error {
 	if info.Allocation > info.Total {
 		info.Allocation = 0
 	}
-	n.Name, n.Platform, n.Free, n.Total, n.Used, n.Allocation, n.Cores, n.Build, n.Alive =
-		info.Name, info.Platform, info.Free, info.Total, info.Used, info.Allocation, info.Cores, info.Build, info.Alive
+	n.Name, n.Platform, n.Free, n.Total, n.Used, n.Allocation, n.SwapBytes, n.Cores, n.Build, n.Alive =
+		info.Name, info.Platform, info.Free, info.Total, info.Used, info.Allocation, info.SwapBytes, info.Cores, info.Build, info.Alive
 	n.Recovering, n.RestartAttempts, n.RestartCount, n.RecoveryError =
 		info.Recovering, info.RestartAttempts, info.RestartCount, info.RecoveryError
 	previousTransport := n.Transport
@@ -314,16 +319,29 @@ func (n *Node) refresh() error {
 }
 
 func (n Node) diagnostics() ([]byte, error) {
-	c, err := n.dial("DIAG")
-	if err != nil {
-		return nil, err
+	var last error
+	for _, address := range n.endpointAddresses() {
+		c, err := n.dialAt(address, "DIAG", 15*time.Second)
+		if err != nil {
+			last = err
+			continue
+		}
+		var report map[string]any
+		err = json.NewDecoder(io.LimitReader(c, 256<<10)).Decode(&report)
+		_ = c.Close()
+		if err != nil {
+			// ADB forwards can accept TLS and then disappear while the larger
+			// diagnostic response is in flight. Retry the independently
+			// authenticated Wi-Fi endpoint (or vice versa), not just connect.
+			last = err
+			continue
+		}
+		return json.MarshalIndent(report, "", "  ")
 	}
-	defer c.Close()
-	var report map[string]any
-	if err = json.NewDecoder(io.LimitReader(c, 256<<10)).Decode(&report); err != nil {
-		return nil, err
+	if last == nil {
+		last = errors.New("brak adresu diagnostycznego workera")
 	}
-	return json.MarshalIndent(report, "", "  ")
+	return nil, last
 }
 
 func workerMemoryAssessment(report []byte) string {
@@ -385,20 +403,212 @@ func linkBenchmarkText(value *LinkBenchmark) string {
 	)
 }
 
-func workerDiagnosticsReport(nodes []Node, cached map[string]WorkerDiagnosticSnapshot) string {
-	if len(nodes) == 0 {
-		return ""
+func compactTextTail(value string, maxBytes int) string {
+	value = strings.TrimSpace(value)
+	if maxBytes <= 0 || len(value) <= maxBytes {
+		return value
+	}
+	value = value[len(value)-maxBytes:]
+	if newline := strings.IndexByte(value, '\n'); newline >= 0 {
+		value = value[newline+1:]
+	}
+	return "…\n" + strings.ToValidUTF8(value, "�")
+}
+
+func compactRelevantLog(value string, tailLines, maxBytes int, keywords ...string) string {
+	value = strings.ReplaceAll(value, "\r\n", "\n")
+	value = strings.ReplaceAll(value, "\r", "\n")
+	lines := strings.Split(strings.TrimSpace(value), "\n")
+	selected := make(map[int]bool)
+	for i := max(0, len(lines)-tailLines); i < len(lines); i++ {
+		selected[i] = true
+	}
+	for i, line := range lines {
+		lower := strings.ToLower(line)
+		for _, keyword := range keywords {
+			if strings.Contains(lower, strings.ToLower(keyword)) {
+				selected[i] = true
+				break
+			}
+		}
 	}
 	var out strings.Builder
+	previous := -1
+	for i, line := range lines {
+		if !selected[i] {
+			continue
+		}
+		if previous >= 0 && i > previous+1 {
+			fmt.Fprintf(&out, "… pominięto %d wierszy …\n", i-previous-1)
+		}
+		out.WriteString(strings.TrimSpace(line))
+		out.WriteByte('\n')
+		previous = i
+	}
+	return compactTextTail(out.String(), maxBytes)
+}
+
+func recentWorkerEventHeaders(value string, limit int) []string {
+	var events []string
+	for _, line := range strings.Split(strings.ReplaceAll(value, "\r", ""), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		if _, err := strconv.ParseInt(fields[0], 10, 64); err != nil {
+			continue
+		}
+		if !strings.Contains(fields[1], "native_") && fields[1] != "forwarding_error" {
+			continue
+		}
+		events = append(events, strings.TrimSpace(line))
+	}
+	if len(events) > limit {
+		events = events[len(events)-limit:]
+	}
+	return events
+}
+
+func compactWorkerDiagnostic(report []byte) string {
+	var snapshot struct {
+		Device                       string `json:"device"`
+		Android                      string `json:"android"`
+		SDK                          int    `json:"sdk"`
+		WorkerBuild                  string `json:"workerBuild"`
+		CapturedAtEpochMs            int64  `json:"capturedAtEpochMs"`
+		RPCAlive                     bool   `json:"rpcAlive"`
+		RPCPID                       int    `json:"rpcPid"`
+		RPCExitSummary               string `json:"rpcExitSummary"`
+		RPCResidentBytes             uint64 `json:"rpcResidentBytes"`
+		RPCPSSBytes                  uint64 `json:"rpcPssBytes"`
+		RPCPeakResidentBytes         uint64 `json:"rpcPeakResidentBytes"`
+		RPCSwapBytes                 uint64 `json:"rpcSwapBytes"`
+		AppPSSBytes                  uint64 `json:"appPssBytes"`
+		AppSwapBytes                 uint64 `json:"appSwapBytes"`
+		CombinedProcessFootprint     uint64 `json:"combinedProcessFootprintBytes"`
+		RPCStartedAtEpochMs          int64  `json:"rpcStartedAtEpochMs"`
+		RPCStoppedAtEpochMs          int64  `json:"rpcStoppedAtEpochMs"`
+		Recovering                   bool   `json:"recovering"`
+		RestartAttempts              int    `json:"restartAttempts"`
+		RestartCount                 int    `json:"restartCount"`
+		RecoveryError                string `json:"recoveryError"`
+		BridgeConnections            uint64 `json:"bridgeConnections"`
+		BridgeActiveSockets          int    `json:"bridgeActiveSockets"`
+		BridgeHostToNativeBytes      uint64 `json:"bridgeHostToNativeBytes"`
+		BridgeNativeToHostBytes      uint64 `json:"bridgeNativeToHostBytes"`
+		ADBTLSBridgeAvailable        bool   `json:"adbTlsBridgeAvailable"`
+		MemoryTotalBytes             uint64 `json:"memoryTotalBytes"`
+		MemoryAvailableBytes         uint64 `json:"memoryAvailableBytes"`
+		MemoryLow                    bool   `json:"memoryLow"`
+		MemoryLowThresholdBytes      uint64 `json:"memoryLowThresholdBytes"`
+		CacheBytes                   uint64 `json:"cacheBytes"`
+		CacheFiles                   uint64 `json:"cacheFiles"`
+		CachePartialFiles            uint64 `json:"cachePartialFiles"`
+		NativeLogBytes               uint64 `json:"nativeLogBytes"`
+		NativeLog                    string `json:"nativeLog"`
+		LastForwardingError          string `json:"lastForwardingError"`
+		LastForwardingErrorAtEpochMs int64  `json:"lastForwardingErrorAtEpochMs"`
+		WorkerEvents                 string `json:"workerEvents"`
+		WiFiFrequencyMHz             int    `json:"wifiFrequencyMHz"`
+		WiFiLinkSpeedMbps            int    `json:"wifiLinkSpeedMbps"`
+		WiFiRSSIDBm                  int    `json:"wifiRssiDbm"`
+		ExitHistory                  []struct {
+			Process          string `json:"process"`
+			Reason           string `json:"reason"`
+			Status           int    `json:"status"`
+			TimestampEpochMs int64  `json:"timestampEpochMs"`
+			Description      string `json:"description"`
+			PSSKiB           uint64 `json:"pssKiB"`
+			RSSKiB           uint64 `json:"rssKiB"`
+		} `json:"exitHistory"`
+	}
+	if err := json.Unmarshal(report, &snapshot); err != nil {
+		return "Nie można skrócić migawki workera: " + err.Error()
+	}
+	exits := make([]map[string]any, 0, min(4, len(snapshot.ExitHistory)))
+	for _, exit := range snapshot.ExitHistory[:min(4, len(snapshot.ExitHistory))] {
+		exits = append(exits, map[string]any{
+			"process": exit.Process, "reason": exit.Reason, "status": exit.Status,
+			"timestampEpochMs": exit.TimestampEpochMs, "description": exit.Description,
+			"pssKiB": exit.PSSKiB, "rssKiB": exit.RSSKiB,
+		})
+	}
+	device := "worker"
+	if snapshot.Android != "" {
+		device = snapshot.Device
+	}
+	summary := map[string]any{
+		"device": device, "android": snapshot.Android, "sdk": snapshot.SDK,
+		"workerBuild": snapshot.WorkerBuild, "capturedAtEpochMs": snapshot.CapturedAtEpochMs,
+		"rpc": map[string]any{
+			"alive": snapshot.RPCAlive, "pid": snapshot.RPCPID, "exitSummary": snapshot.RPCExitSummary,
+			"residentBytes": snapshot.RPCResidentBytes, "pssBytes": snapshot.RPCPSSBytes,
+			"peakResidentBytes": snapshot.RPCPeakResidentBytes, "swapBytes": snapshot.RPCSwapBytes,
+			"startedAtEpochMs": snapshot.RPCStartedAtEpochMs, "stoppedAtEpochMs": snapshot.RPCStoppedAtEpochMs,
+		},
+		"app":                           map[string]any{"pssBytes": snapshot.AppPSSBytes, "swapBytes": snapshot.AppSwapBytes},
+		"combinedProcessFootprintBytes": snapshot.CombinedProcessFootprint,
+		"recovery": map[string]any{
+			"recovering": snapshot.Recovering, "attempts": snapshot.RestartAttempts,
+			"successfulRestarts": snapshot.RestartCount, "error": snapshot.RecoveryError,
+		},
+		"bridge": map[string]any{
+			"adbAvailable": snapshot.ADBTLSBridgeAvailable, "connections": snapshot.BridgeConnections,
+			"activeSockets": snapshot.BridgeActiveSockets, "hostToNativeBytes": snapshot.BridgeHostToNativeBytes,
+			"nativeToHostBytes": snapshot.BridgeNativeToHostBytes,
+		},
+		"memory": map[string]any{
+			"totalBytes": snapshot.MemoryTotalBytes, "availableBytes": snapshot.MemoryAvailableBytes,
+			"low": snapshot.MemoryLow, "lowThresholdBytes": snapshot.MemoryLowThresholdBytes,
+		},
+		"cache": map[string]any{
+			"bytes": snapshot.CacheBytes, "files": snapshot.CacheFiles, "partialFiles": snapshot.CachePartialFiles,
+		},
+		"wifi": map[string]any{
+			"frequencyMHz": snapshot.WiFiFrequencyMHz, "linkSpeedMbps": snapshot.WiFiLinkSpeedMbps,
+			"rssiDbm": snapshot.WiFiRSSIDBm,
+		},
+		"lastForwardingError":          snapshot.LastForwardingError,
+		"lastForwardingErrorAtEpochMs": snapshot.LastForwardingErrorAtEpochMs,
+		"recentExitHistory":            exits,
+		"nativeLogBytes":               snapshot.NativeLogBytes,
+		"nativeLogTail": compactRelevantLog(
+			snapshot.NativeLog, 24, 8<<10,
+			"error", "fail", "fatal", "crash", "killed", "signal", "out of buffer", "malformed", "memory",
+		),
+		"recentWorkerEvents": recentWorkerEventHeaders(snapshot.WorkerEvents, 12),
+	}
+	data, err := json.MarshalIndent(summary, "", "  ")
+	if err != nil {
+		return "Nie można zapisać skrótu workera: " + err.Error()
+	}
+	return string(data)
+}
+
+func workerDiagnosticsReport(nodes []Node, cached map[string]WorkerDiagnosticSnapshot) string {
+	full, _ := workerDiagnosticsReports(nodes, cached)
+	return full
+}
+
+func workerDiagnosticsReports(nodes []Node, cached map[string]WorkerDiagnosticSnapshot) (string, string) {
+	if len(nodes) == 0 {
+		return "", ""
+	}
+	var out, support strings.Builder
 	out.WriteString("\n\n===== DIAGNOSTYKA WORKERÓW =====\n")
+	support.WriteString("\n\n===== SKRÓT DIAGNOSTYKI WORKERÓW =====\n")
 	for i, node := range nodes {
 		name := node.Name
 		if name == "" {
 			name = "worker"
 		}
+		supportName := name
+		if node.Platform != "android" {
+			supportName = "worker"
+		}
 		fmt.Fprintf(
 			&out,
-			"\n[%d] %s (%s)\nTransport: %s — %s\nPomiar Wi-Fi: %s; USB/ADB: %s\nOstatni pomiar: RAM %.2f/%.2f GiB dostępne, proces %.2f GiB, build %s\n",
+			"\n[%d] %s (%s)\nTransport: %s — %s\nPomiar Wi-Fi: %s; USB/ADB: %s\nOstatni pomiar: RAM %.2f/%.2f GiB dostępne, proces PSS/RSS %.2f GiB + swap %.2f GiB, build %s\n",
 			i+1,
 			name,
 			node.Address,
@@ -409,34 +619,56 @@ func workerDiagnosticsReport(nodes []Node, cached map[string]WorkerDiagnosticSna
 			float64(node.Free)/float64(GiB),
 			float64(node.Total)/float64(GiB),
 			float64(node.Allocation)/float64(GiB),
+			float64(node.SwapBytes)/float64(GiB),
+			node.Build,
+		)
+		fmt.Fprintf(
+			&support,
+			"\n[%d] %s (%s)\nTransport: %s — %s\nPomiar Wi-Fi: %s; USB/ADB: %s\nOstatni pomiar: RAM %.2f/%.2f GiB dostępne, proces PSS/RSS %.2f GiB + swap %.2f GiB, build %s\n",
+			i+1,
+			supportName,
+			node.Address,
+			node.Transport,
+			node.TransportReason,
+			linkBenchmarkText(node.WiFiBenchmark),
+			linkBenchmarkText(node.USBBenchmark),
+			float64(node.Free)/float64(GiB),
+			float64(node.Total)/float64(GiB),
+			float64(node.Allocation)/float64(GiB),
+			float64(node.SwapBytes)/float64(GiB),
 			node.Build,
 		)
 		report, err := node.diagnostics()
 		if err != nil {
-			fmt.Fprintf(
-				&out,
-				"Nie udało się pobrać raportu po awarii: %v. Mogło zostać zakończone całe YourLM, a nie tylko natywny worker.\n",
-				err,
-			)
+			message := fmt.Sprintf("Nie udało się pobrać raportu po awarii: %v. Mogło zostać zakończone całe YourLM, a nie tylko natywny worker.\n", err)
+			out.WriteString(message)
+			support.WriteString(message)
 			snapshot := cached[node.Address]
 			report = snapshot.report
 			if len(report) == 0 {
 				out.WriteString("Brak wcześniejszej migawki diagnostycznej.\n")
+				support.WriteString("Brak wcześniejszej migawki diagnostycznej.\n")
 				continue
 			}
-			fmt.Fprintf(
-				&out,
+			snapshotMessage := fmt.Sprintf(
 				"Ostatnia udana migawka pobrana przez Windows podczas ładowania: %s\n",
 				snapshot.receivedAt.Format(time.RFC3339),
 			)
+			out.WriteString(snapshotMessage)
+			support.WriteString(snapshotMessage)
 		} else {
 			out.WriteString("Raport pobrany bezpośrednio po awarii:\n")
+			support.WriteString("Raport pobrany bezpośrednio po awarii:\n")
 		}
-		out.WriteString(workerMemoryAssessment(report))
+		assessment := workerMemoryAssessment(report)
+		out.WriteString(assessment)
+		support.WriteString(assessment)
 		out.Write(report)
 		out.WriteByte('\n')
+		support.WriteString(compactWorkerDiagnostic(report))
+		support.WriteByte('\n')
 	}
-	return out.String()
+	return out.String(), compactTextTail(support.String(), 64<<10)
 }
 
 type rpcCountingWriter struct {

@@ -157,6 +157,7 @@ func TestVersionOrdering(t *testing.T) {
 		{"0.2.0-rc16", "0.2.0-rc15", true},
 		{"0.2.0-rc17", "0.2.0-rc16", true},
 		{"0.2.0-rc18", "0.2.0-rc17", true},
+		{"0.2.0-rc19", "0.2.0-rc18", true},
 		{"0.2.0-rc1", "0.2.0", false},
 		{"0.1.9", "0.2.0", false},
 		{"0.2.0", "0.2.0", false},
@@ -227,6 +228,29 @@ func TestWorkerFitTargetAccountsForTensorLoadingPeak(t *testing.T) {
 	}
 }
 
+func TestWorkerMemoryGuardRequiresThreeConsecutiveLowSamples(t *testing.T) {
+	node := Node{Platform: "android", Alive: true, Total: 8 * GiB, Free: workerMemoryGuardFloor - 1}
+	samples := 0
+	for i := 1; i <= workerMemoryGuardSamples; i++ {
+		var stop bool
+		samples, stop = advanceWorkerMemoryGuard(samples, node, nil, true)
+		if stop != (i == workerMemoryGuardSamples) {
+			t.Fatalf("sample %d stop=%v, want %v", i, stop, i == workerMemoryGuardSamples)
+		}
+	}
+	node.Free = workerMemoryGuardFloor
+	if samples, stop := advanceWorkerMemoryGuard(samples, node, nil, true); samples != 0 || stop {
+		t.Fatalf("recovered memory did not reset guard: samples=%d stop=%v", samples, stop)
+	}
+	if samples, stop := advanceWorkerMemoryGuard(2, node, errors.New("probe failed"), true); samples != 0 || stop {
+		t.Fatalf("failed probe armed guard: samples=%d stop=%v", samples, stop)
+	}
+	node.Free = workerMemoryGuardFloor - 1
+	if samples, stop := advanceWorkerMemoryGuard(2, node, nil, false); samples != 0 || stop {
+		t.Fatalf("completed load did not disable guard: samples=%d stop=%v", samples, stop)
+	}
+}
+
 func TestEngineProgressPhases(t *testing.T) {
 	for _, test := range []struct {
 		log, want string
@@ -267,6 +291,29 @@ func TestEngineProgressPhases(t *testing.T) {
 	}
 	if got := engineLogTail(path, 4); got != "6789" {
 		t.Fatalf("engineLogTail returned %q", got)
+	}
+}
+
+func TestCompactEngineLogKeepsFailureAndBoundsRepetition(t *testing.T) {
+	var log strings.Builder
+	log.WriteString("[YourLM] worker 192.168.0.2 transport=usb\n")
+	if home, err := os.UserHomeDir(); err == nil {
+		fmt.Fprintf(&log, "load_model: loading model '%s/models/test.gguf'\n", home)
+		fmt.Fprintf(&log, "load_model: loading model '%s/models/case-test.gguf'\n", strings.ToUpper(home))
+	}
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&log, "[set_tensor] block=%d\n", i)
+	}
+	log.WriteString("Remote RPC server crashed or returned malformed response\n")
+	compact := compactEngineLog(log.String())
+	if !strings.Contains(compact, "transport=usb") || !strings.Contains(compact, "Remote RPC server crashed") {
+		t.Fatalf("compact engine report lost key evidence: %s", compact)
+	}
+	if home, err := os.UserHomeDir(); err == nil && (strings.Contains(compact, home) || strings.Contains(compact, strings.ToUpper(home))) {
+		t.Fatalf("compact engine report exposed the user profile path: %s", compact)
+	}
+	if strings.Count(compact, "[set_tensor]") > 24 || len(compact) > 12<<10 {
+		t.Fatalf("compact engine report retained repetitive transfer lines: bytes=%d", len(compact))
 	}
 }
 
@@ -494,6 +541,57 @@ func TestManualPairing(t *testing.T) {
 	}
 }
 
+func TestWorkerDiagnosticsRetriesAfterPreferredEndpointEOF(t *testing.T) {
+	temp := httptest.NewTLSServer(nil)
+	config := temp.TLS
+	temp.Close()
+	wifi, err := tls.Listen("tcp4", "127.0.0.1:0", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer wifi.Close()
+	usb, err := tls.Listen("tcp4", "127.0.0.1:0", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer usb.Close()
+	secret := token()
+	offer := Offer{secret: secret, slots: make(chan struct{}, 16), local: "127.0.0.1:1"}
+	go func() {
+		for {
+			connection, acceptErr := wifi.Accept()
+			if acceptErr != nil {
+				return
+			}
+			offer.slots <- struct{}{}
+			go offer.serve(connection)
+		}
+	}()
+	go func() {
+		for {
+			connection, acceptErr := usb.Accept()
+			if acceptErr != nil {
+				return
+			}
+			go func() {
+				defer connection.Close()
+				_, _ = bufio.NewReader(connection).ReadString('\n')
+			}()
+		}
+	}()
+	node := Node{
+		Address:    wifi.Addr().String(),
+		usbAddress: usb.Addr().String(),
+		Transport:  "usb",
+		pin:        fmt.Sprintf("%x", sha256.Sum256(config.Certificates[0].Certificate[0])),
+		secret:     secret,
+	}
+	report, err := node.diagnostics()
+	if err != nil || !bytes.Contains(report, []byte(rpcWorkerBuild)) {
+		t.Fatalf("diagnostics did not retry Wi-Fi after USB EOF: %s, %v", report, err)
+	}
+}
+
 func TestWorkerDiagnosticsUsesCachedSnapshot(t *testing.T) {
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -503,8 +601,8 @@ func TestWorkerDiagnosticsUsesCachedSnapshot(t *testing.T) {
 	listener.Close()
 	received := time.Date(2026, time.November, 20, 12, 0, 0, 0, time.UTC)
 	cached := []byte(`{"workerBuild":"cached-test","rpcAlive":true,"memoryAvailableBytes":614088704,"exitHistory":[{"reason":"LOW_MEMORY"}]}`)
-	report := workerDiagnosticsReport(
-		[]Node{{Name: "Redmi", Address: address}},
+	report, support := workerDiagnosticsReports(
+		[]Node{{Name: "Redmi", Address: address, Allocation: 1500 << 20, SwapBytes: 3 * GiB}},
 		map[string]WorkerDiagnosticSnapshot{
 			address: {report: cached, receivedAt: received},
 		},
@@ -513,11 +611,42 @@ func TestWorkerDiagnosticsUsesCachedSnapshot(t *testing.T) {
 		"Nie udało się pobrać raportu po awarii",
 		"Ostatnia udana migawka pobrana przez Windows podczas ładowania: 2026-11-20T12:00:00Z",
 		"Ocena pamięci: ostatnia migawka miała 0.57 GiB dostępnego RAM",
+		"proces PSS/RSS 1.46 GiB + swap 3.00 GiB",
 		`"workerBuild":"cached-test"`,
 	} {
 		if !strings.Contains(report, expected) {
 			t.Fatalf("cached worker report is missing %q: %s", expected, report)
 		}
+	}
+	if !strings.Contains(support, "SKRÓT DIAGNOSTYKI WORKERÓW") || !strings.Contains(support, "cached-test") || strings.Contains(support, `"exitHistory"`) {
+		t.Fatalf("unexpected support report: %s", support)
+	}
+}
+
+func TestCompactWorkerDiagnosticKeepsSignalsWithoutRepeatingStacks(t *testing.T) {
+	var native strings.Builder
+	for i := 0; i < 200; i++ {
+		fmt.Fprintf(&native, "[set_tensor] tensor block %d transferred\n", i)
+	}
+	native.WriteString("fatal: remote allocation failed at block 200\n")
+	report, err := json.Marshal(map[string]any{
+		"device": "Xiaomi test", "android": "16", "workerBuild": rpcWorkerBuild,
+		"rpcAlive": true, "rpcSwapBytes": uint64(3 * GiB), "memoryAvailableBytes": uint64(600 << 20),
+		"nativeLogBytes": native.Len(), "nativeLog": native.String(),
+		"workerEvents": "100 native_start worker\n101 forwarding_error socket closed\n at java.net.Socket.read\n102 native_exit exit_137_SIGKILL\n",
+		"exitHistory":  []map[string]any{{"process": "pl.yourlm.node", "reason": "LOW_MEMORY", "timestampEpochMs": 99}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compact := compactWorkerDiagnostic(report)
+	for _, expected := range []string{"Xiaomi test", rpcWorkerBuild, "remote allocation failed", "exit_137_SIGKILL", "LOW_MEMORY", `"swapBytes": 3221225472`} {
+		if !strings.Contains(compact, expected) {
+			t.Fatalf("compact report is missing %q: %s", expected, compact)
+		}
+	}
+	if strings.Contains(compact, "at java.net.Socket.read") || strings.Count(compact, "tensor block") > 30 || len(compact) > 12<<10 {
+		t.Fatalf("compact report retained repetitive details: bytes=%d\n%s", len(compact), compact)
 	}
 }
 

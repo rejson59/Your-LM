@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build the patched host RPC server and prove cache miss, hit, and recovery from
-# incomplete/corrupt files without loading a real model.
+# Build the patched host RPC server, prove Linux reports MemAvailable rather
+# than total RAM, and exercise cache miss/hit/corruption without a real model.
 set -euo pipefail
 
 : "${LLAMA_SRC:?Set LLAMA_SRC to the pinned llama.cpp checkout}"

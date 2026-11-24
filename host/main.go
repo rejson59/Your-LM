@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -37,6 +38,8 @@ const (
 	workerMinimumFitReserveMiB = 2048
 	workerTransientCopies      = 4
 	workerFitRoundMiB          = 256
+	workerMemoryGuardFloor     = uint64(1 << 30)
+	workerMemoryGuardSamples   = 3
 )
 
 func workerFitTargetMiB(largestTensorBytes uint64) int {
@@ -98,27 +101,31 @@ type Session struct {
 	rpcSent, rpcReceived atomic.Uint64
 	memoryGuard          atomic.Bool
 	guardAvailable       atomic.Uint64
+	rpcMemoryGuard       atomic.Bool
+	rpcGuardAvailable    atomic.Uint64
+	rpcGuardWorker       atomic.Value
+	exited               atomic.Bool
 	done                 chan struct{}
 }
 type App struct {
 	off *Offer
 	sync.Mutex
-	dir, engine, library, last    string
-	lastEngineLog, lastEnginePath string
-	runtimeRoot, adbPath, apkPath string
-	smolEngine                    string
-	nodes                         []Node
-	model                         Model
-	s                             *Session
-	usb                           USBState
-	update                        UpdateState
-	hf                            HFState
-	hfCancel                      func()
-	cleanup                       CleanupState
-	cleanupBusy                   bool
-	storage                       StorageState
-	diagnostics                   DiagnosticsState
-	diagnosticsCancel             func()
+	dir, engine, library, last                          string
+	lastEngineLog, lastEngineSupportLog, lastEnginePath string
+	runtimeRoot, adbPath, apkPath                       string
+	smolEngine                                          string
+	nodes                                               []Node
+	model                                               Model
+	s                                                   *Session
+	usb                                                 USBState
+	update                                              UpdateState
+	hf                                                  HFState
+	hfCancel                                            func()
+	cleanup                                             CleanupState
+	cleanupBusy                                         bool
+	storage                                             StorageState
+	diagnostics                                         DiagnosticsState
+	diagnosticsCancel                                   func()
 }
 
 func (a *App) binary() string {
@@ -211,6 +218,21 @@ func cleanEngineLog(value string) string {
 	return strings.TrimSpace(value)
 }
 
+func compactEngineLog(value string) string {
+	value = compactRelevantLog(
+		cleanEngineLog(value), 24, 12<<10,
+		"[yourlm] worker", "common_fit", "fit:", "load_model", "load_tensors",
+		"offload", "remote rpc", "memory_guard", "error", "failed", "fatal", "abort",
+		"out of memory", "system_info", "model loaded",
+	)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		for _, path := range []string{home, filepath.ToSlash(home), strings.ReplaceAll(home, "/", `\`)} {
+			value = regexp.MustCompile(`(?i)`+regexp.QuoteMeta(path)).ReplaceAllString(value, "%USERPROFILE%")
+		}
+	}
+	return value
+}
+
 type EngineProgress struct {
 	Step  int    `json:"step"`
 	Steps int    `json:"steps"`
@@ -252,6 +274,9 @@ func advanceEngineProgress(previous, current EngineProgress) EngineProgress {
 }
 
 func engineFailureMessage(err error, engineLog string) string {
+	if strings.Contains(engineLog, "[YourLM] RPC_MEMORY_GUARD") {
+		return "YourLM bezpiecznie zatrzymał ładowanie RPC, ponieważ worker miał mniej niż 1 GiB dostępnej pamięci przez trzy kolejne pomiary. Zaktualizuj APK i EXE do tej samej wersji, zamknij ciężkie aplikacje na telefonie i spróbuj ponownie; raport techniczny poniżej zawiera potrzebne pomiary."
+	}
 	if strings.Contains(engineLog, "[YourLM] SMOL_MEMORY_GUARD") {
 		return "YourLM bezpiecznie zatrzymał eksperymentalny pager, ponieważ Android miał mniej niż 400 MiB dostępnej pamięci przez kilka kolejnych pomiarów. Zamknij ciężkie aplikacje, zmniejsz cache ekspertów albo użyj telefonu z większą ilością RAM."
 	}
@@ -407,9 +432,11 @@ func (a *App) start(bind string, port int) error {
 	a.s = s
 	a.last = ""
 	a.lastEngineLog = ""
+	a.lastEngineSupportLog = ""
 	a.lastEnginePath = ""
 	go func() {
 		e := s.cmd.Wait()
+		s.exited.Store(true)
 		logfile.Close()
 		if s.memoryGuard.Load() {
 			if report, openErr := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0600); openErr == nil {
@@ -417,7 +444,15 @@ func (a *App) start(bind string, port int) error {
 				_ = report.Close()
 			}
 		}
+		if s.rpcMemoryGuard.Load() {
+			worker, _ := s.rpcGuardWorker.Load().(string)
+			if report, openErr := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0600); openErr == nil {
+				fmt.Fprintf(report, "\n[YourLM] RPC_MEMORY_GUARD worker=%q available=%d floor=%d samples=%d; model load stopped before Android became unresponsive\n", worker, s.rpcGuardAvailable.Load(), workerMemoryGuardFloor, workerMemoryGuardSamples)
+				_ = report.Close()
+			}
+		}
 		engineLog := cleanEngineLog(engineLogTail(s.logPath, 24<<10))
+		supportLog := compactEngineLog(engineLog)
 		for _, l := range s.listeners {
 			l.Close()
 		}
@@ -434,7 +469,7 @@ func (a *App) start(bind string, port int) error {
 			elapsedSeconds := max(1, int(time.Since(s.started).Seconds()))
 			sent := s.rpcSent.Load()
 			received := s.rpcReceived.Load()
-			failureReport := fmt.Sprintf(
+			sessionReport := fmt.Sprintf(
 				"\n\n===== DIAGNOSTYKA SESJI =====\nBłąd procesu: %v\nCzas do awarii: %d s\nWysłano przez most RPC hosta: %d B (średnio %.2f MiB/s; to nie jest test samego Wi-Fi)\nOdebrano przez most RPC hosta: %d B\nNajwiększy tensor GGUF: %d B (%.2f MiB)\nRezerwa fit workera: %d MiB (uwzględnia szczyt ładowania tego tensora)\n",
 				e,
 				elapsedSeconds,
@@ -445,15 +480,18 @@ func (a *App) start(bind string, port int) error {
 				float64(s.largestTensorBytes)/float64(1<<20),
 				s.fitReserveMiB,
 			)
-			failureReport += workerDiagnosticsReport(sessionNodes, cachedReports)
+			workerReport, workerSupport := workerDiagnosticsReports(sessionNodes, cachedReports)
+			failureReport := sessionReport + workerReport
 			if reportFile, openErr := os.OpenFile(s.logPath, os.O_WRONLY|os.O_APPEND, 0600); openErr == nil {
 				_, _ = reportFile.WriteString(failureReport)
 				_ = reportFile.Close()
 			}
+			supportLog = compactTextTail(compactEngineLog(engineLog)+sessionReport+workerSupport, 96<<10)
 			engineLog = cleanEngineLog(engineLog + failureReport)
 		}
 		a.Lock()
 		a.lastEngineLog = engineLog
+		a.lastEngineSupportLog = supportLog
 		a.lastEnginePath = s.logPath
 		if e != nil && !stopping {
 			a.last = engineFailureMessage(e, engineLog)
@@ -525,7 +563,7 @@ func (a *App) monitorLocalMemory(session *Session) {
 			return
 		case <-ticker.C:
 			a.Lock()
-			active := a.s == session && !session.stopping && session.cmd != nil && session.cmd.Process != nil
+			active := a.s == session && !session.stopping && !session.exited.Load() && session.cmd != nil && session.cmd.Process != nil
 			a.Unlock()
 			if !active {
 				return
@@ -547,13 +585,22 @@ func (a *App) monitorLocalMemory(session *Session) {
 	}
 }
 
+func advanceWorkerMemoryGuard(samples int, node Node, refreshErr error, loading bool) (int, bool) {
+	if !loading || refreshErr != nil || node.Platform != "android" || !node.Alive || node.Total == 0 || node.Free >= workerMemoryGuardFloor {
+		return 0, false
+	}
+	samples++
+	return samples, samples >= workerMemoryGuardSamples
+}
+
 func (a *App) monitorNodes(session *Session) {
 	if session.workers == 0 {
 		return
 	}
+	lowMemorySamples := make(map[string]int, len(session.nodes))
 	sample := func() bool {
 		a.Lock()
-		if a.s != session {
+		if a.s != session || session.exited.Load() {
 			a.Unlock()
 			return false
 		}
@@ -563,7 +610,9 @@ func (a *App) monitorNodes(session *Session) {
 			refreshErr := nodes[i].refresh()
 			report, diagnosticErr := nodes[i].diagnostics()
 			a.Lock()
-			if a.s == session {
+			active := a.s == session && !session.stopping && !session.exited.Load()
+			loading := active && !session.ready
+			if active {
 				if refreshErr == nil || nodes[i].Recovering || nodes[i].RecoveryError != "" {
 					for j := range a.nodes {
 						if a.nodes[j].Address == nodes[i].Address {
@@ -585,7 +634,21 @@ func (a *App) monitorNodes(session *Session) {
 					}
 				}
 			}
+			var process *os.Process
+			if session.cmd != nil {
+				process = session.cmd.Process
+			}
 			a.Unlock()
+			var stopForMemory bool
+			lowMemorySamples[nodes[i].Address], stopForMemory = advanceWorkerMemoryGuard(lowMemorySamples[nodes[i].Address], nodes[i], refreshErr, loading)
+			if active && stopForMemory && process != nil && !session.rpcMemoryGuard.Load() {
+				session.rpcGuardWorker.Store(nodes[i].Name + " (" + nodes[i].Address + ")")
+				session.rpcGuardAvailable.Store(nodes[i].Free)
+				if session.rpcMemoryGuard.CompareAndSwap(false, true) {
+					_ = process.Kill()
+					return false
+				}
+			}
 		}
 		return true
 	}
@@ -640,7 +703,7 @@ func (a *App) state() map[string]any {
 		session = map[string]any{"url": s.url + "/v1", "key": s.key, "layers": s.layers, "name": s.name, "ready": s.ready}
 		engine = map[string]any{
 			"active": true, "ready": s.ready, "phase": progress.Label, "progress": progress,
-			"elapsed": elapsed, "log": engineLog, "path": s.logPath, "mode": mode,
+			"elapsed": elapsed, "log": engineLog, "supportLog": compactEngineLog(engineLog), "path": s.logPath, "mode": mode,
 			"lastLogAge": lastLogAge, "logBytes": logBytes,
 			"rpcSent": s.rpcSent.Load(), "rpcReceived": s.rpcReceived.Load(),
 			"readBytes": hostProcess.ReadBytes, "cpuTimeMs": hostProcess.CPUTimeMS,
@@ -650,9 +713,13 @@ func (a *App) state() map[string]any {
 		if a.last != "" {
 			phase = "Uruchomienie modelu nie powiodło się"
 		}
+		supportLog := a.lastEngineSupportLog
+		if supportLog == "" {
+			supportLog = compactEngineLog(a.lastEngineLog)
+		}
 		engine = map[string]any{
 			"active": false, "ready": false, "phase": phase,
-			"elapsed": 0, "log": a.lastEngineLog, "path": a.lastEnginePath,
+			"elapsed": 0, "log": a.lastEngineLog, "supportLog": supportLog, "path": a.lastEnginePath,
 		}
 	}
 	code, offerAddress, offerKey := "", "", ""
@@ -669,6 +736,7 @@ func (a *App) state() map[string]any {
 	physical := hostMemory.Total
 	osUsed := hostMemory.Used
 	workerAllocation := uint64(0)
+	workerSwap := uint64(0)
 	for _, node := range a.nodes {
 		available += node.Free
 		physical += node.Total
@@ -678,6 +746,7 @@ func (a *App) state() map[string]any {
 			osUsed += node.Total - node.Free
 		}
 		workerAllocation += node.Allocation
+		workerSwap += node.SwapBytes
 	}
 	actualAllocation := hostProcess.Resident + workerAllocation
 	mappedModel := a.model.Size
@@ -728,6 +797,7 @@ func (a *App) state() map[string]any {
 		"physical": physical, "osUsed": osUsed, "available": available,
 		"mappedModel": mappedModel, "actualAllocation": actualAllocation,
 		"workerAllocation": workerAllocation,
+		"workerSwap":       workerSwap,
 		"commitLimit":      hostMemory.CommitLimit,
 		"commitAvailable":  hostMemory.CommitAvailable,
 		"pageFile":         hostMemory.PageFile,
