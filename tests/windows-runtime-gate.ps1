@@ -15,7 +15,7 @@ try {
   if ($install.ExitCode -ne 0) { throw "Per-user installation exited with $($install.ExitCode)" }
   if (-not (Test-Path -LiteralPath $installed -PathType Leaf)) { throw 'Per-user EXE was not installed' }
   if (-not (Test-Path -LiteralPath $shortcut -PathType Leaf)) { throw 'Start Menu shortcut was not created' }
-  if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc18') { throw 'Installed Apps version is incorrect' }
+  if ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -ne '0.2.0-rc19') { throw 'Installed Apps version is incorrect' }
 
   $controllerOut = Join-Path $root 'controller.out'
   $controllerErr = Join-Path $root 'controller.err'
@@ -92,7 +92,7 @@ try {
   if (Test-Path -LiteralPath $shortcut) { throw 'Uninstall did not remove the Start Menu shortcut' }
   if (Test-Path -LiteralPath $uninstallKey) { throw 'Uninstall did not remove the Installed Apps entry' }
 
-  # Exercise the RC18 managed-drive path and verified migration using a
+  # Exercise the RC19 managed-drive path and verified migration using a
   # fixed-volume directory override. This keeps the hosted runner
   # deterministic even though its real D: scratch disk varies.
   Remove-Item Env:YOURLM_DISABLE_DRIVE_MIGRATION
@@ -107,7 +107,7 @@ try {
   $managedExe = Join-Path $managedRoot 'App\YourLM.exe'
   $managedData = Join-Path $managedRoot 'Data'
   # Reproduce the field failure exactly: RC16 left a valid prefix at
-  # Data.migrating\...migrating-part. RC18 must validate and append it,
+  # Data.migrating\...migrating-part. RC19 must validate and append it,
   # not delete the source and not fail with ERROR_FILE_EXISTS.
   $stagingModel = Join-Path $managedRoot 'Data.migrating\models\resume.gguf.part.migrating-part'
   New-Item -ItemType Directory -Force (Split-Path -Parent $stagingModel) | Out-Null
@@ -152,7 +152,7 @@ try {
 
   # Reproduce the RC17 field report on the next start: D: is already a valid
   # published library, while retained active C: has a component absent from D:.
-  # RC18 must publish union(C,D), with C winning collisions and D-only data kept.
+  # RC19 must publish union(C,D), with C winning collisions and D-only data kept.
   Stop-Process -Id $managedProcess.Id -Force
   Wait-Process -Id $managedProcess.Id -ErrorAction SilentlyContinue
   $dOnly = Join-Path $managedData 'models\published-only-on-D.gguf'

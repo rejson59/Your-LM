@@ -1,4 +1,4 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="pl.yourlm.node" android:versionCode="21" android:versionName="0.2.0-rc18">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="pl.yourlm.node" android:versionCode="22" android:versionName="0.2.0-rc19">
  <uses-sdk android:minSdkVersion="28" android:targetSdkVersion="34"/>
  <uses-permission android:name="android.permission.INTERNET"/>
  <uses-permission android:name="android.permission.CAMERA"/>

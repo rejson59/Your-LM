@@ -262,7 +262,7 @@ func prepareStorage() (string, StorageState, error) {
 	migration, err := migrateDataDirectoryDetailed(legacy, destination)
 	state.Migration = migration.state
 	if err != nil {
-		// A second RC18 process must never fall back to the live C: source while
+		// A second RC19 process must never fall back to the live C: source while
 		// the first process is taking its verified snapshot. Abort that second
 		// startup instead; the first window remains responsible for migration.
 		if errors.Is(err, errStorageMigrationBusy) {

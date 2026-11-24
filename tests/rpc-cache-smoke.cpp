@@ -12,6 +12,12 @@ int main(int argc, char ** argv) {
     ggml_backend_t backend = ggml_backend_rpc_init(argv[1], 0);
     assert(backend != nullptr);
 
+    size_t memory_free = 0;
+    size_t memory_total = 0;
+    ggml_backend_dev_memory(ggml_backend_get_device(backend), &memory_free, &memory_total);
+    assert(memory_free > 0);
+    assert(memory_free < memory_total); // Linux/Android must report MemAvailable, not all physical RAM.
+
     ggml_init_params params = {
         /* .mem_size   = */ ggml_tensor_overhead(),
         /* .mem_buffer = */ nullptr,

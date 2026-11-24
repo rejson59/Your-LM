@@ -666,7 +666,7 @@ dialog > label { margin: 13px 0; }
 .hfBadge.warn { color: #825719; background: #fff0c9; }
 .hfBack { justify-self: start; margin-bottom: 8px; }
 
-/* RC18 visual refresh: a calmer workspace with a high-contrast application
+/* RC19 visual refresh: a calmer workspace with a high-contrast application
    rail, clearer elevation and storage/recovery as a first-class system state. */
 body {
   background:

@@ -12,7 +12,7 @@ if git -C "$src" apply --reverse --check "$patch" >/dev/null 2>&1; then
   echo "llama.cpp RPC cache patch is already applied"
 elif git -C "$src" apply --check "$patch"; then
   git -C "$src" apply "$patch"
-  echo "Applied bounded-memory RPC cache patch"
+  echo "Applied bounded-memory RPC cache and Linux/Android MemAvailable patch"
 else
   echo "Pinned llama.cpp no longer matches the audited RPC cache patch" >&2
   exit 1

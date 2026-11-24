@@ -85,7 +85,7 @@ final class Worker implements Closeable {
   volatile int restartCount;
   volatile boolean closed;
 
-  private static final String WORKER_BUILD = "b12562-ylm-rpc5";
+  private static final String WORKER_BUILD = "b12562-ylm-rpc6";
   private static final int TRANSPORT_BENCHMARK_BYTES = 4 * 1024 * 1024;
 
   Worker(Context c) {
@@ -264,6 +264,12 @@ final class Worker implements Closeable {
     long appPss = processPssBytes(appPid);
     if (rpcPss > 0 && appPss > 0) return rpcPss + appPss;
     return processStatusBytes(rpcPid, "VmRSS") + processStatusBytes(appPid, "VmRSS");
+  }
+
+  private long combinedProcessSwapBytes() {
+    processResidentBytes();
+    int appPid = android.os.Process.myPid();
+    return processStatusBytes(rpcPid, "VmSwap") + processStatusBytes(appPid, "VmSwap");
   }
 
   /** Reject a packaging regression before Android tries to execute it. */
@@ -1078,6 +1084,7 @@ final class Worker implements Closeable {
           .put("free", m.availMem)
           .put("used", Math.max(0, m.totalMem - m.availMem))
           .put("allocation", combinedProcessFootprintBytes())
+          .put("swapBytes", combinedProcessSwapBytes())
           .put("cores", Runtime.getRuntime().availableProcessors())
           .put("build", WORKER_BUILD)
           .put("alive", nativeAlive())
